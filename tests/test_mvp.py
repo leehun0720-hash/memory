@@ -406,3 +406,42 @@ def test_avatar_preset_face(client, monkeypatch):
     # 기본 얼굴 삭제는 공급자를 부르지 않고 우리 쪽만 비운다
     assert client.delete(f"/api/family/avatar/{did}", headers=tok).status_code == 200
     assert db.one("SELECT face_id FROM deceased WHERE id=?", (did,))["face_id"] == ""
+
+
+def test_did_avatar_flow(client, monkeypatch):
+    from server.ai.avatar import DIDAvatar
+    from server.ai.tts import ElevenLabsTTS
+    from server.ai.base import TTSResult
+    calls = {}
+    monkeypatch.setattr(DIDAvatar, "ping", lambda self: {"checks": {"agents_list": "ok"}, "all_ok": True, "credits": 12, "note": "남은 크레딧 12"})
+    monkeypatch.setattr(DIDAvatar, "create_face", lambda self, image, name, filename="photo.jpg": calls.setdefault("agent", name) and "agt_test1")
+    monkeypatch.setattr(DIDAvatar, "delete_face", lambda self, aid: calls.setdefault("deleted", aid))
+    monkeypatch.setattr(DIDAvatar, "client_key", lambda self, aid, ttl=3600: f"ck-{aid}")
+    monkeypatch.setattr(DIDAvatar, "upload_audio", lambda self, audio, filename="speech.mp3": calls.setdefault("audio", len(audio)) and "https://d-id.example/audio.wav")
+    monkeypatch.setattr(ElevenLabsTTS, "synthesize", lambda self, text, voice_id: TTSResult(audio=b"ID3did", mime="audio/mpeg"))
+    # 키 형식 검사(콜론 필수) → 저장 → auto면 D-ID 우선
+    bad = client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5", "did_api_key": "nocolon", "avatar_provider": "auto"})
+    assert bad.status_code == 400
+    r = client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5",
+                                                                  "elevenlabs_api_key": "sk_test00000000000000000000000000", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2",
+                                                                  "simli_api_key": "simli-test-key", "did_api_key": "dXNlcg==:secret", "avatar_provider": "auto"}).json()
+    assert r["active_avatar"] == "did" and r["did_key_masked"]
+    assert client.post("/api/admin/settings/did/test", headers=ADMIN).json()["credits"] == 12
+    tok = {"X-Family-Token": holder_token()}
+    did = db.one("SELECT id FROM deceased WHERE name='김옥순'")["id"]
+    st = client.get("/api/family/avatar", headers=tok).json()
+    assert st["provider"] == "did" and st["presets"] == []      # D-ID에는 기본 얼굴이 없다
+    assert client.post("/api/family/avatar/preset", headers=tok, json={"deceased_id": did, "face_id": "x"}).status_code == 400
+    r = client.post("/api/family/avatar/register", headers=tok, json={"deceased_id": did, "agree": True, "kind": "likeness"})
+    assert r.status_code == 200 and r.json()["provider"] == "did"
+    assert db.one("SELECT face_id FROM deceased WHERE id=?", (did,))["face_id"] == "agt_test1"
+    db.execute("UPDATE deceased SET ai_enabled=1, voice_id='v1', voice_provider='elevenlabs' WHERE id=?", (did,))
+    s = client.post("/api/family/chat/start", headers=tok, json={"deceased_id": did, "acknowledged_ai": True}).json()
+    assert s["avatar_available"] and s["avatar_provider"] == "did"
+    sess = client.post("/api/family/chat/avatar-session", headers=tok, json={"session_id": s["session_id"]}).json()
+    assert sess["provider"] == "did" and sess["agent_id"] == "agt_test1" and sess["client_key"] == "ck-agt_test1" and sess["sdk_url"].startswith("https://cdn.jsdelivr.net/")
+    sp = client.post("/api/family/chat/avatar-speak", headers=tok, json={"session_id": s["session_id"], "text": "잘 지냈니"}).json()
+    assert sp["audio_url"].startswith("https://") and calls["audio"] == len(b"ID3did")
+    client.delete(f"/api/family/avatar/{did}", headers=tok)
+    assert calls["deleted"] == "agt_test1"
+    client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5", "did_api_key": "", "simli_api_key": "", "avatar_provider": "auto"})

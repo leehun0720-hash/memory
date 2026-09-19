@@ -370,7 +370,8 @@ def avatar_status(m: dict = Depends(require_member)):
         fid = db.one("SELECT face_id FROM deceased WHERE id=?", (o["id"],))["face_id"]
         o["face_is_preset"] = fid in SimliAvatar.PRESET_IDS
         o["face_label"] = next((f["label"] for f in SimliAvatar.PRESET_FACES if f["id"] == fid), "사진으로 만든 얼굴" if fid else None)
-    return {"provider_ready": face.provider_ready(), "can_manage": m["role"] == "manage", "deceased": out, "presets": face.presets()}
+    from ..ai import factory
+    return {"provider_ready": face.provider_ready(), "provider": factory.avatar().name, "can_manage": m["role"] == "manage", "deceased": out, "presets": face.presets()}
 
 
 class PresetIn(BaseModel):

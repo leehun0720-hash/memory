@@ -203,3 +203,22 @@ def avatar_session(body: AvatarSessionIn, m: dict = Depends(require_member)):
         raise HTTPException(404, "실시간 아바타를 쓸 수 없습니다. 사진 아바타로 진행합니다.")
     db.audit(f"member:{m['id']}", "avatar.session", f"session:{body.session_id}", sess["provider"])
     return sess
+
+
+class AvatarSpeakIn(BaseModel):
+    session_id: str
+    text: str = Field(min_length=1, max_length=400)
+
+
+@router.post("/avatar-speak")
+def avatar_speak(body: AvatarSpeakIn, m: dict = Depends(require_member)):
+    """D-ID 아바타용: 복제 음성으로 합성 → D-ID 임시 저장소 업로드 → 브라우저 SDK가 speak(audio_url)."""
+    with _lock:
+        s = _sessions.get(body.session_id)
+    if not s or s["member_id"] != m["id"]:
+        raise HTTPException(404, "대화 세션이 없습니다.")
+    d = db.one("SELECT voice_id FROM deceased WHERE id=?", (s["deceased_id"],))
+    if not d or not d["voice_id"]:
+        raise HTTPException(400, "복제 음성이 없습니다.")
+    url, secs = face.speech_url(body.text, d["voice_id"])
+    return {"audio_url": url, "seconds": secs}

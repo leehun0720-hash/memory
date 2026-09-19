@@ -438,7 +438,8 @@ class AISettingsIn(BaseModel):
     tts_provider: str = Field(default="auto", pattern="^(auto|elevenlabs|browser)$")
     tts_model: str = Field(default="eleven_multilingual_v2")
     simli_api_key: str | None = None
-    avatar_provider: str = Field(default="auto", pattern="^(auto|simli|off)$")
+    did_api_key: str | None = None
+    avatar_provider: str = Field(default="auto", pattern="^(auto|did|simli|off)$")
 
 
 @router.get("/settings/ai")
@@ -462,6 +463,8 @@ def ai_settings_get():
         "simli_key_source": "console" if db.get_setting("simli_api_key") else ("env" if factory.effective_avatar()["api_key"] else "none"),
         "avatar_provider": factory.effective_avatar()["provider"],
         "active_avatar": factory.avatar().name,
+        "did_key_masked": _mask(db.get_setting("did_api_key")),
+        "did_key_source": "console" if db.get_setting("did_api_key") else ("env" if factory.effective_avatar()["did_api_key"] else "none"),
         "faces_registered": db.one("SELECT COUNT(*) AS n FROM deceased WHERE face_id<>''")["n"],
     }
 
@@ -491,9 +494,31 @@ def ai_settings_put(body: AISettingsIn):
     if body.simli_api_key is not None:
         db.set_setting("simli_api_key", body.simli_api_key.strip())
         db.audit("admin", "settings.api_key", "simli", "set" if body.simli_api_key.strip() else "cleared")
+    if body.did_api_key is not None:
+        k = body.did_api_key.strip()
+        if k and ":" not in k:
+            raise HTTPException(400, "D-ID 키 형식이 아닙니다. Studio → Account settings 에서 만든 키는 'API_USER:API_PASSWORD'처럼 콜론(:)이 들어 있습니다. 표시된 값 전체를 복사하세요.")
+        db.set_setting("did_api_key", k)
+        db.audit("admin", "settings.api_key", "did", "set" if k else "cleared")
     db.set_setting("avatar_provider", body.avatar_provider)
     factory.reset_avatar()
     return ai_settings_get()
+
+
+@router.post("/settings/did/test")
+def did_settings_test():
+    from ..ai.avatar import AvatarError, DIDAvatar
+    e = factory.effective_avatar()
+    if not e["did_api_key"]:
+        raise HTTPException(400, "D-ID API 키가 없습니다. 먼저 저장하세요.")
+    try:
+        info = DIDAvatar(e["did_api_key"]).ping()
+        db.audit("admin", "settings.did_test", "did", "ok")
+        return {"ok": True, **info}
+    except AvatarError as ex:
+        raise HTTPException(ex.status if 400 <= ex.status < 600 else 502, ex.message)
+    except Exception as ex:
+        raise HTTPException(503, f"D-ID에 연결할 수 없습니다: {ex}")
 
 
 @router.post("/settings/avatar/test")

@@ -39,13 +39,16 @@ def register(deceased_id: int, actor: str) -> dict:
 
 
 def presets() -> list[dict]:
+    """기본 얼굴은 Simli에만 있다. D-ID는 실제 사진만 쓴다."""
     from .ai.avatar import SimliAvatar
-    return SimliAvatar.PRESET_FACES
+    return SimliAvatar.PRESET_FACES if factory.avatar().name == "simli" else []
 
 
 def set_preset(deceased_id: int, face_id: str, actor: str) -> dict:
     """사진 없이 Simli 기본 제공 얼굴을 쓴다(무료 플랜 시연용). 고인의 초상이 아니므로 초상 동의는 필요 없다."""
     from .ai.avatar import SimliAvatar
+    if factory.avatar().name != "simli":
+        raise HTTPException(400, "기본 얼굴은 Simli에서만 쓸 수 있습니다. 지금 공급자는 실제 사진으로 얼굴을 만듭니다.")
     if face_id not in SimliAvatar.PRESET_IDS:
         raise HTTPException(400, "기본 얼굴 목록에 없는 ID입니다.")
     d = db.one("SELECT id, face_id, face_provider FROM deceased WHERE id=?", (deceased_id,))
@@ -84,8 +87,30 @@ def session(deceased_id: int) -> dict | None:
     if d["face_provider"] != p.name:
         return None
     try:
+        if p.name == "did":
+            key = p.client_key(d["face_id"], ttl=config.CHAT_MAX_MINUTES * 60 + 600)
+            return {"provider": "did", "agent_id": d["face_id"], "client_key": key, "sdk_url": p.SDK_URL}
         tok = p.session_token(d["face_id"], max_len=config.CHAT_MAX_MINUTES * 60 + 60, max_idle=180)
+        return {"provider": p.name, "session_token": tok, "ws_url": p.WS_URL, "ice_servers": p.ice_servers()}
     except AvatarError as e:
         db.audit("system", "avatar.session_failed", f"deceased:{deceased_id}", e.message)
         return None
-    return {"provider": p.name, "session_token": tok, "ws_url": p.WS_URL, "ice_servers": p.ice_servers()}
+
+
+def speech_url(text: str, voice_id: str) -> tuple[str, float | None]:
+    """D-ID용: 우리 복제 음성으로 합성한 mp3를 D-ID 임시 저장소에 올려 URL을 돌려준다."""
+    from .ai.tts import TTSError
+    p = factory.avatar()
+    if p.name != "did":
+        raise HTTPException(400, "D-ID 아바타가 아닙니다.")
+    try:
+        r = factory.tts().synthesize(text[:400], voice_id)
+    except TTSError as e:
+        raise HTTPException(e.status if 400 <= e.status < 600 else 502, e.message)
+    if r.audio is None:
+        raise HTTPException(400, "복제 음성이 없어 아바타가 말할 수 없습니다.")
+    try:
+        url = p.upload_audio(r.audio)
+    except AvatarError as e:
+        raise HTTPException(e.status if 400 <= e.status < 600 else 502, e.message)
+    return url, None

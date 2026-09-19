@@ -149,3 +149,107 @@ class SimliAvatar:
         except requests.RequestException:
             pass
         return [{"urls": ["stun:stun.l.google.com:19302"]}]
+
+
+class DIDAvatar:
+    """D-ID 사진 아바타(Agents Streams V1). 실제 사진 그대로를 움직이므로 닮음이 가장 확실하다.
+    문서(2026-09-19 확인): https://docs.d-id.com/reference/agent-create.md , /reference/agents-sdk-overview.md , /docs/api-keys.md
+    - 인증: Authorization: Basic <API_USER:API_PASSWORD> (Studio가 보여 주는 키 그대로)
+    - 사진 → POST /images → url → POST /agents(presenter.type=talk) → agent id
+    - 대화: 세션마다 짧은 클라이언트 키(POST /agents/{id}/client-keys, 도메인 제한 없음·TTL) → 브라우저 SDK가 WebRTC 연결
+    - 음성: 우리가 만든 mp3를 POST /audios 로 올려 audio_url 로 말하게 한다
+    """
+    name = "did"
+    BASE = "https://api.d-id.com"
+    SDK_URL = "https://cdn.jsdelivr.net/npm/@d-id/client-sdk@2.0.10/+esm"
+
+    def __init__(self, api_key: str) -> None:
+        self.key = api_key
+        self.s = requests.Session()
+        self.s.headers["Authorization"] = f"Basic {api_key}"
+        self.s.headers["Accept"] = "application/json"
+
+    @staticmethod
+    def _msg(r: requests.Response) -> str:
+        try:
+            j = r.json()
+            if isinstance(j, dict):
+                return str(j.get("description") or j.get("message") or j.get("kind") or j)[:300]
+            return str(j)[:300]
+        except ValueError:
+            return r.text[:300]
+
+    def _raise(self, r: requests.Response) -> None:
+        if r.ok:
+            return
+        msg = self._msg(r)
+        log.warning("D-ID %s %s: %s %s", r.request.method, r.request.path_url, r.status_code, msg)
+        if r.status_code == 401:
+            msg = f"D-ID 키가 올바르지 않습니다 ({msg}). Studio → Account settings 에서 만든 키를 'API_USER:API_PASSWORD' 형태 그대로 넣어야 합니다."
+        elif r.status_code == 402 or "credit" in msg.lower() or "insufficient" in msg.lower():
+            msg = f"D-ID 크레딧이 부족합니다 ({msg}). studio.d-id.com 에서 잔여 크레딧을 확인하세요."
+        elif r.status_code == 451 or "moderation" in msg.lower():
+            msg = ("D-ID 자동 검열이 이 사진을 거부했습니다. 정면·단독·선명한 얼굴 사진으로 바꾸거나, D-ID 지원팀에 수동 심사를 요청해야 합니다. "
+                   f"(원문: {msg})")
+        elif r.status_code == 400 and "face" in msg.lower():
+            msg = f"사진에서 얼굴을 찾지 못했습니다 ({msg}). 정면을 보는 선명한 사진을 올려 주세요."
+        raise AvatarError(r.status_code, msg)
+
+    # ---------- 연결 확인 ----------
+
+    def ping(self) -> dict:
+        r = self.s.get(f"{self.BASE}/agents", params={"limit": 1}, timeout=15)
+        self._raise(r)
+        checks = {"agents_list": "ok", "credits": "unknown"}
+        credits = None
+        try:
+            c = self.s.get(f"{self.BASE}/credits", timeout=15)
+            if c.ok:
+                j = c.json()
+                credits = j.get("remaining", j.get("total"))
+                checks["credits"] = "ok"
+        except requests.RequestException:
+            pass
+        return {"checks": checks, "all_ok": True, "credits": credits, "note": None if credits is None else f"남은 크레딧 {credits}"}
+
+    # ---------- 얼굴(에이전트) ----------
+
+    def upload_image(self, image: bytes, filename: str = "photo.jpg") -> str:
+        mime = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
+        r = self.s.post(f"{self.BASE}/images", files={"image": (filename, image, mime)}, timeout=120)
+        self._raise(r)
+        return r.json()["url"]
+
+    def upload_audio(self, audio: bytes, filename: str = "speech.mp3") -> str:
+        r = self.s.post(f"{self.BASE}/audios", files={"audio": (filename, audio, "audio/mpeg")}, timeout=120)
+        self._raise(r)
+        return r.json()["url"]
+
+    def create_face(self, image: bytes, name: str, filename: str = "photo.jpg") -> str:
+        """사진 → 이미지 업로드 → 사진 아바타 에이전트. 반환값은 agent id."""
+        url = self.upload_image(image, filename)
+        body = {
+            "presenter": {"type": "talk", "source_url": url, "thumbnail": url,
+                          "voice": {"type": "microsoft", "voice_id": "ko-KR-SunHiNeural"}},   # 텍스트로 말할 일은 없지만 필수 항목
+            "preview_name": name[:50],
+        }
+        r = self.s.post(f"{self.BASE}/agents", json=body, timeout=120)
+        self._raise(r)
+        j = r.json()
+        aid = j.get("id")
+        if not aid:
+            raise AvatarError(502, f"D-ID 에이전트 ID를 받지 못했습니다 ({self._msg(r)})")
+        return aid
+
+    def delete_face(self, agent_id: str) -> None:
+        r = self.s.delete(f"{self.BASE}/agents/{agent_id}", timeout=15)
+        if r.status_code not in (200, 202, 204, 404):
+            self._raise(r)
+
+    # ---------- 세션 ----------
+
+    def client_key(self, agent_id: str, ttl: int = 3600) -> str:
+        """도메인 제한 없는 짧은 클라이언트 키(브라우저용). API 키는 서버에만 남는다."""
+        r = self.s.post(f"{self.BASE}/agents/{agent_id}/client-keys", json={"allowed_domains": [], "ttl_seconds": max(60, min(ttl, 86400))}, timeout=20)
+        self._raise(r)
+        return r.json()["client_key"]

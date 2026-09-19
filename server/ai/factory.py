@@ -87,19 +87,26 @@ _avatar_sig: tuple | None = None
 
 def effective_avatar() -> dict:
     return {
-        "api_key": db.get_setting("simli_api_key") or os.getenv("SIMLI_API_KEY", ""),
-        "provider": (db.get_setting("avatar_provider") or os.getenv("AVATAR_PROVIDER", "auto")).lower(),   # auto | simli | off
+        "api_key": db.get_setting("simli_api_key") or os.getenv("SIMLI_API_KEY", ""),          # Simli
+        "did_api_key": db.get_setting("did_api_key") or os.getenv("DID_API_KEY", ""),          # D-ID
+        "provider": (db.get_setting("avatar_provider") or os.getenv("AVATAR_PROVIDER", "auto")).lower(),   # auto | did | simli | off
     }
 
 
 def avatar():
-    """실시간 아바타 공급자. 키가 있고 provider가 auto/simli일 때만 켜진다."""
+    """실시간 아바타 공급자. auto면 D-ID(실제 사진) 키가 있을 때 D-ID, 아니면 Simli, 둘 다 없으면 없음."""
     global _avatar, _avatar_sig
     e = effective_avatar()
-    sig = (e["api_key"], e["provider"])
+    sig = (e["api_key"], e["did_api_key"], e["provider"])
     if _avatar is None or sig != _avatar_sig:
-        from .avatar import NoAvatar, SimliAvatar
-        _avatar = SimliAvatar(e["api_key"]) if e["api_key"] and e["provider"] in ("auto", "simli") else NoAvatar()
+        from .avatar import DIDAvatar, NoAvatar, SimliAvatar
+        prov = e["provider"]
+        if prov == "did" or (prov == "auto" and e["did_api_key"]):
+            _avatar = DIDAvatar(e["did_api_key"]) if e["did_api_key"] else NoAvatar()
+        elif prov == "simli" or (prov == "auto" and e["api_key"]):
+            _avatar = SimliAvatar(e["api_key"]) if e["api_key"] else NoAvatar()
+        else:
+            _avatar = NoAvatar()
         _avatar_sig = sig
         log.info("Avatar provider: %s", _avatar.name)
     return _avatar

@@ -62,9 +62,11 @@ async function runAllChecks() {
     const mk = (k) => c[k] === "ok" ? "✓" : c[k] === "quota" ? "✗(키 크레딧 한도 0)" : "✗";
     html += line(!!r.all_ok, "ElevenLabs 복제 음성", `텍스트 음성 변환 ${mk("text_to_speech")} · 음성 ${mk("voices_read")} · 사용자 ${mk("user_read")}${r.note ? " · " + r.note : ""}${!r.all_ok && c.text_to_speech !== "quota" ? " → 가장 쉬운 해결: ElevenLabs에서 '키 제한'을 끈 새 키를 만들어 AI 설정에 저장" : ""}`); }
   catch (e) { html += line(false, "ElevenLabs 복제 음성", e.message + (e.message.includes("없습니다") ? "" : " → 가장 쉬운 해결: '키 제한'을 끈 새 키")); }
+  try { const r = await api("/api/admin/settings/did/test", { method: "POST" }); html += line(true, "D-ID 실시간 아바타(실제 사진)", `연결 성공${r.note ? " · " + r.note : ""}`); }
+  catch (e) { html += line(false, "D-ID 실시간 아바타(실제 사진)", e.message.includes("없습니다") ? "키 없음(선택 기능)" : e.message); }
   try { const r = await api("/api/admin/settings/avatar/test", { method: "POST" }); const c = r.checks || {};
     html += line(!!r.all_ok, "Simli 실시간 아바타", `얼굴 목록 ${c.faces_list === "ok" ? "✓" : "✗"} · 세션 토큰 ${c.session_token === "ok" ? "✓" : "✗"} · 등록된 얼굴 ${r.faces}개${r.note ? " · " + r.note : ""}`); }
-  catch (e) { html += line(false, "Simli 실시간 아바타", e.message.includes("없습니다") ? "키 없음 — 사진 아바타로 동작(선택 기능)" : e.message); }
+  catch (e) { html += line(false, "Simli 실시간 아바타", e.message.includes("없습니다") ? "키 없음(선택 기능)" : e.message); }
   overview.lastCheck = html; out.innerHTML = html;
 }
 
@@ -238,7 +240,7 @@ async function deceasedForm(did, contractId) {
     <div class="row" style="flex-wrap:wrap">${x.voice_id ? `<span class="tag on">등록됨 · ${esc(x.voice_provider)} · <span class="mono">${esc(x.voice_id.slice(0, 8))}…</span></span><button class="small secondary" id="vPreview">미리 듣기</button><button class="small ghost" id="vDelete">음성 삭제</button>` : `<span class="tag">미등록</span><button class="small secondary" id="vRegister">음성 등록 (ElevenLabs)</button>`}<span id="vOut" class="muted"></span></div>
     <audio id="vAudio" controls style="display:none;margin-top:6px;width:100%"></audio>
     <h3 style="margin-top:16px">실시간 아바타 얼굴 <span class="muted">(대표 사진 + 초상 사용 동의서가 있어야 등록됩니다)</span></h3>
-    <div class="row" style="flex-wrap:wrap">${x.face_id ? `<span class="tag on">등록됨 · ${esc(x.face_provider)} · <span class="mono">${esc(x.face_id.slice(0, 8))}…</span></span><button class="small ghost" id="fDelete">얼굴 삭제</button>` : `<span class="tag">미등록</span><button class="small secondary" id="fRegister">사진으로 얼굴 만들기 (유료 플랜)</button>`}<span id="fOut" class="muted"></span></div>
+    <div class="row" style="flex-wrap:wrap">${x.face_id ? `<span class="tag on">등록됨 · ${esc(x.face_provider)} · <span class="mono">${esc(x.face_id.slice(0, 8))}…</span></span><button class="small ghost" id="fDelete">얼굴 삭제</button>` : `<span class="tag">미등록</span><button class="small secondary" id="fRegister">사진으로 얼굴 만들기</button>`}<span id="fOut" class="muted"></span></div>
     <div class="row" style="margin-top:6px"><select id="fPreset" style="width:auto"><option value="">기본 얼굴 고르기 (무료 플랜)…</option></select><button class="small secondary" id="fPresetGo">기본 얼굴로 설정</button></div>
     <h3 style="margin-top:16px">동의서</h3>
     ${x.consents.map((k) => `<div class="list-item"><span>${kindName[k.kind]} · ${esc(k.signer_name)}(${esc(k.relation)}) · ${fmt(k.signed_at)} ${k.revoked_at ? `<span class="tag off">철회 ${fmt(k.revoked_at)}</span>` : '<span class="tag on">유효</span>'}</span>${!k.revoked_at ? `<button class="small ghost" data-revoke="${k.id}" style="min-height:26px">철회</button>` : ""}</div>`).join("") || '<p class="muted">동의서 없음 — AI 대화 동의서가 없으면 대화가 열리지 않습니다.</p>'}
@@ -379,21 +381,31 @@ async function aisettings() {
         <p style="margin:6px 0 0">요약: <b>접근/작성으로 켜는 건 딱 3개 — 텍스트 음성 변환·음성·사용자.</b> 나머지 전부 접근 불가.</p></details></div>
       <p class="muted" style="font-size:13px;margin-top:12px">Instant Voice Clone은 Starter 요금제(월 $6, 30,000크레딧)부터 가능합니다. 답변 1회 60자 ≈ 60크레딧이므로 10분 대화(20회 왕복) ≈ 1,200크레딧, Starter로 월 25회 정도입니다. <b>약관상 본인 동의가 전제</b>이므로 시연은 생전 기록 자원자(본인 목소리)로, 고인 적용은 법률 자문 뒤에 합니다.</p>
     </div>
-    <h2 style="margin-top:20px">실시간 아바타 (Simli)</h2>
-    <p class="muted">고인의 정면 사진 1장으로 얼굴을 만들고, 대화 중 복제 음성에 입을 맞춘 영상을 실시간으로 보여 줍니다(A등급). 복제 음성(ElevenLabs)이 있어야 동작하며, 없으면 사진 아바타로 자동 복귀합니다.</p>
+    <h2 style="margin-top:20px">실시간 아바타 (D-ID · Simli)</h2>
+    <p class="muted">고인의 정면 사진으로 대화 중 복제 음성에 입을 맞춘 영상을 실시간으로 보여 줍니다(A등급). 복제 음성(ElevenLabs)이 있어야 동작하며, 없으면 사진 아바타로 자동 복귀합니다.<br>
+      <b>D-ID</b>는 올린 사진 그대로를 움직여 <b>얼굴이 실제와 같고</b>(권장), <b>Simli</b>는 사진으로 3D 얼굴을 새로 만듭니다(유료 플랜 필요, 무료는 기본 얼굴만).</p>
     <div class="kpi" style="margin:14px 0;max-width:720px">
-      <div class="card"><div class="muted">지금 동작 중인 아바타</div><div class="n" style="font-size:20px">${s.active_avatar === "simli" ? "Simli 실시간 아바타" : "사진 아바타(기본)"}</div><div class="muted" style="font-size:12px">등록된 얼굴 ${s.faces_registered}건</div></div>
+      <div class="card"><div class="muted">지금 동작 중인 아바타</div><div class="n" style="font-size:20px">${s.active_avatar === "did" ? "D-ID 실시간 아바타" : s.active_avatar === "simli" ? "Simli 실시간 아바타" : "사진 아바타(기본)"}</div><div class="muted" style="font-size:12px">등록된 얼굴 ${s.faces_registered}건</div></div>
+      <div class="card"><div class="muted">D-ID 키</div><div class="n" style="font-size:20px">${s.did_key_masked ? `<span class="mono">${esc(s.did_key_masked)}</span>` : (s.did_key_source === "env" ? ".env에서 읽음" : '<span class="tag off">없음</span>')}</div></div>
       <div class="card"><div class="muted">Simli 키</div><div class="n" style="font-size:20px">${s.simli_key_masked ? `<span class="mono">${esc(s.simli_key_masked)}</span>` : (s.simli_key_source === "env" ? ".env에서 읽음" : '<span class="tag off">없음</span>')}</div></div>
     </div>
     <div class="card" style="max-width:720px">
+      <div class="field"><label>D-ID API 키 <span class="muted">(비워 두면 기존 키 유지 · 'API_USER:API_PASSWORD' 형태 그대로)</span></label>
+        <div class="row"><input id="ddKey" type="password" placeholder="${s.did_key_masked ? "기존 키 유지" : "studio.d-id.com → Account settings 에서 발급"}" autocomplete="off" spellcheck="false"><button class="small ghost" id="ddEye" style="min-height:40px">보기</button></div></div>
       <div class="field"><label>Simli API 키 <span class="muted">(비워 두면 기존 키 유지)</span></label>
         <div class="row"><input id="smKey" type="password" placeholder="${s.simli_key_masked ? "기존 키 유지" : "app.simli.com 에서 발급한 키"}" autocomplete="off" spellcheck="false"><button class="small ghost" id="smEye" style="min-height:40px">보기</button></div></div>
       <div class="field"><label>아바타 공급자</label><select id="avProv">
-        <option value="auto" ${s.avatar_provider === "auto" ? "selected" : ""}>자동 (키가 있으면 Simli)</option>
+        <option value="auto" ${s.avatar_provider === "auto" ? "selected" : ""}>자동 (D-ID 키가 있으면 D-ID, 아니면 Simli)</option>
+        <option value="did" ${s.avatar_provider === "did" ? "selected" : ""}>D-ID (실제 사진)</option>
         <option value="simli" ${s.avatar_provider === "simli" ? "selected" : ""}>Simli</option>
         <option value="off" ${s.avatar_provider === "off" ? "selected" : ""}>끔 (사진 아바타만)</option></select></div>
-      ${s.simli_key_masked && s.avatar_provider === "off" ? '<div class="notice" style="margin-top:8px">키는 있지만 공급자가 "끔"이라 실시간 아바타가 꺼져 있습니다. "자동"으로 바꾸고 저장하세요.</div>' : ""}
-      <div class="toolbar" style="margin-top:10px"><button class="small" id="smSave">저장</button><button class="small secondary" id="smTest">연결 테스트</button>${s.simli_key_masked ? `<button class="small ghost" id="smClear">키 삭제</button>` : ""}<span id="smOut" class="muted"></span></div>
+      ${(s.simli_key_masked || s.did_key_masked) && s.avatar_provider === "off" ? '<div class="notice" style="margin-top:8px">키는 있지만 공급자가 "끔"이라 실시간 아바타가 꺼져 있습니다. "자동"으로 바꾸고 저장하세요.</div>' : ""}
+      <div class="toolbar" style="margin-top:10px"><button class="small" id="smSave">저장</button><button class="small secondary" id="ddTest">D-ID 연결 테스트</button><button class="small secondary" id="smTest">Simli 연결 테스트</button>${s.did_key_masked ? `<button class="small ghost" id="ddClear">D-ID 키 삭제</button>` : ""}${s.simli_key_masked ? `<button class="small ghost" id="smClear">Simli 키 삭제</button>` : ""}<span id="smOut" class="muted"></span></div>
+      <div class="notice" style="margin-top:12px;font-size:13px"><b>D-ID 키 만드는 법 (2026-09-19 공식 문서 기준)</b><br>
+        1) <a href="https://studio.d-id.com" target="_blank">studio.d-id.com</a> 로그인 (14일 무료 체험: 영상 3분)<br>
+        2) <b>Account settings</b>(계정 설정) → <b>Generate API key</b>(API 키 생성) — 키는 <b>한 번만</b> 보입니다<br>
+        3) 표시된 값 전체(예: <span class="mono">bGVl…==:abcd1234</span>, 가운데 콜론 포함)를 복사 → 위 D-ID 칸에 붙여 넣고 저장 → 자동 연결 테스트<br>
+        ※ 실제 인물 사진은 D-ID 자동 검열에 걸릴 수 있습니다. 거부되면 다른 사진으로 다시 시도하거나 D-ID 지원팀에 수동 심사를 요청합니다.</div>
       <div class="notice" style="margin-top:12px;font-size:13px"><b>Simli 키 만드는 법 (2026-09-19 문서 기준)</b><br>
         1) <a href="https://app.simli.com" target="_blank">app.simli.com</a> 가입 → 무료로 $10 + 매월 50분이 들어옵니다<br>
         2) 대시보드에서 API 키를 만들어 복사 → 위 칸에 붙여 넣고 저장 → 연결 테스트<br>
@@ -406,7 +418,16 @@ async function aisettings() {
   const outEl = (msg, ok) => { const el = $("#elOut"); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
   const body = (o = {}) => ({ api_key: $("#aiKey").value.trim() || null, provider: $("#aiProv").value, model: $("#aiModel").value,
     elevenlabs_api_key: $("#elKey").value.trim() || null, tts_provider: $("#ttsProv").value, tts_model: $("#ttsModel").value,
-    simli_api_key: $("#smKey").value.trim() || null, avatar_provider: $("#avProv").value, ...o });
+    simli_api_key: $("#smKey").value.trim() || null, did_api_key: $("#ddKey").value.trim() || null, avatar_provider: $("#avProv").value, ...o });
+  $("#ddEye").onclick = () => { const i = $("#ddKey"); i.type = i.type === "password" ? "text" : "password"; $("#ddEye").textContent = i.type === "password" ? "보기" : "숨기기"; };
+  async function runDdTest() {
+    outSm("D-ID 확인 중…", true); $("#ddTest").disabled = true;
+    try { const r = await api("/api/admin/settings/did/test", { method: "POST" }); outSm(`D-ID 연결 성공${r.note ? " · " + r.note : ""}`, true); }
+    catch (e) { outSm("D-ID 실패: " + e.message, false); }
+    $("#ddTest").disabled = false;
+  }
+  $("#ddTest").onclick = async () => { if ($("#ddKey").value.trim()) { try { await api("/api/admin/settings/ai", { method: "PUT", body: body() }); } catch (e) { return outSm(e.message, false); } } await runDdTest(); };
+  if ($("#ddClear")) $("#ddClear").onclick = async () => { const b = $("#ddClear"); if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "정말 삭제 (다시 누르기)"; b.style.color = "var(--danger)"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "D-ID 키 삭제"; b.style.color = ""; }, 5000); return; } try { await api("/api/admin/settings/ai", { method: "PUT", body: body({ did_api_key: "" }) }); toast("D-ID 키를 삭제했습니다."); aisettings(); } catch (e) { outSm(e.message, false); } };
   $("#smEye").onclick = () => { const i = $("#smKey"); i.type = i.type === "password" ? "text" : "password"; $("#smEye").textContent = i.type === "password" ? "보기" : "숨기기"; };
   async function runSmTest() {
     outSm("확인 중…", true); $("#smTest").disabled = true;
@@ -415,7 +436,7 @@ async function aisettings() {
     catch (e) { outSm("실패: " + e.message, false); }
     $("#smTest").disabled = false;
   }
-  $("#smSave").onclick = async () => { const typed = $("#smKey").value.trim(); try { await api("/api/admin/settings/ai", { method: "PUT", body: body() }); } catch (e) { return outSm(e.message, false); } if (typed) { outSm("저장됨 · 연결 확인 중…", true); await runSmTest(); } else { toast("저장했습니다."); aisettings(); } };
+  $("#smSave").onclick = async () => { const typedSm = $("#smKey").value.trim(), typedDd = $("#ddKey").value.trim(); try { await api("/api/admin/settings/ai", { method: "PUT", body: body() }); } catch (e) { return outSm(e.message, false); } if (typedDd) { outSm("저장됨 · 연결 확인 중…", true); await runDdTest(); } else if (typedSm) { outSm("저장됨 · 연결 확인 중…", true); await runSmTest(); } else { toast("저장했습니다."); aisettings(); } };
   $("#smTest").onclick = async () => { if ($("#smKey").value.trim()) { try { await api("/api/admin/settings/ai", { method: "PUT", body: body() }); } catch (e) { return outSm(e.message, false); } } await runSmTest(); };
   if ($("#smClear")) $("#smClear").onclick = async () => { const b = $("#smClear"); if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "정말 삭제 (다시 누르기)"; b.style.color = "var(--danger)"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "키 삭제"; b.style.color = ""; }, 5000); return; } try { await api("/api/admin/settings/ai", { method: "PUT", body: body({ simli_api_key: "" }) }); toast("Simli 키를 삭제했습니다."); aisettings(); } catch (e) { outSm(e.message, false); } };
   const save = async (keyOverride) => {

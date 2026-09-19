@@ -208,9 +208,54 @@ class LiveAvatar {
   }
 }
 
+// ---------------- D-ID 사진 아바타 (공식 Agents SDK, CDN ESM) ----------------
+// 실제 사진 그대로를 움직인다. 서버가 세션마다 짧은 클라이언트 키를 발급하고, 음성은 서버가 합성해 D-ID에 올린 URL로 말하게 한다.
+class DIDAvatar {
+  constructor(videoEl) { this.video = videoEl; this.mgr = null; this.ready = false; this.onstate = () => {}; this._resolveStop = null; this.sess = null; }
+  async connect(sess) {
+    this.sess = sess;
+    const cfg = await api("/api/family/chat/avatar-session", { method: "POST", body: { session_id: sess.session_id } });
+    const sdk = await import(cfg.sdk_url);
+    await new Promise(async (resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("아바타 연결 시간 초과")), 20000);
+      try {
+        this.mgr = await sdk.createAgentManager(cfg.agent_id, {
+          auth: { type: "key", clientKey: cfg.client_key },
+          streamOptions: { compatibilityMode: "auto", streamWarmup: true },
+          callbacks: {
+            onSrcObjectReady: (stream) => { this.video.srcObject = stream; this.video.muted = false; this.video.play().catch(() => {}); return stream; },
+            onConnectionStateChange: (st) => { if (st === "connected") { this.ready = true; clearTimeout(timeout); this.onstate("live"); resolve(); } else if (["disconnected", "closed", "fail", "failed"].includes(String(st).toLowerCase()) && this.ready) { this.stop("연결 끊김"); } },
+            onVideoStateChange: (st) => { if (st === "START") this.onstate("speaking"); else if (st === "STOP") { this.onstate("silent"); if (this._resolveStop) { const r = this._resolveStop; this._resolveStop = null; r(); } } },
+            onError: (err, data) => { console.warn("D-ID error", err, data); if (!this.ready) { clearTimeout(timeout); reject(new Error(String(err?.message || err || "아바타 오류"))); } },
+          },
+        });
+        await this.mgr.connect();
+      } catch (e) { clearTimeout(timeout); reject(e); }
+    });
+  }
+  // 서버가 복제 음성으로 합성해 D-ID에 올린 URL로 말하게 하고, 말이 끝나면(STOP) 돌아온다.
+  async speak(text) {
+    if (!this.ready || !this.mgr) throw new Error("아바타 미연결");
+    const r = await api("/api/family/chat/avatar-speak", { method: "POST", body: { session_id: this.sess.session_id, text } });
+    const done = new Promise((res) => { this._resolveStop = res; setTimeout(res, 45000); });
+    await this.mgr.speak({ type: "audio", audio_url: r.audio_url });
+    await done;
+  }
+  interrupt() { try { this.mgr?.interrupt?.({ type: "click" }); } catch {} }
+  stop(reason) {
+    if (!this.mgr) return;
+    try { this.mgr.disconnect(); } catch {}
+    this.mgr = null; this.ready = false; this.video.srcObject = null; this.onstate("off", reason);
+  }
+}
+
 // 복제 음성이 등록된 고인이면 서버(ElevenLabs 등)에서 오디오를 받아 재생하고, 실패하면 브라우저 음성으로 내려간다.
 // 실시간 아바타가 연결돼 있으면 오디오를 아바타로 보내고(아바타 영상에 소리가 실려 옴) 로컬에서는 재생하지 않는다.
 async function speakAs(sess, text, onend, onstart) {
+  if (sess._avatar?.ready && sess._avatar instanceof DIDAvatar) {
+    try { onstart?.(); await sess._avatar.speak(text); onend?.(); return; }
+    catch (e) { console.warn("D-ID speak failed → local audio", e); }
+  }
   if (sess.voice_available) {
     try {
       const r = await fetch(withToken(`/api/family/chat/tts?session_id=${encodeURIComponent(sess.session_id)}&text=${encodeURIComponent(text)}`));
@@ -297,8 +342,13 @@ function runChat(sess, d) {
   const say = (text, onend) => speakAs(sess, text, () => { stage.classList.remove("speaking"); onend?.(); }, () => stage.classList.add("speaking"));
   // 실시간 아바타(A등급): 연결되면 사진 대신 영상. 실패하면 조용히 사진 아바타로.
   if (sess.avatar_available) {
-    const av = new LiveAvatar($("#avatarVideo")); sess._avatar = av;
-    av.onstate = (st, reason) => { stage.classList.toggle("live", st === "live"); $("#voiceTag").textContent = st === "live" ? "가족이 등록한 목소리와 얼굴로 만든 AI · 실시간 아바타" : `가족이 등록한 목소리로 만든 AI 음성 · 사진 아바타${reason ? ` (${reason})` : ""}`; };
+    const av = sess.avatar_provider === "did" ? new DIDAvatar($("#avatarVideo")) : new LiveAvatar($("#avatarVideo")); sess._avatar = av;
+    av.onstate = (st, reason) => {
+      if (st === "speaking") { stage.classList.add("speaking"); return; }
+      if (st === "silent") { stage.classList.remove("speaking"); return; }
+      stage.classList.toggle("live", st === "live");
+      $("#voiceTag").textContent = st === "live" ? `가족이 등록한 목소리와 사진으로 만든 AI · 실시간 아바타(${sess.avatar_provider === "did" ? "D-ID" : "Simli"})` : `가족이 등록한 목소리로 만든 AI 음성 · 사진 아바타${reason ? ` (${reason})` : ""}`;
+    };
     av.connect(sess).then(() => { add("them", sess.greeting); say(sess.greeting); }).catch((e) => { console.warn("avatar connect failed", e); av.stop(e.message); add("them", sess.greeting); say(sess.greeting); });
     window.__avatarStop = () => av.stop();   // 화면을 떠날 때 아바타도 끊는다
   } else {
@@ -536,16 +586,17 @@ async function renderFaceCard() {
   const box = $("#faceBody"); if (!box) return;
   let v; try { v = await api("/api/family/avatar"); } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
   if (!v.provider_ready) { box.innerHTML = `<p class="muted">봉안당에서 아직 실시간 아바타 기능을 켜지 않았습니다. 지금은 사진 아바타로 대화합니다.</p>`; return; }
+  const isDid = v.provider === "did";
   box.innerHTML = `<p class="muted" style="font-size:14px">말할 때 입이 움직이는 아바타입니다. <b>목소리 등록이 먼저</b> 되어 있어야 대화에서 쓰입니다. 화면에는 항상 'AI 실시간 영상' 표시가 붙습니다.<br>
-    <b>기본 얼굴</b>은 무료 플랜에서 바로 되고, <b>사진으로 만든 얼굴</b>은 Simli 유료 플랜이 필요합니다.</p>` +
+    ${isDid ? "<b>D-ID</b>: 올린 정면 사진 <b>그대로</b>를 움직이므로 얼굴이 실제와 같습니다." : "<b>Simli</b>: 기본 얼굴은 무료 플랜에서 바로 되고, 사진으로 만든 얼굴은 유료 플랜이 필요합니다."}</p>` +
     v.deceased.map((d) => `<div class="list-item" style="align-items:flex-start;flex-direction:column;gap:6px">
       <div class="row between" style="width:100%"><div><b>${esc(d.name)} 님</b> <span class="muted">${esc(d.honorific)}</span></div>
         ${d.has_face ? `<span class="pill" style="background:#dff3e6;color:#1e7a45">${esc(d.face_label || "얼굴 등록됨")}</span>` : '<span class="pill">미등록</span>'}</div>
       <div class="muted" style="font-size:14px">사진 ${d.has_photo ? "있음" : "없음"} · 목소리 ${d.has_voice ? "있음" : "없음"}${d.consent ? ` · 동의: ${esc(d.consent.signer_name)}` : ""}</div>
-      ${v.can_manage ? `<div class="row" style="width:100%"><select data-fpreset="${d.id}" style="flex:1"><option value="">기본 얼굴 고르기…</option>${v.presets.map((pf) => `<option value="${pf.id}">${esc(pf.label)}</option>`).join("")}</select><button class="small secondary" data-fpresetgo="${d.id}" style="min-height:44px">기본 얼굴로 시연</button></div>` : ""}
+      ${v.can_manage && v.presets.length ? `<div class="row" style="width:100%"><select data-fpreset="${d.id}" style="flex:1"><option value="">기본 얼굴 고르기…</option>${v.presets.map((pf) => `<option value="${pf.id}">${esc(pf.label)}</option>`).join("")}</select><button class="small secondary" data-fpresetgo="${d.id}" style="min-height:44px">기본 얼굴로 시연</button></div>` : ""}
       <div class="row" style="flex-wrap:wrap">
         ${v.can_manage ? `<label class="btn small secondary" style="width:auto;cursor:pointer">📷 정면 사진 올리기<input type="file" accept="image/*" data-fphoto="${d.id}" hidden></label>` : ""}
-        ${v.can_manage && d.has_photo ? `<button class="small" data-freg="${d.id}">🎬 사진으로 얼굴 만들기 (유료)</button>` : ""}
+        ${v.can_manage && d.has_photo ? `<button class="small" data-freg="${d.id}">🎬 ${d.has_face ? "사진으로 다시 만들기" : "사진으로 얼굴 만들기"}${isDid ? "" : " (유료)"}</button>` : ""}
         ${v.can_manage && d.has_face ? `<button class="small ghost" data-fdel="${d.id}">삭제</button>` : ""}
       </div><div class="muted" style="font-size:13px" data-fout="${d.id}"></div></div>`).join("");
   box.querySelectorAll("[data-fpresetgo]").forEach((b) => b.onclick = async () => {
@@ -559,7 +610,7 @@ async function renderFaceCard() {
   });
   box.querySelectorAll("[data-freg]").forEach((b) => b.onclick = () => {
     const d = v.deceased.find((x) => x.id === +b.dataset.freg);
-    const m = modal(`<h2>${esc(d.name)} 님 얼굴 등록</h2><p class="muted">정면을 보는 사진이 가장 좋습니다(옆모습·모자·선글라스는 실패할 수 있음). 사진은 아바타 공급자(Simli)로 전송되어 얼굴 모델이 만들어집니다.</p>
+    const m = modal(`<h2>${esc(d.name)} 님 얼굴 등록</h2><p class="muted">정면을 보는 사진이 가장 좋습니다(옆모습·모자·선글라스는 실패할 수 있음). 사진은 아바타 공급자(${isDid ? "D-ID" : "Simli"})로 전송됩니다.${isDid ? " D-ID의 자동 검열이 사진을 거부하면 다른 사진으로 다시 시도해 주세요." : ""}</p>
       <div class="seg" style="margin-bottom:12px"><button class="active" data-kind="likeness">고인의 사진<br><small>가족 동의</small></button><button data-kind="lifetime_record">본인 사진<br><small>생전 기록</small></button></div>
       <div class="check"><input type="checkbox" id="fAgree"><label for="fAgree" style="margin:0;color:var(--ink)">이 사진을 AI 대화의 얼굴로만 쓰는 것에 동의합니다. 다른 가족이 반대하면 즉시 삭제하겠습니다.</label></div>
       <button id="fGo" disabled>얼굴 만들기</button><p class="muted center" id="fOut" style="margin-top:8px;font-size:14px"></p>`);
