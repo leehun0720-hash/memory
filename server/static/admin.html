@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>관리자 콘솔 · 봉안함 원격 참배</title>
+<link rel="stylesheet" href="/static/css/app.css">
+<style>
+  body { padding-bottom: 0; font-size: 15px; }
+  .layout { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+  aside { background: #2b2a27; color: #ddd; padding: 18px 14px; }
+  aside .brand { font-weight: 800; color: #fff; margin-bottom: 14px; font-size: 16px; }
+  aside button { background: transparent; color: #cfc8ba; text-align: left; justify-content: flex-start; min-height: 44px; font-size: 15px; border-radius: 10px; margin-bottom: 2px; }
+  aside button.active { background: #3f3d38; color: #fff; }
+  section.page { padding: 20px 26px; max-width: 1200px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  .kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .kpi .card { margin: 0; }
+  .kpi .n { font-size: 30px; font-weight: 800; color: var(--accent); }
+  .cal { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
+  #canvasWrap { position: relative; background: #111; border-radius: 12px; overflow: hidden; }
+  #cal { width: 100%; display: block; cursor: crosshair; }
+  .niche-row { display: flex; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .niche-row input { padding: 4px 8px; font-size: 13px; width: 110px; }
+  button.small { width: auto; }
+  input, select, textarea { font-size: 15px; padding: 8px 10px; }
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .form-grid .field { margin: 0; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 12px; background: #eee; color: #555; }
+  .tag.on { background: #dff3e6; color: #1e7a45; } .tag.off { background: #fbe9e6; color: var(--danger); } .tag.busy { background: #fff1d6; color: #9a6a10; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <div class="brand">관리자 콘솔<br><small style="color:#999;font-weight:500">여수 지장대사 봉안당</small></div>
+    <button data-page="overview">현황</button>
+    <button data-page="calib">칸 좌표 등록</button>
+    <button data-page="contracts">계약·가족</button>
+    <button data-page="deceased">고인·기억 카드·동의서</button>
+    <button data-page="rituals">의례 일정·중계</button>
+    <button data-page="usage">공양 접수·이용 현황</button>
+    <button data-page="aisettings">AI 설정 (API 키)</button>
+    <div style="margin-top:20px;font-size:12px;color:#888">유족 앱: <a href="/" style="color:#cfc8ba">/</a></div>
+  </aside>
+  <section class="page" id="page"></section>
+</div>
+<script type="module" src="/static/js/admin.js"></script>
+</body>
+</html>
