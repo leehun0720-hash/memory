@@ -232,6 +232,7 @@ class DIDAvatar:
             "presenter": {"type": "talk", "source_url": url, "thumbnail": url,
                           "voice": {"type": "microsoft", "voice_id": "ko-KR-SunHiNeural"}},   # 텍스트로 말할 일은 없지만 필수 항목
             "preview_name": name[:50],
+            "embed": True,   # 클라이언트 키(브라우저 SDK) 접속은 embed 에이전트만 허용된다 — 2026-09-19 실제 확인(403 'non-embed agent')
         }
         r = self.s.post(f"{self.BASE}/agents", json=body, timeout=120)
         self._raise(r)
