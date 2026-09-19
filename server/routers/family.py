@@ -10,6 +10,7 @@ from .. import config, db, face, voice
 from ..ai.avatar import SimliAvatar  # 기본 얼굴 목록
 from ..deps import require_member, require_role
 from ..state import state
+from .edge import _in_window
 
 router = APIRouter(prefix="/api/family", tags=["family"])
 
@@ -213,18 +214,141 @@ def rituals(m: dict = Depends(require_member)):
             r["is_live_window"] = False
             r["is_past"] = False
         r["has_camera"] = r["camera_id"] is not None and state.camera(r["camera_id"]).online
+        r["access"] = r.get("access") or "open"
+        r["current_order"] = r.get("current_order") or 0
+        parts = _participants(r["id"], m["contract_id"])
+        r["participants"] = [{k: x[k] for k in ("order_no", "deceased_name", "mourner_name", "birth_date", "death_date", "status", "is_mine")} for x in parts]
+        r["my_participation"] = next((x for x in r["participants"] if x["is_mine"]), None)
+        r["can_watch"] = _can_watch(r, m, parts)
+        r["viewer_count"] = state.viewer_count(r["id"])
     return rows
 
 
 @router.get("/rituals/{ritual_id}/stream")
 def ritual_stream(ritual_id: int, m: dict = Depends(require_member)):
-    r = db.one("SELECT * FROM rituals WHERE id=? AND (contract_id=? OR contract_id IS NULL)", (ritual_id, m["contract_id"]))
-    if not r or r["camera_id"] is None:
+    r = _ritual_visible(ritual_id, m)
+    if not _can_watch(r, m, _participants(ritual_id, m["contract_id"])):
+        raise HTTPException(403, "참여를 신청한 가족만 볼 수 있는 제사입니다.")
+    if r["camera_id"] is None:
         raise HTTPException(404)
     db.audit(f"member:{m['id']}", "ritual.watch", f"ritual:{ritual_id}")
     return StreamingResponse(_mjpeg(-r["camera_id"], time.time() + 60 * 60, None),
                              media_type="multipart/x-mixed-replace; boundary=frame",
                              headers={"Cache-Control": "no-store"})
+
+
+# ---------- 제사 생중계: 참여 신청 · 봉행 순서 · 가족 메시지 · 반응(틱톡 라이브식 쌍방향) ----------
+
+_last_msg_at: dict[int, float] = {}
+REACTIONS = ("🙏", "🕯️", "🌸", "💛")
+
+
+def _ritual_visible(ritual_id: int, m: dict) -> dict:
+    r = db.one("SELECT * FROM rituals WHERE id=? AND (contract_id=? OR contract_id IS NULL)", (ritual_id, m["contract_id"]))
+    if not r:
+        raise HTTPException(404, "일정을 찾을 수 없습니다.")
+    return r
+
+
+def _participants(ritual_id: int, contract_id: int | None = None) -> list[dict]:
+    """봉행 순서(반려 제외). order_no가 0(미정)인 가족은 뒤로."""
+    rows = db.rows(
+        """SELECT p.id, p.contract_id, p.deceased_id, p.mourner_name, p.order_no, p.status, p.note,
+                  d.name AS deceased_name, d.birth_date, d.death_date, c.holder_name
+           FROM ritual_participants p JOIN contracts c ON c.id=p.contract_id LEFT JOIN deceased d ON d.id=p.deceased_id
+           WHERE p.ritual_id=? AND p.status<>'rejected'
+           ORDER BY CASE WHEN p.order_no>0 THEN 0 ELSE 1 END, p.order_no, p.id""", (ritual_id,))
+    for x in rows:
+        x["is_mine"] = contract_id is not None and x["contract_id"] == contract_id
+    return rows
+
+
+def _can_watch(r: dict, m: dict, parts: list[dict]) -> bool:
+    """법회·행사(open)는 누구나, 제사(applied)는 참여를 신청한 가족만."""
+    return (r.get("access") or "open") != "applied" or any(x["contract_id"] == m["contract_id"] for x in parts)
+
+
+def _live_payload(r: dict, parts: list[dict], since: int, rseq: int) -> dict:
+    cur_no = r.get("current_order") or 0
+    cur = next((x for x in parts if x["order_no"] == cur_no), None) if cur_no else None
+    if since:
+        msgs = db.rows("SELECT * FROM ritual_messages WHERE ritual_id=? AND id>? ORDER BY id LIMIT 50", (r["id"], since))
+    else:
+        msgs = list(reversed(db.rows("SELECT * FROM ritual_messages WHERE ritual_id=? ORDER BY id DESC LIMIT 20", (r["id"],))))
+    return {"title": r["title"], "access": r.get("access") or "open", "live": _in_window(r["scheduled_at"]),
+            "has_camera": r["camera_id"] is not None and state.camera(r["camera_id"]).online,
+            "viewer_count": state.viewer_count(r["id"]), "current_order": cur_no, "current": cur, "order": parts,
+            "messages": msgs, "reactions": state.reactions_since(r["id"], rseq) if rseq >= 0 else [], "rseq": state.reaction_seq(r["id"])}   # rseq<0: 첫 호출(지난 반응 건너뜀)
+
+
+class JoinIn(BaseModel):
+    deceased_id: int | None = None
+    mourner_name: str = ""
+    note: str = ""
+
+
+@router.post("/rituals/{ritual_id}/join")
+def ritual_join(ritual_id: int, body: JoinIn, m: dict = Depends(require_member)):
+    """제사 참여 신청. 신청한 가족만 생중계를 보고, 봉행 순서에 고인이 올라간다(순서는 사찰이 정함)."""
+    require_role(m, "chat")
+    r = _ritual_visible(ritual_id, m)
+    if (r.get("access") or "open") != "applied":
+        raise HTTPException(400, "이 일정은 신청 없이 누구나 볼 수 있습니다.")
+    if db.one("SELECT id FROM ritual_participants WHERE ritual_id=? AND contract_id=? AND status<>'rejected'", (ritual_id, m["contract_id"])):
+        raise HTTPException(409, "이미 참여를 신청한 제사입니다.")
+    d = (db.one("SELECT id FROM deceased WHERE id=? AND contract_id=?", (body.deceased_id, m["contract_id"])) if body.deceased_id
+         else db.one("SELECT id FROM deceased WHERE contract_id=? ORDER BY id LIMIT 1", (m["contract_id"],)))
+    if not d:
+        raise HTTPException(400, "고인 정보가 없습니다. 봉안당 사무실에 문의해 주세요.")
+    nxt = (db.one("SELECT COALESCE(MAX(order_no),0) AS n FROM ritual_participants WHERE ritual_id=?", (ritual_id,))["n"] or 0) + 1
+    pid = db.execute("INSERT INTO ritual_participants(ritual_id, contract_id, deceased_id, mourner_name, order_no, status, note, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                     (ritual_id, m["contract_id"], d["id"], body.mourner_name.strip() or m["holder_name"], nxt, "requested", body.note, db.now()))
+    db.audit(f"member:{m['id']}", "ritual.join", f"ritual:{ritual_id}", f"participant:{pid}")
+    return {"id": pid, "order_no": nxt, "status": "requested"}
+
+
+@router.get("/rituals/{ritual_id}/live")
+def ritual_live(ritual_id: int, since: int = 0, rseq: int = -1, m: dict = Depends(require_member)):
+    """라이브 화면이 2초마다 부른다: 시청자 수·지금 차례(고인 이름·생년월일·상주)·순서·새 메시지·새 반응."""
+    r = _ritual_visible(ritual_id, m)
+    parts = _participants(ritual_id, m["contract_id"])
+    if not _can_watch(r, m, parts):
+        raise HTTPException(403, "참여를 신청한 가족만 볼 수 있는 제사입니다.")
+    state.touch_viewer(ritual_id, m["id"])
+    return _live_payload(r, parts, since, rseq)
+
+
+class RitualMessageIn(BaseModel):
+    message: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/rituals/{ritual_id}/messages")
+def ritual_message(ritual_id: int, body: RitualMessageIn, m: dict = Depends(require_member)):
+    r = _ritual_visible(ritual_id, m)
+    if not _can_watch(r, m, _participants(ritual_id, m["contract_id"])):
+        raise HTTPException(403, "참여를 신청한 가족만 메시지를 남길 수 있습니다.")
+    now = time.time()
+    if now - _last_msg_at.get(m["id"], 0) < 1.5:
+        raise HTTPException(429, "잠시 뒤에 다시 보내 주세요.")
+    _last_msg_at[m["id"]] = now
+    author = m["name"] + (f"({m['relation']})" if m.get("relation") else "")
+    mid = db.execute("INSERT INTO ritual_messages(ritual_id, contract_id, sender, author, kind, message, created_at) VALUES (?,?,?,?,?,?,?)",
+                     (ritual_id, m["contract_id"], "family", author, "chat", body.message.strip(), db.now()))
+    return {"id": mid}
+
+
+class ReactionIn(BaseModel):
+    emoji: str
+
+
+@router.post("/rituals/{ritual_id}/reactions")
+def ritual_reaction(ritual_id: int, body: ReactionIn, m: dict = Depends(require_member)):
+    r = _ritual_visible(ritual_id, m)
+    if body.emoji not in REACTIONS:
+        raise HTTPException(400, "허용되지 않는 반응입니다.")
+    if not _can_watch(r, m, _participants(ritual_id, m["contract_id"])):
+        raise HTTPException(403, "참여를 신청한 가족만 보낼 수 있습니다.")
+    return {"seq": state.push_reaction(ritual_id, body.emoji, m["name"])}
 
 
 # ---------- 공양·헌화 신청 ----------

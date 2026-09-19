@@ -499,31 +499,45 @@ function runChat(sess, d) {
 async function renderRitual() {
   let rituals, offerings;
   try { [rituals, offerings] = await Promise.all([api("/api/family/rituals"), api("/api/family/offerings")]); } catch (e) { view.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
+  const me = state.me;
   const kindName = { memorial: "기일", holiday: "명절", event: "행사" };
+  const pStatus = { requested: "신청됨", accepted: "확정", rejected: "반려" };
   const items = rituals.filter((r) => !r.is_past).map((r) => `
     <div class="ritual">
-      <div><span class="when">${esc(fmtDT(r.scheduled_at))}</span><span class="pill">${kindName[r.kind] || r.kind}</span>${r.is_live_window && (r.has_camera || r.stream_url) ? '<span class="pill live">● 중계 중</span>' : ""}</div>
+      <div><span class="when">${esc(fmtDT(r.scheduled_at))}</span><span class="pill">${kindName[r.kind] || r.kind}</span><span class="pill">${r.access === "applied" ? "신청 가족만" : "누구나"}</span>${r.is_live_window && (r.has_camera || r.stream_url) ? '<span class="pill live">● 중계 중</span>' : ""}${r.viewer_count ? `<span class="pill">👁 ${r.viewer_count}</span>` : ""}</div>
       <div style="font-weight:700">${esc(r.title)}</div>
       ${r.note ? `<div class="muted">${esc(r.note)}</div>` : ""}
+      ${r.my_participation ? `<div class="muted" style="font-size:14px">우리 가족: ${esc(r.my_participation.deceased_name)} 님 · 상주 ${esc(r.my_participation.mourner_name || "-")} · ${pStatus[r.my_participation.status] || r.my_participation.status}${r.my_participation.order_no ? ` · 순서 ${r.my_participation.order_no}번` : ""}</div>` : ""}
+      ${r.participants.length ? `<div class="muted" style="font-size:13px">봉행 순서: ${r.participants.map((x) => `${x.order_no || "-"}. ${esc(x.deceased_name)}${x.is_mine ? " (우리)" : ""}`).join(" · ")}</div>` : ""}
       <div class="row" style="margin-top:8px;flex-wrap:wrap">
-        ${r.is_live_window && r.has_camera ? `<button class="small" data-watch="${r.id}">중계 보기</button>` : ""}
+        ${r.is_live_window && r.has_camera && r.can_watch ? `<button class="small" data-live="${r.id}">▶ 라이브 보기</button>` : ""}
+        ${r.is_live_window && r.has_camera && !r.can_watch ? `<span class="muted" style="font-size:14px">신청한 가족만 볼 수 있습니다</span>` : ""}
+        ${r.access === "applied" && !r.my_participation && me.member.role !== "view" ? `<button class="small secondary" data-join="${r.id}">제사 참여 신청</button>` : ""}
         ${r.is_live_window && r.stream_url ? `<a class="btn small" style="width:auto;min-height:40px;font-size:15px;text-decoration:none" href="${esc(r.stream_url)}" target="_blank">중계 링크</a>` : ""}
         ${r.replay_url ? `<a class="btn small secondary" style="width:auto;min-height:40px;font-size:15px;text-decoration:none" href="${esc(r.replay_url)}" target="_blank">다시 보기</a>` : ""}
-        <button class="small secondary" data-offer="${r.id}">공양·헌화 신청</button>
+        <button class="small ghost" data-offer="${r.id}">공양·헌화 신청</button>
       </div>
-      <div class="stream hidden" id="stream-${r.id}"></div>
     </div>`).join("") || `<p class="muted">예정된 일정이 없습니다.</p>`;
   const past = rituals.filter((r) => r.is_past).slice(-5).reverse().map((r) => `<div class="ritual"><span class="muted">${esc(fmtDT(r.scheduled_at))}</span> ${esc(r.title)} ${r.replay_url ? `<a href="${esc(r.replay_url)}" target="_blank">다시 보기</a>` : ""}</div>`).join("");
   const kindLabel = { offering: "공양", flower: "헌화", prayer: "기도" };
   const statusLabel = { requested: "접수 대기", accepted: "접수됨", done: "봉행 완료", cancelled: "취소" };
   const myOff = offerings.length ? offerings.map((o) => `<div class="list-item"><div><b>${kindLabel[o.kind]}</b> ${o.ritual_title ? `· ${esc(o.ritual_title)}` : ""}<div class="muted" style="font-size:13px">${esc(fmtDT(o.created_at))}${o.amount ? ` · ${o.amount.toLocaleString()}원` : ""}</div></div><span class="pill">${statusLabel[o.status] || o.status}</span></div>`).join("") : `<p class="muted">신청 내역이 없습니다.</p>`;
   view.innerHTML = `
-    <div class="card"><h2>제사 일정과 중계</h2><p class="muted">기일 일주일 전에 알려 드립니다. 중계는 봉행 30분 전부터 열립니다.</p>${items}</div>
+    <div class="card"><h2>제사 일정과 생중계</h2><p class="muted">법회·행사는 누구나, 제사는 참여를 신청한 가족만 생중계를 봅니다. 중계는 봉행 30분 전부터 열리고, 화면에서 현장에 한마디를 남기거나 합장·헌화 반응을 보낼 수 있습니다.</p>${items}</div>
     ${past ? `<div class="card"><h3>지난 일정</h3>${past}</div>` : ""}
     <div class="card"><h3>내 공양·헌화 신청</h3>${myOff}<button class="secondary" style="margin-top:10px" id="offerAny">공양·헌화·기도 신청</button></div>`;
-  view.querySelectorAll("[data-watch]").forEach((b) => b.onclick = () => {
-    const id = b.dataset.watch; const box = $(`#stream-${id}`); box.classList.remove("hidden");
-    box.innerHTML = `<img src="${withToken(`/api/family/rituals/${id}/stream`)}&_=${Date.now()}" alt="중계">`; b.textContent = "중계 중"; b.disabled = true;
+  view.querySelectorAll("[data-live]").forEach((b) => b.onclick = () => openRitualLive(rituals.find((r) => r.id === +b.dataset.live)));
+  view.querySelectorAll("[data-join]").forEach((b) => b.onclick = () => {
+    const r = rituals.find((x) => x.id === +b.dataset.join);
+    const m = modal(`<h2>${esc(r.title)} 참여 신청</h2><p class="muted">신청한 가족만 생중계를 볼 수 있고, 봉행 순서에 우리 가족 고인이 올라갑니다. 순서는 사찰에서 정해 알려 드립니다.</p>
+      <div class="field"><label>고인</label><select id="jDec">${me.deceased.map((d) => `<option value="${d.id}">${esc(d.name)} 님${d.honorific ? ` (${esc(d.honorific)})` : ""}</option>`).join("")}</select></div>
+      <div class="field"><label>상주(대표 가족) 이름</label><input id="jMourner" value="${esc(me.contract.holder_name)}"></div>
+      <div class="field"><label>전할 말(선택)</label><input id="jNote" placeholder="예: 가족 6명이 함께 봅니다"></div>
+      <button id="jGo">참여 신청</button>`);
+    $("#jGo", m).onclick = async () => {
+      try { await api(`/api/family/rituals/${r.id}/join`, { method: "POST", body: { deceased_id: +$("#jDec", m).value, mourner_name: $("#jMourner", m).value, note: $("#jNote", m).value } }); m.remove(); toast("참여를 신청했습니다. 사찰에서 순서를 정해 알려 드립니다.", 4000); renderRitual(); }
+      catch (e) { toast(e.message, 4000); }
+    };
   });
   const openOffer = (ritualId) => {
     const m = modal(`<h2>공양·헌화·기도 신청</h2><p class="muted">사찰에서 접수 후 봉행합니다. 결제는 파일럿에서 연결됩니다(현재는 신청만).</p>
@@ -539,6 +553,58 @@ async function renderRitual() {
   };
   view.querySelectorAll("[data-offer]").forEach((b) => b.onclick = () => openOffer(+b.dataset.offer));
   $("#offerAny").onclick = () => openOffer(null);
+}
+
+// 틱톡 라이브처럼: 전체 화면 영상 + 지금 봉행 중인 고인 정보 + 가족 메시지가 아래에서 올라오고 + 합장·촛불·헌화 반응이 떠오른다.
+function openRitualLive(r) {
+  clearTimers(); stopSpeech();
+  const el = document.createElement("div"); el.className = "live-view";
+  const src = () => withToken(`/api/family/rituals/${r.id}/stream`) + "&_=" + Date.now();
+  el.innerHTML = `
+    <canvas class="live-bg" id="lvBg"></canvas>
+    <img class="live-video" id="lvVideo" alt="">
+    <div class="live-shade"></div>
+    <div class="live-top"><span class="live-badge-red">● LIVE</span><span class="live-title">${esc(r.title)}</span><span class="live-viewers" id="lvViewers">👁 1</span><button class="live-close" id="lvClose" title="닫기">✕</button></div>
+    <div class="live-now" id="lvNow"></div>
+    <div class="live-fx" id="lvFx"></div>
+    <div class="live-msgs" id="lvMsgs"></div>
+    <div class="live-bar"><input id="lvInput" placeholder="현장에 한마디…" maxlength="200" autocomplete="off"><button class="live-send" id="lvSend">보내기</button></div>
+    <div class="live-react"><button class="live-orderbtn" id="lvOrder">봉행 순서</button>${["🙏", "🕯️", "🌸", "💛"].map((e) => `<button data-react="${e}" title="반응 보내기">${e}</button>`).join("")}</div>
+    <div class="live-drawer hidden" id="lvDrawer"><div class="live-drawer-in"><h3>봉행 순서</h3><div id="lvOrderList"></div><button class="small ghost" id="lvDrawerClose" style="margin-top:10px">닫기</button></div></div>`;
+  document.body.appendChild(el); document.body.classList.add("noscroll");
+  const video = $("#lvVideo", el), bg = $("#lvBg", el), msgs = $("#lvMsgs", el), fx = $("#lvFx", el);
+  video.src = src();
+  video.onerror = () => setTimeout(() => { if (el.isConnected) video.src = src(); }, 3000);
+  // 가로 영상 뒤에 같은 영상을 흐리게 깔아 세로 화면을 채운다(틱톡의 가로 영상 처리와 같음). 별도 연결 없이 캔버스로 복사.
+  const paintBg = () => { try { if (video.naturalWidth) { bg.width = 64; bg.height = Math.max(1, Math.round(64 * video.naturalHeight / video.naturalWidth)); bg.getContext("2d").drawImage(video, 0, 0, bg.width, bg.height); } } catch {} };
+  let since = 0, rseq = -1, ended = false;
+  const addMsg = (m) => { const d = document.createElement("div"); d.className = `live-msg ${m.sender === "site" ? "site" : ""} ${m.kind === "notice" ? "notice" : ""}`; d.innerHTML = `<b>${esc(m.author)}</b>${esc(m.message)}`; msgs.appendChild(d); while (msgs.children.length > 8) msgs.firstChild.remove(); };
+  const float = (emoji) => { const i = document.createElement("i"); i.textContent = emoji; i.style.left = (10 + Math.random() * 70) + "%"; i.style.setProperty("--dx", (Math.random() * 60 - 30) + "px"); fx.appendChild(i); setTimeout(() => i.remove(), 2600); };
+  async function poll() {
+    if (!el.isConnected) return;
+    let d; try { d = await api(`/api/family/rituals/${r.id}/live?since=${since}&rseq=${rseq}`); } catch (e) { return; }
+    $("#lvViewers", el).textContent = `👁 ${d.viewer_count}`;
+    d.messages.forEach((m) => { since = Math.max(since, m.id); addMsg(m); });
+    d.reactions.forEach((x) => { if (x.seq > rseq) { rseq = x.seq; float(x.emoji); } });
+    if (d.rseq > rseq) rseq = d.rseq;
+    const now = d.current;
+    $("#lvNow", el).innerHTML = now
+      ? `<div class="live-now-in"><span class="live-now-k">지금 ${d.current_order}/${d.order.length}</span><b>${esc(now.deceased_name)} 님</b><span>${esc(fmtD(now.birth_date))} ~ ${esc(fmtD(now.death_date))}</span><span>상주 ${esc(now.mourner_name || "-")}</span>${now.is_mine ? '<span class="live-mine">우리 가족 차례</span>' : ""}</div>`
+      : (d.order.length ? `<div class="live-now-in"><span class="live-now-k">봉행 순서 ${d.order.length}가족</span><span>${d.current_order === 0 ? "곧 시작합니다" : "봉행을 마쳤습니다"}</span></div>` : "");
+    $("#lvOrderList", el).innerHTML = d.order.map((x) => `<div class="live-order-row ${x.order_no === d.current_order ? "now" : ""} ${x.is_mine ? "mine" : ""}"><span class="no">${x.order_no || "-"}</span><div><b>${esc(x.deceased_name)} 님</b> <span class="muted">${esc(fmtD(x.birth_date))} ~ ${esc(fmtD(x.death_date))}</span><div class="muted" style="font-size:13px">상주 ${esc(x.mourner_name || "-")}${x.is_mine ? " · 우리 가족" : ""}</div></div></div>`).join("") || '<p class="muted">순서가 아직 정해지지 않았습니다.</p>';
+    if (!d.live && !ended) { ended = true; el.insertAdjacentHTML("beforeend", `<div class="live-ended">중계가 끝났습니다</div>`); }
+    paintBg();
+  }
+  poll(); const t = setInterval(poll, 2000); const tb = setInterval(paintBg, 700);
+  const close = () => { clearInterval(t); clearInterval(tb); video.src = ""; el.remove(); document.body.classList.remove("noscroll"); renderRitual(); };
+  $("#lvClose", el).onclick = close;
+  $("#lvOrder", el).onclick = () => $("#lvDrawer", el).classList.remove("hidden");
+  $("#lvDrawerClose", el).onclick = () => $("#lvDrawer", el).classList.add("hidden");
+  $("#lvDrawer", el).onclick = (e) => { if (e.target === $("#lvDrawer", el)) $("#lvDrawer", el).classList.add("hidden"); };
+  const send = async () => { const txt = $("#lvInput", el).value.trim(); if (!txt) return; $("#lvSend", el).disabled = true; try { await api(`/api/family/rituals/${r.id}/messages`, { method: "POST", body: { message: txt } }); $("#lvInput", el).value = ""; poll(); } catch (e) { toast(e.message, 3000); } $("#lvSend", el).disabled = false; };
+  $("#lvSend", el).onclick = send;
+  $("#lvInput", el).addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+  el.querySelectorAll("[data-react]").forEach((b) => b.onclick = () => { float(b.dataset.react); api(`/api/family/rituals/${r.id}/reactions`, { method: "POST", body: { emoji: b.dataset.react } }).then((x) => { if (x?.seq) rseq = Math.max(rseq, x.seq); }).catch(() => {}); });
 }
 
 // ---------------- 5. 가족 초대·설정(작별 포함) ----------------

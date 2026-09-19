@@ -38,7 +38,7 @@ app.include_router(admin.router)
 def _page(name: str) -> HTMLResponse:
     """정적 HTML을 내보내되 js/css 주소에 수정 시각을 붙여 브라우저 캐시가 옛 파일을 쓰지 않게 한다."""
     html = (STATIC / name).read_text(encoding="utf-8")
-    for rel in ("css/app.css", "js/app.js", "js/admin.js"):
+    for rel in ("css/app.css", "js/app.js", "js/admin.js", "js/screen.js"):
         f = STATIC / rel
         if f.exists():
             html = html.replace(f"/static/{rel}", f"/static/{rel}?v={int(f.stat().st_mtime)}")
@@ -53,6 +53,12 @@ def family_app():
 @app.get("/admin", include_in_schema=False)
 def admin_app():
     return _page("admin.html")
+
+
+@app.get("/screen", include_in_schema=False)
+def screen_page():
+    """제례 공간 TV용 현장 화면(/screen?ritual=ID&key=관리자키)."""
+    return _page("screen.html")
 
 
 @app.get("/health", include_in_schema=False)

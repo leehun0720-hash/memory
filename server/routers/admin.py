@@ -1,10 +1,11 @@
+import time
 """관리자 콘솔 API: 칸 좌표 · 계약·가족 · 고인 프로필·기억 카드·동의서 · 의례 일정 · 이용 현황."""
 import re
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .. import config, db, face, voice
@@ -368,6 +369,7 @@ def consent_revoke(cid: int):
 class RitualIn(BaseModel):
     title: str
     kind: str = Field(default="memorial", pattern="^(memorial|holiday|event)$")
+    access: str = Field(default="open", pattern="^(open|applied)$")   # open=누구나 생중계 · applied=신청 가족만
     scheduled_at: str
     contract_id: int | None = None
     stream_url: str = ""
@@ -378,22 +380,24 @@ class RitualIn(BaseModel):
 
 @router.get("/rituals")
 def rituals():
-    return db.rows("SELECT r.*, c.holder_name FROM rituals r LEFT JOIN contracts c ON c.id=r.contract_id ORDER BY scheduled_at DESC")
+    return db.rows("""SELECT r.*, c.holder_name,
+                             (SELECT COUNT(*) FROM ritual_participants p WHERE p.ritual_id=r.id AND p.status<>'rejected') AS participant_count
+                      FROM rituals r LEFT JOIN contracts c ON c.id=r.contract_id ORDER BY scheduled_at DESC""")
 
 
 @router.post("/rituals")
 def ritual_create(body: RitualIn):
     fac = db.one("SELECT id FROM facilities ORDER BY id LIMIT 1")
     rid = db.execute(
-        "INSERT INTO rituals(facility_id, contract_id, title, kind, scheduled_at, stream_url, camera_id, replay_url, note) VALUES (?,?,?,?,?,?,?,?,?)",
-        (fac["id"], body.contract_id, body.title, body.kind, body.scheduled_at, body.stream_url, body.camera_id, body.replay_url, body.note))
+        "INSERT INTO rituals(facility_id, contract_id, title, kind, access, scheduled_at, stream_url, camera_id, replay_url, note) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (fac["id"], body.contract_id, body.title, body.kind, body.access, body.scheduled_at, body.stream_url, body.camera_id, body.replay_url, body.note))
     return {"id": rid}
 
 
 @router.put("/rituals/{rid}")
 def ritual_update(rid: int, body: RitualIn):
-    db.execute("UPDATE rituals SET contract_id=?, title=?, kind=?, scheduled_at=?, stream_url=?, camera_id=?, replay_url=?, note=? WHERE id=?",
-               (body.contract_id, body.title, body.kind, body.scheduled_at, body.stream_url, body.camera_id, body.replay_url, body.note, rid))
+    db.execute("UPDATE rituals SET contract_id=?, title=?, kind=?, access=?, scheduled_at=?, stream_url=?, camera_id=?, replay_url=?, note=? WHERE id=?",
+               (body.contract_id, body.title, body.kind, body.access, body.scheduled_at, body.stream_url, body.camera_id, body.replay_url, body.note, rid))
     return {"ok": True}
 
 
@@ -401,6 +405,130 @@ def ritual_update(rid: int, body: RitualIn):
 def ritual_delete(rid: int):
     db.execute("DELETE FROM rituals WHERE id=?", (rid,))
     return {"ok": True}
+
+
+# ---------- 제사 생중계 진행 콘솔: 참여 가족·봉행 순서·현재 차례·가족 메시지·현장 화면 ----------
+
+def _ritual_or_404(rid: int) -> dict:
+    r = db.one("SELECT * FROM rituals WHERE id=?", (rid,))
+    if not r:
+        raise HTTPException(404, "일정이 없습니다.")
+    return r
+
+
+@router.get("/rituals/{rid}/console")
+def ritual_console(rid: int):
+    r = _ritual_or_404(rid)
+    parts = db.rows(
+        """SELECT p.*, d.name AS deceased_name, d.birth_date, d.death_date, c.holder_name
+           FROM ritual_participants p JOIN contracts c ON c.id=p.contract_id LEFT JOIN deceased d ON d.id=p.deceased_id
+           WHERE p.ritual_id=? ORDER BY CASE WHEN p.order_no>0 THEN 0 ELSE 1 END, p.order_no, p.id""", (rid,))
+    contracts = db.rows("SELECT c.id, c.holder_name, (SELECT GROUP_CONCAT(d.name, ', ') FROM deceased d WHERE d.contract_id=c.id) AS deceased_names FROM contracts c ORDER BY c.id")
+    return {"ritual": r, "participants": parts, "contracts": contracts, "viewer_count": state.viewer_count(rid)}
+
+
+@router.get("/rituals/{rid}/live")
+def ritual_live_admin(rid: int, since: int = 0, rseq: int = -1):
+    """진행 콘솔·현장 화면(TV)이 2초마다 부른다. 유족 앱과 같은 payload."""
+    from .family import _live_payload, _participants
+    r = _ritual_or_404(rid)
+    return _live_payload(r, _participants(rid), since, rseq)
+
+
+@router.get("/rituals/{rid}/stream")
+def ritual_stream_admin(rid: int):
+    """현장 화면(TV)용 MJPEG. 관리자 키를 ?key= 로 받는다."""
+    from .family import _mjpeg
+    r = _ritual_or_404(rid)
+    if r["camera_id"] is None:
+        raise HTTPException(404, "현장 카메라가 없는 일정입니다.")
+    return StreamingResponse(_mjpeg(-r["camera_id"], time.time() + 6 * 3600, None),
+                             media_type="multipart/x-mixed-replace; boundary=frame", headers={"Cache-Control": "no-store"})
+
+
+class ParticipantIn(BaseModel):
+    contract_id: int
+    deceased_id: int | None = None
+    mourner_name: str = ""
+    note: str = ""
+
+
+class ParticipantUpdate(BaseModel):
+    order_no: int | None = None
+    status: str | None = Field(default=None, pattern="^(requested|accepted|rejected)$")
+    mourner_name: str | None = None
+
+
+@router.post("/rituals/{rid}/participants")
+def participant_add(rid: int, body: ParticipantIn):
+    _ritual_or_404(rid)
+    c = db.one("SELECT holder_name FROM contracts WHERE id=?", (body.contract_id,))
+    if not c:
+        raise HTTPException(404, "계약이 없습니다.")
+    if db.one("SELECT id FROM ritual_participants WHERE ritual_id=? AND contract_id=? AND status<>'rejected'", (rid, body.contract_id)):
+        raise HTTPException(409, "이미 참여 중인 가족입니다.")
+    d = (db.one("SELECT id FROM deceased WHERE id=? AND contract_id=?", (body.deceased_id, body.contract_id)) if body.deceased_id
+         else db.one("SELECT id FROM deceased WHERE contract_id=? ORDER BY id LIMIT 1", (body.contract_id,)))
+    nxt = (db.one("SELECT COALESCE(MAX(order_no),0) AS n FROM ritual_participants WHERE ritual_id=?", (rid,))["n"] or 0) + 1
+    pid = db.execute("INSERT INTO ritual_participants(ritual_id, contract_id, deceased_id, mourner_name, order_no, status, note, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                     (rid, body.contract_id, d["id"] if d else None, body.mourner_name.strip() or c["holder_name"], nxt, "accepted", body.note, db.now()))
+    return {"id": pid, "order_no": nxt}
+
+
+@router.put("/rituals/{rid}/participants/{pid}")
+def participant_update(rid: int, pid: int, body: ParticipantUpdate):
+    x = db.one("SELECT * FROM ritual_participants WHERE id=? AND ritual_id=?", (pid, rid))
+    if not x:
+        raise HTTPException(404)
+    db.execute("UPDATE ritual_participants SET order_no=?, status=?, mourner_name=? WHERE id=?",
+               (x["order_no"] if body.order_no is None else max(0, body.order_no), body.status or x["status"],
+                x["mourner_name"] if body.mourner_name is None else body.mourner_name.strip(), pid))
+    return {"ok": True}
+
+
+@router.delete("/rituals/{rid}/participants/{pid}")
+def participant_delete(rid: int, pid: int):
+    db.execute("DELETE FROM ritual_participants WHERE id=? AND ritual_id=?", (pid, rid))
+    return {"ok": True}
+
+
+class CurrentIn(BaseModel):
+    order_no: int = 0   # 0 = 시작 전
+
+
+@router.post("/rituals/{rid}/current")
+def ritual_current(rid: int, body: CurrentIn):
+    _ritual_or_404(rid)
+    db.execute("UPDATE rituals SET current_order=? WHERE id=?", (max(0, body.order_no), rid))
+    db.audit("admin", "ritual.current", f"ritual:{rid}", str(body.order_no))
+    return {"current_order": max(0, body.order_no)}
+
+
+@router.post("/rituals/{rid}/next")
+def ritual_next(rid: int):
+    """다음 차례로. 마지막 다음은 '마침'(목록에 없는 번호)."""
+    r = _ritual_or_404(rid)
+    orders = [x["order_no"] for x in db.rows("SELECT order_no FROM ritual_participants WHERE ritual_id=? AND status<>'rejected' AND order_no>0 ORDER BY order_no", (rid,))]
+    if not orders:
+        raise HTTPException(400, "봉행 순서가 없습니다. 참여 가족의 순서 번호를 먼저 정하세요.")
+    cur = r.get("current_order") or 0
+    nxt = next((o for o in orders if o > cur), None)
+    new = nxt if nxt is not None else orders[-1] + 1
+    db.execute("UPDATE rituals SET current_order=? WHERE id=?", (new, rid))
+    return {"current_order": new, "finished": nxt is None}
+
+
+class SiteMessageIn(BaseModel):
+    message: str = Field(min_length=1, max_length=300)
+    kind: str = Field(default="chat", pattern="^(chat|notice)$")
+
+
+@router.post("/rituals/{rid}/messages")
+def ritual_site_message(rid: int, body: SiteMessageIn):
+    _ritual_or_404(rid)
+    mid = db.execute("INSERT INTO ritual_messages(ritual_id, contract_id, sender, author, kind, message, created_at) VALUES (?,?,?,?,?,?,?)",
+                     (rid, None, "site", "진행자", body.kind, body.message.strip(), db.now()))
+    return {"id": mid}
 
 
 # ---------- 공양 접수 · 이용 현황 ----------

@@ -277,13 +277,18 @@ async function deceasedForm(did, contractId) {
 async function rituals() {
   const [rows, cams, cons] = await Promise.all([api("/api/admin/rituals"), api("/api/admin/cameras"), api("/api/admin/contracts")]);
   const kindName = { memorial: "기일", holiday: "명절", event: "행사" };
-  page.innerHTML = `<h1>의례 일정·중계</h1><div class="toolbar"><button class="small" id="newR">일정 추가</button></div>
-    <div class="card"><table><tr><th>일시</th><th>종류</th><th>제목</th><th>대상</th><th>중계</th><th>다시 보기</th><th></th></tr>
-      ${rows.map((r) => `<tr><td>${fmt(r.scheduled_at)}</td><td>${kindName[r.kind]}</td><td><b>${esc(r.title)}</b><div class="muted">${esc(r.note)}</div></td><td>${r.contract_id ? esc(r.holder_name) + " 가족" : "시설 공통"}</td><td>${r.camera_id ? "현장 카메라 #" + r.camera_id : r.stream_url ? '<a href="' + esc(r.stream_url) + '" target="_blank">링크</a>' : "-"}</td><td>${r.replay_url ? '<a href="' + esc(r.replay_url) + '" target="_blank">링크</a>' : "-"}</td><td><button class="small ghost" data-edit="${r.id}">편집</button> <button class="small ghost" data-del="${r.id}">삭제</button></td></tr>`).join("")}</table></div>`;
+  page.innerHTML = `<h1>의례 일정·생중계</h1><p class="muted">법회·행사(누구나)는 그냥 생중계, 제사(신청 가족만)는 참여를 신청한 가족만 봅니다. 진행 콘솔에서 봉행 순서·현재 차례·가족 메시지 답장을 하고, 현장 화면을 TV에 띄웁니다.</p>
+    <div class="toolbar"><button class="small" id="newR">일정 추가</button></div>
+    <div class="card"><table><tr><th>일시</th><th>종류</th><th>제목</th><th>공개</th><th>참여</th><th>중계</th><th></th></tr>
+      ${rows.map((r) => `<tr><td>${fmt(r.scheduled_at)}</td><td>${kindName[r.kind] || r.kind}</td><td><b>${esc(r.title)}</b><div class="muted">${esc(r.note)}${r.contract_id ? ` · ${esc(r.holder_name)} 가족` : ""}</div></td>
+        <td>${r.access === "applied" ? '<span class="tag busy">신청 가족만</span>' : '<span class="tag on">누구나</span>'}</td><td>${r.participant_count || 0}가족${r.current_order ? ` · 지금 ${r.current_order}번` : ""}</td>
+        <td>${r.camera_id ? "현장 카메라" : ""}${r.stream_url ? ' <a href="' + esc(r.stream_url) + '" target="_blank">링크</a>' : ""}</td>
+        <td class="row" style="gap:4px"><button class="small" data-console="${r.id}" style="min-height:28px">진행 콘솔</button><button class="small ghost" data-edit="${r.id}" style="min-height:28px">편집</button><button class="small ghost" data-del="${r.id}" style="min-height:28px">삭제</button></td></tr>`).join("")}</table></div>`;
   const form = (r) => {
     const m = modal(`<h2>${r ? "일정 편집" : "일정 추가"}</h2><div class="form-grid">
       <div class="field"><label>제목</label><input id="rTitle" value="${esc(r?.title || "")}"></div>
       <div class="field"><label>종류</label><select id="rKind">${Object.entries(kindName).map(([k, v]) => `<option value="${k}" ${r?.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></div>
+      <div class="field"><label>공개 범위</label><select id="rAccess"><option value="open" ${(r?.access || "open") === "open" ? "selected" : ""}>누구나 (법회·행사 생중계)</option><option value="applied" ${r?.access === "applied" ? "selected" : ""}>신청 가족만 (제사)</option></select></div>
       <div class="field"><label>일시</label><input id="rAt" type="datetime-local" value="${esc((r?.scheduled_at || "").slice(0, 16))}"></div>
       <div class="field"><label>대상</label><select id="rCon"><option value="">시설 공통</option>${cons.map((c) => `<option value="${c.id}" ${r?.contract_id === c.id ? "selected" : ""}>${esc(c.holder_name)} 가족</option>`).join("")}</select></div>
       <div class="field"><label>현장 카메라</label><select id="rCam"><option value="">없음</option>${cams.map((c) => `<option value="${c.id}" ${r?.camera_id === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
@@ -291,16 +296,60 @@ async function rituals() {
       <div class="field"><label>다시 보기 링크</label><input id="rReplay" value="${esc(r?.replay_url || "")}"></div>
       <div class="field"><label>메모</label><input id="rNote" value="${esc(r?.note || "")}"></div></div><button id="rGo" style="margin-top:12px">저장</button>`);
     $("#rGo", m).onclick = async () => {
-      const body = { title: $("#rTitle", m).value, kind: $("#rKind", m).value, scheduled_at: $("#rAt", m).value, contract_id: $("#rCon", m).value ? +$("#rCon", m).value : null, camera_id: $("#rCam", m).value ? +$("#rCam", m).value : null, stream_url: $("#rUrl", m).value, replay_url: $("#rReplay", m).value, note: $("#rNote", m).value };
+      const body = { title: $("#rTitle", m).value, kind: $("#rKind", m).value, access: $("#rAccess", m).value, scheduled_at: $("#rAt", m).value, contract_id: $("#rCon", m).value ? +$("#rCon", m).value : null, camera_id: $("#rCam", m).value ? +$("#rCam", m).value : null, stream_url: $("#rUrl", m).value, replay_url: $("#rReplay", m).value, note: $("#rNote", m).value };
       try { await api(r ? `/api/admin/rituals/${r.id}` : "/api/admin/rituals", { method: r ? "PUT" : "POST", body }); m.remove(); rituals(); } catch (e) { toast(e.message); }
     };
   };
   $("#newR").onclick = () => form(null);
   page.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => form(rows.find((r) => r.id === +b.dataset.edit)));
-  page.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => { if (confirm("삭제할까요?")) { await api(`/api/admin/rituals/${b.dataset.del}`, { method: "DELETE" }); rituals(); } });
+  page.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => { if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "정말 삭제"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "삭제"; }, 4000); return; } await api(`/api/admin/rituals/${b.dataset.del}`, { method: "DELETE" }); rituals(); });
+  page.querySelectorAll("[data-console]").forEach((b) => b.onclick = () => ritualConsole(+b.dataset.console));
 }
 
-// ---------------- 공양 접수·이용 현황 ----------------
+// 진행 콘솔: 봉행 순서(참여 가족)·현재 차례·가족 메시지 답장·현장 화면 링크. 2초마다 새로 고침.
+async function ritualConsole(rid) {
+  timers.forEach(clearInterval); timers = [];
+  let since = 0, rseq = -1; const counts = {};
+  const c = await api(`/api/admin/rituals/${rid}/console`);
+  const r = c.ritual; const pStatus = { requested: "신청됨", accepted: "확정", rejected: "반려" };
+  page.innerHTML = `<div class="toolbar"><button class="small ghost" id="back">← 일정 목록</button><h1 style="margin:0">${esc(r.title)}</h1><span class="muted">${fmt(r.scheduled_at)} · ${r.access === "applied" ? "신청 가족만" : "누구나"}</span>
+      <a class="btn small secondary" style="margin-left:auto" href="/screen?ritual=${rid}&key=${encodeURIComponent(KEY)}" target="_blank">현장 화면(TV) 열기</a></div>
+    <div class="kpi" style="margin:12px 0"><div class="card"><div class="muted">지금 보는 가족</div><div class="n" id="cViewers">0</div></div><div class="card"><div class="muted">참여 가족</div><div class="n">${c.participants.length}</div></div><div class="card"><div class="muted">현재 차례</div><div class="n" id="cNow" style="font-size:20px">-</div></div><div class="card"><div class="muted">반응</div><div class="n" id="cReact" style="font-size:20px">-</div></div></div>
+    <div class="cal" style="grid-template-columns:1.2fr 1fr">
+      <div class="card"><h3>봉행 순서 <span class="muted">(번호를 고쳐 저장하면 순서가 바뀝니다)</span></h3>
+        <table><tr><th>순서</th><th>고인</th><th>가족(계약자)</th><th>상주</th><th>상태</th><th></th></tr>
+          ${c.participants.map((p) => `<tr data-pid="${p.id}"><td><input type="number" class="pOrder" value="${p.order_no || 0}" style="width:64px"></td><td><b>${esc(p.deceased_name || "-")}</b><div class="muted">${esc(fmt(p.birth_date))} ~ ${esc(fmt(p.death_date))}</div></td><td>${esc(p.holder_name)}${p.note ? `<div class="muted">${esc(p.note)}</div>` : ""}</td><td><input class="pMourner" value="${esc(p.mourner_name)}" style="width:110px"></td>
+            <td><select class="pStatus" style="width:auto">${Object.entries(pStatus).map(([k, v]) => `<option value="${k}" ${p.status === k ? "selected" : ""}>${v}</option>`).join("")}</select></td>
+            <td class="row" style="gap:4px"><button class="small" data-psave="${p.id}" style="min-height:28px">저장</button><button class="small ghost" data-pnow="${p.order_no}" style="min-height:28px">이 차례로</button><button class="small ghost" data-pdel="${p.id}" style="min-height:28px">삭제</button></td></tr>`).join("") || '<tr><td colspan="6" class="muted">참여 가족이 없습니다. 유족 앱의 "제사 참여 신청" 또는 아래에서 추가하세요.</td></tr>'}</table>
+        <div class="row" style="margin-top:10px;flex-wrap:wrap"><select id="addCon" style="width:auto">${c.contracts.map((x) => `<option value="${x.id}">${esc(x.holder_name)} 가족 — ${esc(x.deceased_names || "고인 미등록")}</option>`).join("")}</select><input id="addMourner" placeholder="상주 이름" style="width:120px"><button class="small secondary" id="addP">참여 가족 추가</button></div>
+        <div class="toolbar" style="margin-top:12px"><b>현재 차례</b><button class="small ghost" id="cReset">시작 전으로</button><button class="small" id="cNext">다음 차례 ▶</button><span class="muted">유족 앱과 현장 화면에 바로 반영됩니다.</span></div></div>
+      <div class="card"><h3>가족 메시지 <span class="muted">(유족 앱 라이브 화면과 쌍방향)</span></h3>
+        <div id="cMsgs" class="stack" style="max-height:360px;overflow-y:auto;font-size:14px"></div>
+        <div class="row" style="margin-top:10px"><input id="cInput" placeholder="답장 또는 안내 (예: 지금 김옥순 님 차례입니다)"><label class="row" style="gap:4px;width:auto;white-space:nowrap"><input type="checkbox" id="cNotice" style="width:18px;height:18px">공지(강조)</label><button class="small" id="cSend">보내기</button></div></div>
+    </div>`;
+  $("#back").onclick = rituals;
+  const reload = () => ritualConsole(rid);
+  page.querySelectorAll("[data-psave]").forEach((b) => b.onclick = async () => { const tr = b.closest("tr"); try { await api(`/api/admin/rituals/${rid}/participants/${b.dataset.psave}`, { method: "PUT", body: { order_no: +tr.querySelector(".pOrder").value, mourner_name: tr.querySelector(".pMourner").value, status: tr.querySelector(".pStatus").value } }); toast("저장했습니다."); reload(); } catch (e) { toast(e.message); } });
+  page.querySelectorAll("[data-pdel]").forEach((b) => b.onclick = async () => { await api(`/api/admin/rituals/${rid}/participants/${b.dataset.pdel}`, { method: "DELETE" }); reload(); });
+  page.querySelectorAll("[data-pnow]").forEach((b) => b.onclick = async () => { try { await api(`/api/admin/rituals/${rid}/current`, { method: "POST", body: { order_no: +b.dataset.pnow } }); poll(); } catch (e) { toast(e.message); } });
+  $("#cReset").onclick = async () => { await api(`/api/admin/rituals/${rid}/current`, { method: "POST", body: { order_no: 0 } }); poll(); };
+  $("#cNext").onclick = async () => { try { await api(`/api/admin/rituals/${rid}/next`, { method: "POST" }); poll(); } catch (e) { toast(e.message); } };
+  $("#addP").onclick = async () => { try { await api(`/api/admin/rituals/${rid}/participants`, { method: "POST", body: { contract_id: +$("#addCon").value, mourner_name: $("#addMourner").value } }); reload(); } catch (e) { toast(e.message); } };
+  const send = async () => { const t = $("#cInput").value.trim(); if (!t) return; try { await api(`/api/admin/rituals/${rid}/messages`, { method: "POST", body: { message: t, kind: $("#cNotice").checked ? "notice" : "chat" } }); $("#cInput").value = ""; poll(); } catch (e) { toast(e.message); } };
+  $("#cSend").onclick = send; $("#cInput").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+  async function poll() {
+    let d; try { d = await api(`/api/admin/rituals/${rid}/live?since=${since}&rseq=${rseq}`); } catch { return; }
+    $("#cViewers").textContent = d.viewer_count;
+    $("#cNow").textContent = d.current ? `${d.current_order}/${d.order.length} ${d.current.deceased_name} 님 (상주 ${d.current.mourner_name || "-"})` : (d.current_order === 0 ? "시작 전" : "마침");
+    d.reactions.forEach((x) => { if (x.seq > rseq) { rseq = x.seq; counts[x.emoji] = (counts[x.emoji] || 0) + 1; } }); if (d.rseq > rseq) rseq = d.rseq;
+    $("#cReact").textContent = Object.entries(counts).map(([e, n]) => `${e}${n}`).join(" ") || "-";
+    const box = $("#cMsgs");
+    d.messages.forEach((m) => { since = Math.max(since, m.id); const div = document.createElement("div"); div.className = `bubble ${m.sender === "site" ? "me" : "them"}`; div.style.fontSize = "14px"; div.innerHTML = `<b>${esc(m.author)}</b> ${esc(m.message)} <span class="muted" style="font-size:11px">${fmt(m.created_at).slice(11)}</span>`; box.appendChild(div); });
+    if (d.messages.length) box.scrollTop = box.scrollHeight;
+  }
+  poll(); every(poll, 2000);
+}
+
 async function usage() {
   const [offs, u] = await Promise.all([api("/api/admin/offerings"), api("/api/admin/usage")]);
   const kindLabel = { offering: "공양", flower: "헌화", prayer: "기도" };

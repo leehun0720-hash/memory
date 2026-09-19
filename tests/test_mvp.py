@@ -547,3 +547,55 @@ def test_edge_crop_is_fast_and_bounded():
     for _ in range(5):
         jpeg(crop_niche(frame, rect), 75)
     assert (time.perf_counter() - t) / 5 < 0.05      # 한 장에 50ms 미만(1080p 큰 반경 흐림은 66ms였다)
+
+
+# ---------- 제사 생중계: 신청 가족만 · 봉행 순서(고인·상주) · 가족 메시지/반응 쌍방향 ----------
+
+def test_ritual_live_flow(client):
+    from datetime import datetime
+    tok = {"X-Family-Token": holder_token("이미영")}
+    tok2 = {"X-Family-Token": holder_token("김태형")}
+    ritual_cam = next(c for c in client.get("/api/edge/config", headers=EDGE).json()["cameras"] if c["kind"] == "ritual")
+    now_iso = datetime.now().astimezone().isoformat(timespec="seconds")
+    rid = client.post("/api/admin/rituals", headers=ADMIN, json={"title": "테스트 합동 제사", "kind": "memorial", "access": "applied", "scheduled_at": now_iso, "camera_id": ritual_cam["id"]}).json()["id"]
+    # 신청 전: 목록에는 보이지만 볼 수 없다
+    mine = next(x for x in client.get("/api/family/rituals", headers=tok).json() if x["id"] == rid)
+    assert mine["access"] == "applied" and mine["can_watch"] is False and mine["my_participation"] is None
+    assert client.get(f"/api/family/rituals/{rid}/live", headers=tok).status_code == 403
+    assert client.get(f"/api/family/rituals/{rid}/stream", headers=tok).status_code == 403
+    # 참여 신청 → 순서 1번, 상주 기본은 계약자 이름
+    assert client.post(f"/api/family/rituals/{rid}/join", headers=tok, json={"mourner_name": ""}).json()["order_no"] == 1
+    assert client.post(f"/api/family/rituals/{rid}/join", headers=tok, json={}).status_code == 409
+    client.post(f"/api/family/rituals/{rid}/join", headers=tok2, json={"mourner_name": "김태형"})
+    mine = next(x for x in client.get("/api/family/rituals", headers=tok).json() if x["id"] == rid)
+    assert mine["can_watch"] and mine["my_participation"]["mourner_name"] == "이미영" and len(mine["participants"]) == 2
+    # 진행자가 현재 차례를 1번으로 → 라이브 payload에 고인 이름·생년월일·상주
+    assert client.post(f"/api/admin/rituals/{rid}/current", headers=ADMIN, json={"order_no": 1}).json()["current_order"] == 1
+    live = client.get(f"/api/family/rituals/{rid}/live?since=0&rseq=0", headers=tok).json()
+    assert live["current"]["deceased_name"] == "김옥순" and live["current"]["is_mine"] and live["current"]["mourner_name"] == "이미영"
+    assert live["current"]["birth_date"] and live["order"][1]["deceased_name"] == "김철수"
+    # 쌍방향: 가족 메시지(연타 제한) ↔ 진행자 공지, 반응
+    assert client.post(f"/api/family/rituals/{rid}/messages", headers=tok, json={"message": "어머니, 저희 왔어요"}).status_code == 200
+    assert client.post(f"/api/family/rituals/{rid}/messages", headers=tok, json={"message": "연타"}).status_code == 429
+    client.post(f"/api/admin/rituals/{rid}/messages", headers=ADMIN, json={"message": "지금 김옥순 님 차례입니다", "kind": "notice"})
+    seq = client.post(f"/api/family/rituals/{rid}/reactions", headers=tok2, json={"emoji": "🙏"}).json()["seq"]
+    assert client.post(f"/api/family/rituals/{rid}/reactions", headers=tok2, json={"emoji": "😀"}).status_code == 400
+    live2 = client.get(f"/api/family/rituals/{rid}/live?since=0&rseq={seq - 1}", headers=tok2).json()
+    kinds = [(x["sender"], x["kind"]) for x in live2["messages"]]
+    assert ("family", "chat") in kinds and ("site", "notice") in kinds
+    assert live2["reactions"] and live2["reactions"][-1]["emoji"] == "🙏" and live2["viewer_count"] >= 1
+    # 다음 차례 → 2번(김철수), 그 다음은 마침
+    assert client.post(f"/api/admin/rituals/{rid}/next", headers=ADMIN).json()["current_order"] == 2
+    assert client.post(f"/api/admin/rituals/{rid}/next", headers=ADMIN).json()["finished"] is True
+    # 진행 콘솔·현장 화면 payload
+    con = client.get(f"/api/admin/rituals/{rid}/console", headers=ADMIN).json()
+    assert len(con["participants"]) == 2 and con["contracts"]
+    assert client.get(f"/api/admin/rituals/{rid}/live?since=0", headers=ADMIN).json()["order"][0]["deceased_name"] == "김옥순"
+    # 반려하면 볼 수 없다
+    pid2 = next(x["id"] for x in con["participants"] if x["holder_name"] == "김태형")
+    client.put(f"/api/admin/rituals/{rid}/participants/{pid2}", headers=ADMIN, json={"status": "rejected"})
+    assert client.get(f"/api/family/rituals/{rid}/live", headers=tok2).status_code == 403
+    # 법회(누구나)는 신청 없이 본다
+    r2 = client.post("/api/admin/rituals", headers=ADMIN, json={"title": "테스트 법회", "kind": "event", "access": "open", "scheduled_at": now_iso, "camera_id": ritual_cam["id"]}).json()
+    assert client.get(f"/api/family/rituals/{r2['id']}/live", headers=tok2).status_code == 200
+    assert client.get("/screen").status_code == 200

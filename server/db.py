@@ -87,6 +87,19 @@ CREATE TABLE IF NOT EXISTS live_sessions (
   id TEXT PRIMARY KEY, niche_id INTEGER NOT NULL REFERENCES niches(id),
   member_id INTEGER NOT NULL REFERENCES family_members(id), started_at TEXT NOT NULL, expires_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ritual_participants (
+  id INTEGER PRIMARY KEY, ritual_id INTEGER NOT NULL REFERENCES rituals(id),
+  contract_id INTEGER NOT NULL REFERENCES contracts(id), deceased_id INTEGER REFERENCES deceased(id),
+  mourner_name TEXT DEFAULT '', order_no INTEGER DEFAULT 0,           -- 상주 · 봉행 순서(0=미정)
+  status TEXT NOT NULL DEFAULT 'requested',                             -- requested | accepted | rejected
+  note TEXT DEFAULT '', created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ritual_messages (
+  id INTEGER PRIMARY KEY, ritual_id INTEGER NOT NULL REFERENCES rituals(id),
+  contract_id INTEGER REFERENCES contracts(id), sender TEXT NOT NULL,    -- family | site(진행자)
+  author TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'chat',               -- chat | notice(강조 안내)
+  message TEXT NOT NULL, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL
 );
@@ -126,6 +139,8 @@ _MIGRATIONS = [
     ("deceased", "face_id", "TEXT DEFAULT ''"),           # 실시간 아바타 얼굴 ID(공급자 측)
     ("deceased", "face_provider", "TEXT DEFAULT ''"),     # simli
     ("deceased", "theme", "TEXT DEFAULT 'classic'"),      # 추모 공간 테마: classic | buddhist | catholic | christian
+    ("rituals", "access", "TEXT DEFAULT 'open'"),         # open(누구나 생중계: 법회·행사) | applied(신청 가족만: 제사)
+    ("rituals", "current_order", "INTEGER DEFAULT 0"),    # 지금 봉행 중인 순서 번호(0=시작 전)
 ]
 
 

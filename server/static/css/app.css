@@ -308,3 +308,44 @@ html[data-motion="reduce"] .veil .pane { transition: none; }
 .launch .who-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
 .launch .who-row:first-child { border-top: none; }
 .launch .who-row .btn { width: auto; min-height: 44px; font-size: 15px; padding: 0 16px; border-radius: 12px; flex: none; }
+
+/* ---------- 제사 생중계(틱톡 라이브식 전체 화면) ---------- */
+.noscroll { overflow: hidden; }
+.live-view { position: fixed; inset: 0; z-index: 80; background: #000; overflow: hidden; color: #fff; font-family: var(--font-sans); }
+.live-bg { position: absolute; inset: -12%; width: 124%; height: 124%; filter: blur(22px) brightness(.5); object-fit: cover; }
+.live-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.live-shade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(0,0,0,.6), transparent 22%, transparent 52%, rgba(0,0,0,.78)); }
+.live-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: max(12px, env(safe-area-inset-top)) 14px 8px; }
+.live-badge-red { background: #d93a2f; color: #fff; font-size: 12px; font-weight: 800; padding: 3px 8px; border-radius: 8px; letter-spacing: .5px; box-shadow: 0 0 12px rgba(217,58,47,.7); }
+.live-title { font-family: var(--font-serif); font-weight: 700; font-size: 16px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 6px rgba(0,0,0,.8); }
+.live-viewers { font-size: 13px; background: rgba(0,0,0,.45); padding: 3px 9px; border-radius: 12px; white-space: nowrap; }
+.live-close { width: 36px; min-width: 36px; min-height: 36px; padding: 0; border-radius: 50%; background: rgba(0,0,0,.5); color: #fff; box-shadow: none; font-size: 16px; border: 1px solid rgba(255,255,255,.2); }
+.live-now { position: absolute; top: 58px; left: 14px; right: 14px; }
+.live-now-in { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; background: rgba(0,0,0,.5); border: 1px solid rgba(214,184,110,.5); border-radius: 12px; padding: 8px 12px; font-size: 14px; backdrop-filter: blur(6px); }
+.live-now-in b { font-family: var(--font-serif); font-size: 18px; color: var(--gold-2); }
+.live-now-k { color: var(--gold); font-weight: 700; font-size: 12px; letter-spacing: .5px; }
+.live-mine { background: var(--gold); color: #1b1409; font-weight: 800; font-size: 12px; padding: 1px 8px; border-radius: 8px; }
+.live-msgs { position: absolute; left: 12px; right: 84px; bottom: 134px; display: flex; flex-direction: column; gap: 6px; -webkit-mask-image: linear-gradient(180deg, transparent, #000 28%); mask-image: linear-gradient(180deg, transparent, #000 28%); }
+.live-msg { align-self: flex-start; background: rgba(0,0,0,.45); border-radius: 14px; padding: 6px 12px; font-size: 15px; line-height: 1.4; max-width: 100%; animation: msg-in .35s ease-out; backdrop-filter: blur(4px); word-break: break-word; }
+.live-msg b { color: var(--gold-2); margin-right: 6px; font-weight: 700; }
+.live-msg.site { background: rgba(214,184,110,.22); border: 1px solid rgba(214,184,110,.5); }
+.live-msg.notice { background: rgba(214,184,110,.92); color: #1b1409; font-weight: 700; } .live-msg.notice b { color: #1b1409; }
+@keyframes msg-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.live-bar { position: absolute; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 72px); display: flex; gap: 8px; }
+.live-bar input { flex: 1; background: rgba(0,0,0,.55); border-color: rgba(255,255,255,.25); color: #fff; font-size: 16px; padding: 10px 14px; border-radius: 22px; }
+.live-send { width: auto; min-height: 44px; padding: 0 16px; border-radius: 22px; font-size: 15px; }
+.live-react { position: absolute; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 14px); display: flex; gap: 8px; justify-content: flex-end; }
+.live-react button { width: 46px; min-width: 46px; min-height: 46px; padding: 0; border-radius: 50%; background: rgba(0,0,0,.5); box-shadow: none; font-size: 22px; border: 1px solid rgba(255,255,255,.2); color: #fff; }
+.live-react .live-orderbtn { width: auto; padding: 0 14px; border-radius: 23px; font-size: 14px; color: var(--gold-2); font-weight: 700; margin-right: auto; }
+.live-fx { position: absolute; right: 0; bottom: 130px; width: 55%; height: 60%; pointer-events: none; overflow: hidden; }
+.live-fx i, .fx i { position: absolute; bottom: 0; font-style: normal; font-size: 30px; opacity: 0; animation: float-up 2.5s ease-out forwards; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
+@keyframes float-up { 0% { opacity: 0; transform: translate(0, 0) scale(.6); } 15% { opacity: 1; transform: translate(0, -40px) scale(1.15); } 100% { opacity: 0; transform: translate(var(--dx, 0px), -420px) scale(1); } }
+.live-drawer { position: absolute; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; z-index: 2; }
+.live-drawer-in { background: var(--surface-solid); color: var(--ink); width: 100%; border-radius: 22px 22px 0 0; padding: 18px 16px 24px; max-height: 70%; overflow-y: auto; border-top: 1px solid var(--line-strong); }
+.live-order-row { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.live-order-row:first-child { border-top: none; }
+.live-order-row .no { width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid var(--line-strong); display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--gold); flex: none; }
+.live-order-row.now { background: rgba(var(--glow), .14); margin: 0 -8px; padding: 10px 8px; border-radius: 10px; border-top: none; }
+.live-order-row.now .no { background: var(--gold); color: #1b1409; border-color: var(--gold); }
+.live-order-row.mine b { color: var(--gold-2); }
+.live-ended { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.72); font-family: var(--font-serif); font-size: 22px; color: var(--gold-2); z-index: 1; }

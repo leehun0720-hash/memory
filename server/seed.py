@@ -126,6 +126,14 @@ def run(reset: bool = False, quiet: bool = False) -> None:
                (fid, c1, "김옥순 님 첫 기일 제사", "memorial", at(165, 11), "기일 일주일 전 알림"))
     db.execute("INSERT INTO rituals(facility_id, contract_id, title, kind, scheduled_at, note) VALUES (?,?,?,?,?,?)",
                (fid, c2, "김철수 님 49재", "memorial", at(19, 10), "사찰 49재 봉행"))
+    rid = db.execute("INSERT INTO rituals(facility_id, contract_id, title, kind, access, scheduled_at, camera_id, current_order, note) VALUES (?,?,?,?,?,?,?,?,?)",
+                     (fid, None, "합동 기제사 (시연: 신청 가족만 생중계)", "memorial", "applied", (now - timedelta(minutes=5)).isoformat(timespec="seconds"), cam + 1, 1, "봉행 순서·가족 메시지·반응 시연"))
+    for order, (cid, name, mourner) in enumerate([(c1, "김옥순", "이미영"), (c2, "김철수", "김태형")], start=1):
+        d = db.one("SELECT id FROM deceased WHERE contract_id=? AND name=?", (cid, name))
+        db.execute("INSERT INTO ritual_participants(ritual_id, contract_id, deceased_id, mourner_name, order_no, status, created_at) VALUES (?,?,?,?,?,?,?)",
+                   (rid, cid, d["id"] if d else None, mourner, order, "accepted", db.now()))
+    db.execute("INSERT INTO ritual_messages(ritual_id, sender, author, kind, message, created_at) VALUES (?,?,?,?,?,?)",
+               (rid, "site", "진행자", "notice", "곧 합동 기제사를 시작합니다. 가족 여러분은 합장해 주세요.", db.now()))
 
     db.audit("seed", "seed.create", "", "시연 데이터 생성")
     print("시연 데이터를 만들었습니다.")

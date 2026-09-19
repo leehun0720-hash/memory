@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ko" data-theme="classic">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>현장 화면 · 제사 생중계</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="/static/css/app.css">
+<style>
+  /* 제례 공간의 TV·모니터용 전체 화면. 왼쪽 영상, 오른쪽 순서·가족 메시지. */
+  body { padding: 0; overflow: hidden; height: 100vh; }
+  .scr { display: grid; grid-template-columns: 1.55fr 1fr; grid-template-rows: 100vh; gap: 0; }
+  .scr-video { position: relative; background: #000; overflow: hidden; }
+  .scr-video img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .scr-video .top { position: absolute; top: 0; left: 0; right: 0; padding: 18px 22px; display: flex; gap: 12px; align-items: center; background: linear-gradient(180deg, rgba(0,0,0,.7), transparent); }
+  .scr-video .top .t { font-family: var(--font-serif); font-size: 26px; font-weight: 700; color: var(--gold-2); flex: 1; }
+  .scr-video .fx { position: absolute; right: 0; bottom: 0; width: 40%; height: 70%; pointer-events: none; overflow: hidden; }
+  .scr-video .fx i { position: absolute; bottom: 0; font-style: normal; font-size: 44px; animation: float-up 2.8s ease-out forwards; }
+  .scr-side { display: flex; flex-direction: column; padding: 22px 24px; gap: 16px; min-height: 0; border-left: 1px solid var(--line); }
+  .scr-now { background: linear-gradient(180deg, rgba(var(--glow), .18), var(--surface)); border: 1px solid var(--line-strong); border-radius: 18px; padding: 18px 20px; text-align: center; }
+  .scr-now .k { color: var(--gold); font-weight: 700; letter-spacing: 2px; font-size: 14px; }
+  .scr-now .name { font-family: var(--font-serif); font-size: 40px; font-weight: 700; color: var(--gold-2); margin: 6px 0 2px; }
+  .scr-now .dates { font-size: 18px; }
+  .scr-now .mourner { font-size: 20px; margin-top: 6px; }
+  .scr-order { flex: 0 1 auto; overflow-y: auto; min-height: 0; }
+  .scr-order .live-order-row { font-size: 17px; }
+  .scr-msgs { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; }
+  .scr-msgs .live-msg { font-size: 19px; background: rgba(255,255,255,.07); border: 1px solid var(--line); }
+  .scr-msgs .live-msg.notice { background: rgba(214,184,110,.9); color: #1b1409; }
+  .scr-foot { display: flex; gap: 10px; align-items: center; font-size: 14px; color: var(--muted); }
+  .scr-foot button { width: auto; min-height: 34px; font-size: 13px; padding: 0 12px; }
+  .scr-foot .cnt { display: flex; gap: 10px; font-size: 16px; color: var(--ink); }
+  @media (max-width: 900px) { .scr { grid-template-columns: 1fr; grid-template-rows: 45vh 55vh; } .scr-side { border-left: none; border-top: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<div class="scr">
+  <div class="scr-video"><img id="video" alt="">
+    <div class="top"><span class="live-badge-red">● LIVE</span><span class="t" id="title">제사 생중계</span><span class="live-viewers" id="viewers">👁 0</span></div>
+    <div class="fx" id="fx"></div></div>
+  <div class="scr-side">
+    <div class="scr-now" id="now"><div class="k">봉행 순서</div><div class="name">준비 중</div></div>
+    <div class="scr-order" id="order"></div>
+    <div class="scr-msgs" id="msgs"></div>
+    <div class="scr-foot"><span class="cnt" id="counts"></span><span style="flex:1"></span><button class="small ghost" id="ttsBtn">가족 메시지 읽어 주기: 끔</button></div>
+  </div>
+</div>
+<script type="module" src="/static/js/screen.js"></script>
+</body>
+</html>

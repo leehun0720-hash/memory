@@ -31,6 +31,9 @@ class State:
         self.full_frames: dict[int, LiveFrame] = {}   # 관리자 좌표 등록용 전체 화면(사람 없을 때만 갱신)
         self._seq = 0
         self._new_frame = threading.Condition(self._lock)
+        self.viewers: dict[int, dict[int, float]] = {}     # 생중계 시청자: ritual_id → {member_id: 마지막 확인 시각}
+        self.reactions: dict[int, list] = {}               # 반응(합장·촛불…)은 저장하지 않고 메모리에 최근 200개만
+        self._rseq = 0
 
     def set_camera(self, cam_id: int, occupied: bool, persons: int, fps: float) -> None:
         with self._lock:
@@ -58,6 +61,33 @@ class State:
                 if remaining <= 0:
                     return None
                 self._new_frame.wait(remaining)
+
+    # ---- 제사 생중계: 시청자 · 반응 ----
+    def touch_viewer(self, ritual_id: int, member_id: int) -> None:
+        with self._lock:
+            self.viewers.setdefault(ritual_id, {})[member_id] = time.time()
+
+    def viewer_count(self, ritual_id: int, within: float = 8.0) -> int:
+        with self._lock:
+            now = time.time()
+            return sum(1 for t in self.viewers.get(ritual_id, {}).values() if now - t < within)
+
+    def push_reaction(self, ritual_id: int, emoji: str, author: str) -> int:
+        with self._lock:
+            self._rseq += 1
+            lst = self.reactions.setdefault(ritual_id, [])
+            lst.append((self._rseq, emoji, author, time.time()))
+            del lst[:-200]
+            return self._rseq
+
+    def reactions_since(self, ritual_id: int, seq: int) -> list[dict]:
+        with self._lock:
+            return [{"seq": s, "emoji": e, "author": a} for (s, e, a, _t) in self.reactions.get(ritual_id, []) if s > seq]
+
+    def reaction_seq(self, ritual_id: int) -> int:
+        with self._lock:
+            lst = self.reactions.get(ritual_id, [])
+            return lst[-1][0] if lst else 0
 
     def push_full(self, cam_id: int, data: bytes) -> None:
         with self._lock:
