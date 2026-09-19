@@ -59,7 +59,8 @@ async function runAllChecks() {
   try { const r = await api("/api/admin/settings/ai/test", { method: "POST" }); html += line(true, "Claude 대화", `${r.model} 응답 확인`); }
   catch (e) { html += line(false, "Claude 대화", e.message + " → AI 설정에서 키/크레딧 확인"); }
   try { const r = await api("/api/admin/settings/tts/test", { method: "POST" }); const c = r.checks || {};
-    html += line(!!r.all_ok, "ElevenLabs 복제 음성", `텍스트 음성 변환 ${c.text_to_speech === "ok" ? "✓" : "✗"} · 음성 ${c.voices_read === "ok" ? "✓" : "✗"} · 사용자 ${c.user_read === "ok" ? "✓" : "✗"}${r.note ? " · " + r.note : ""}${!r.all_ok ? " → 가장 쉬운 해결: ElevenLabs에서 '키 제한'을 끈 새 키를 만들어 AI 설정에 저장" : ""}`); }
+    const mk = (k) => c[k] === "ok" ? "✓" : c[k] === "quota" ? "✗(키 크레딧 한도 0)" : "✗";
+    html += line(!!r.all_ok, "ElevenLabs 복제 음성", `텍스트 음성 변환 ${mk("text_to_speech")} · 음성 ${mk("voices_read")} · 사용자 ${mk("user_read")}${r.note ? " · " + r.note : ""}${!r.all_ok && c.text_to_speech !== "quota" ? " → 가장 쉬운 해결: ElevenLabs에서 '키 제한'을 끈 새 키를 만들어 AI 설정에 저장" : ""}`); }
   catch (e) { html += line(false, "ElevenLabs 복제 음성", e.message + (e.message.includes("없습니다") ? "" : " → 가장 쉬운 해결: '키 제한'을 끈 새 키")); }
   overview.lastCheck = html; out.innerHTML = html;
 }
@@ -339,7 +340,7 @@ async function aisettings() {
       <div class="toolbar" style="margin-top:10px"><button class="small" id="elSave">저장</button><button class="small secondary" id="elTest">연결 테스트</button>${s.elevenlabs_key_masked ? `<button class="small ghost" id="elClear">키 삭제</button>` : ""}<span id="elOut" class="muted"></span></div>
       <div class="notice" style="margin-top:12px;font-size:13px"><b>ElevenLabs 키 만드는 법 (그대로 따라 하세요)</b><br>
         1) <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank">elevenlabs.io/app/settings/api-keys</a> → <b>Create API Key</b><br>
-        2) 이름 아무거나 · 만료 기간 <b>90일 이상</b><br>
+        2) 이름 아무거나 · 만료 기간 <b>90일 이상</b> · <b>"사용 제한 (크레딧)"의 '크레딧 갱신 주기당' 칸은 비워 두기</b>(0을 넣으면 모든 합성이 막힘)<br>
         3) <b>키 제한 토글을 끄기(OFF)</b> ← 가장 확실. 끄면 아래 4)는 건너뜀<br>
         4) 제한을 켜야 한다면 딱 세 개만: <b>텍스트 음성 변환 = 접근</b> · <b>음성(Voices) = 쓰기</b> · <b>사용자(User) = 읽기</b> (나머지 전부 접근 불가. "음성 변환"은 다른 기능이니 건드리지 않음)<br>
         5) 키 생성 → 화면에 한 번만 보이는 키를 복사 → 위 칸에 붙여 넣기 → 저장 → 연결 테스트에서 ✓ 세 개 확인<br>
@@ -396,7 +397,7 @@ async function aisettings() {
   async function runElTest() {
     outEl("확인 중…", true); $("#elTest").disabled = true;
     try { const r = await api("/api/admin/settings/tts/test", { method: "POST" });
-      const c = r.checks || {}; const mark = (k) => c[k] === "ok" ? "✓" : "✗";
+      const c = r.checks || {}; const mark = (k) => c[k] === "ok" ? "✓" : c[k] === "quota" ? "✗(키 크레딧 한도)" : "✗";
       const list = `권한 확인 — 텍스트 음성 변환 ${mark("text_to_speech")} · 음성(Voices) ${mark("voices_read")} · 사용자 읽기 ${mark("user_read")}`;
       outEl(`${r.all_ok ? "연결 성공" : "키는 유효하지만 권한 부족"} · ${list}${r.tier ? ` · 요금제 ${r.tier} · ${r.used ?? "-"}/${r.limit ?? "-"} 크레딧` : ""}${r.note ? " · " + r.note : ""}`, !!r.all_ok); }
     catch (e) { outEl("실패: " + e.message, false); }
