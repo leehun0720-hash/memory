@@ -23,7 +23,8 @@ async function boot() {
   if (!KEY) { KEY = prompt("관리자 키를 입력하세요") || ""; sessionStorage.setItem("admin_key", KEY); }
   try { await api("/api/admin/overview"); } catch (e) { sessionStorage.removeItem("admin_key"); page.innerHTML = `<div class="card">인증 실패: ${esc(e.message)} <button class="small" onclick="location.reload()">다시</button></div>`; return; }
   document.querySelectorAll("aside button").forEach((b) => b.onclick = () => go(b.dataset.page));
-  go("overview");
+  const want = location.hash.slice(1);   // /admin?key=…#rituals 처럼 페이지를 지정해 열 수 있다
+  go(["overview", "calib", "contracts", "deceased", "rituals", "usage", "aisettings"].includes(want) ? want : "overview");
 }
 function go(p) {
   timers.forEach(clearInterval); timers = [];

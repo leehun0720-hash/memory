@@ -86,10 +86,11 @@ async function boot() {
   applyTheme(currentTheme());
   $("#who").textContent = `${state.me.member.name} 님`;
   $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) go(b.dataset.tab); });
-  go("visit");
+  const want = location.hash.slice(1);   // /?t=…#ritual 처럼 탭을 지정해 열 수 있다
+  go(["visit", "memorial", "chat", "ritual", "settings"].includes(want) ? want : "visit");
 }
 function go(tab) {
-  clearTimers(); stopSpeech(); state.tab = tab;
+  clearTimers(); stopSpeech(); state.tab = tab; history.replaceState(null, "", location.pathname + (tab === "visit" ? "" : "#" + tab));
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   ({ visit: renderVisit, memorial: renderMemorial, chat: renderChat, ritual: renderRitual, settings: renderSettings })[tab]();
   window.scrollTo(0, 0);
