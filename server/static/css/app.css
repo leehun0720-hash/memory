@@ -272,10 +272,15 @@ nav.tabs button.active::after { content: ""; position: absolute; top: 0; left: 3
 @keyframes breathe { 0%, 100% { transform: scale(1) translateY(0); } 50% { transform: scale(1.02) translateY(-2px); } }
 @keyframes frame-glow { 0%, 100% { box-shadow: 0 0 0 1px rgba(0,0,0,.55), 0 24px 60px rgba(0,0,0,.6), 0 0 40px rgba(var(--glow), .25); } 50% { box-shadow: 0 0 0 1px rgba(0,0,0,.55), 0 24px 60px rgba(0,0,0,.6), 0 0 80px rgba(var(--glow), .6); } }
 @keyframes bar { 0%, 100% { height: 5px; } 50% { height: 18px; } }
-@media (prefers-reduced-motion: reduce) {
-  .shrine-inner img, .shrine-inner .mist, .shrine-inner .rays, .shrine-particles i, .voice-bars i, .shrine.speaking .shrine-frame, .snapshot.live img, .candle, .smoke::before, .smoke::after { animation: none !important; opacity: 1; }
-  .veil .pane { transition: none; }
-}
+/* 연출 줄이기: 설정 화면에서 켠다(html[data-motion="reduce"]). 윈도우의 '애니메이션 효과 끔'(prefers-reduced-motion)이 켜진 기기가 많아
+   시스템 값을 자동으로 따르면 등장·막·촛불 연출이 통째로 사라지므로, 사용자가 직접 고르게 한다. */
+html[data-motion="reduce"] .shrine-inner img, html[data-motion="reduce"] .shrine-inner .no-photo, html[data-motion="reduce"] .shrine-particles i, html[data-motion="reduce"] .voice-bars i,
+html[data-motion="reduce"] .shrine.speaking .shrine-frame, html[data-motion="reduce"] .snapshot.live img, html[data-motion="reduce"] .snapshot.reveal img,
+html[data-motion="reduce"] .candle, html[data-motion="reduce"] .smoke::before, html[data-motion="reduce"] .smoke::after, html[data-motion="reduce"] .shrine-halo, html[data-motion="reduce"] .title-card { animation: none !important; opacity: 1; }
+html[data-motion="reduce"] .shrine-inner .mist { animation: none !important; opacity: .15; }
+html[data-motion="reduce"] .shrine-inner .rays { animation: none !important; opacity: .1; }
+html[data-motion="reduce"] .shrine-particles i, html[data-motion="reduce"] .title-card, html[data-motion="reduce"] .smoke { display: none; }
+html[data-motion="reduce"] .veil .pane { transition: none; }
 
 /* ---------- 목소리 등록(녹음) ---------- */
 .rec-btn { width: 96px; height: 96px; border-radius: 50%; padding: 0; font-size: 34px; margin: 6px auto; display: flex; }
