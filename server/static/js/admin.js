@@ -43,9 +43,25 @@ async function overview() {
       <div class="card"><h3>카메라</h3><table><tr><th>이름</th><th>종류</th><th>장치</th><th>칸 수</th><th>상태</th><th>참배객</th><th>fps</th><th>마지막 신호</th></tr>
         ${o.cameras.map((cm) => `<tr><td>${esc(cm.name)}<div class="muted">${esc(cm.room_name)}</div></td><td>${cm.kind === "wall" ? "벽면" : "제례"}</td><td>#${cm.device_index}</td><td>${cm.niche_count}</td>
           <td>${cm.online ? '<span class="tag on">연결됨</span>' : '<span class="tag off">끊김</span>'}</td><td>${cm.occupied ? `<span class="tag busy">사람 ${cm.persons}명 · 송출 중단</span>` : '<span class="tag">없음</span>'}</td><td>${cm.fps}</td><td class="muted">${fmt(cm.last_seen_at)}</td></tr>`).join("")}</table>
-        <p class="muted" style="margin-top:8px">현장 프로그램이 꺼져 있으면 <span class="mono">python -m edge.agent</span> 로 실행하세요.</p></div>`;
+        <p class="muted" style="margin-top:8px">현장 프로그램이 꺼져 있으면 <span class="mono">python -m edge.agent</span> 로 실행하세요.</p></div>
+      <div class="card"><h3>AI 연결 점검 <span class="muted">(시연 전에 한 번 누르세요)</span></h3>
+        <div class="toolbar"><button class="small" id="chkAll">지금 점검</button><span class="muted">Claude 키·크레딧, ElevenLabs 키·권한 3개를 한 번에 확인합니다.</span></div>
+        <div id="chkOut" class="stack" style="font-size:14px"></div></div>`;
+    $("#chkAll").onclick = runAllChecks;
+    if (overview.lastCheck) $("#chkOut").innerHTML = overview.lastCheck;
   };
   await render(); every(render, 5000);
+}
+async function runAllChecks() {
+  const out = $("#chkOut"); out.innerHTML = '<div class="muted">점검 중…</div>';
+  const line = (ok, label, msg) => `<div style="color:${ok ? "#1e7a45" : "var(--danger)"}"><b>${ok ? "✓" : "✗"} ${label}</b> — ${esc(msg)}</div>`;
+  let html = "";
+  try { const r = await api("/api/admin/settings/ai/test", { method: "POST" }); html += line(true, "Claude 대화", `${r.model} 응답 확인`); }
+  catch (e) { html += line(false, "Claude 대화", e.message + " → AI 설정에서 키/크레딧 확인"); }
+  try { const r = await api("/api/admin/settings/tts/test", { method: "POST" }); const c = r.checks || {};
+    html += line(!!r.all_ok, "ElevenLabs 복제 음성", `텍스트 음성 변환 ${c.text_to_speech === "ok" ? "✓" : "✗"} · 음성 ${c.voices_read === "ok" ? "✓" : "✗"} · 사용자 ${c.user_read === "ok" ? "✓" : "✗"}${r.note ? " · " + r.note : ""}${!r.all_ok ? " → 가장 쉬운 해결: ElevenLabs에서 '키 제한'을 끈 새 키를 만들어 AI 설정에 저장" : ""}`); }
+  catch (e) { html += line(false, "ElevenLabs 복제 음성", e.message + (e.message.includes("없습니다") ? "" : " → 가장 쉬운 해결: '키 제한'을 끈 새 키")); }
+  overview.lastCheck = html; out.innerHTML = html;
 }
 
 // ---------------- 칸 좌표 등록 ----------------
@@ -327,7 +343,28 @@ async function aisettings() {
         3) <b>키 제한 토글을 끄기(OFF)</b> ← 가장 확실. 끄면 아래 4)는 건너뜀<br>
         4) 제한을 켜야 한다면 딱 세 개만: <b>텍스트 음성 변환 = 접근</b> · <b>음성(Voices) = 쓰기</b> · <b>사용자(User) = 읽기</b> (나머지 전부 접근 불가. "음성 변환"은 다른 기능이니 건드리지 않음)<br>
         5) 키 생성 → 화면에 한 번만 보이는 키를 복사 → 위 칸에 붙여 넣기 → 저장 → 연결 테스트에서 ✓ 세 개 확인<br>
-        ※ 옛 키를 지우거나 새로 만들면 여기 저장된 키도 반드시 새 것으로 바꿔야 합니다("기존 키 유지"는 옛 키를 그대로 쓴다는 뜻).</div>
+        ※ 옛 키를 지우거나 새로 만들면 여기 저장된 키도 반드시 새 것으로 바꿔야 합니다("기존 키 유지"는 옛 키를 그대로 쓴다는 뜻).<br>
+        ※ 키를 만든 <b>직후 한 번만 보이는 sk_… 전체 값</b>을 복사합니다. 키 목록의 짧은 요약본은 쓸 수 없습니다.
+        <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">"키 제한"을 켠 경우 — ElevenLabs 편집창 항목별 선택값 (전체)</summary>
+        <table style="margin-top:6px;font-size:12px"><tr><th>항목</th><th>선택</th></tr>
+          <tr><td>이름</td><td>아무거나</td></tr><tr><td>만료 기간</td><td>90일 이상 (편집 중이면 "현재 값 유지")</td></tr>
+          <tr><td>사용 제한(크레딧) · 크레딧 갱신 주기당</td><td>비움(무제한) 또는 10000</td></tr>
+          <tr><td colspan="2" style="background:#f4f1ea"><b>엔드포인트</b></td></tr>
+          <tr><td><b>텍스트 음성 변환</b></td><td><b>접근</b></td></tr>
+          <tr><td>음성 변환</td><td>접근 불가</td></tr><tr><td>음성 텍스트 변환</td><td>접근 불가</td></tr><tr><td>효과음</td><td>접근 불가</td></tr>
+          <tr><td>오디오 아이솔레이션</td><td>접근 불가</td></tr><tr><td>뮤직 생성</td><td>접근 불가</td></tr><tr><td>이미지 및 동영상 생성</td><td>접근 불가</td></tr>
+          <tr><td>더빙</td><td>접근 불가</td></tr><tr><td>ElevenAgents</td><td>접근 불가</td></tr><tr><td>프로젝트</td><td>접근 불가</td></tr><tr><td>오디오 네이티브</td><td>접근 불가</td></tr>
+          <tr><td><b>음성</b></td><td><b>작성</b></td></tr>
+          <tr><td>음성 생성</td><td>접근 불가</td></tr><tr><td>강제 정렬</td><td>접근 불가</td></tr><tr><td>Ads 엔진</td><td>접근 불가</td></tr>
+          <tr><td colspan="2" style="background:#f4f1ea"><b>관리</b></td></tr>
+          <tr><td>기록</td><td>접근 불가</td></tr><tr><td>모델들</td><td>접근 불가</td></tr><tr><td>발음 사전</td><td>접근 불가</td></tr>
+          <tr><td><b>사용자</b></td><td><b>접근</b></td></tr>
+          <tr><td>워크스페이스</td><td>접근 불가</td></tr><tr><td>워크스페이스 분석</td><td>접근 불가</td></tr><tr><td>웹훅</td><td>접근 불가</td></tr><tr><td>서비스 계정</td><td>접근 불가</td></tr>
+          <tr><td>그룹 멤버</td><td>접근 불가</td></tr><tr><td>워크스페이스 멤버 읽기 / 초대 / 제거</td><td>접근 불가</td></tr><tr><td>서비스 약관 동의</td><td>접근 불가</td></tr>
+          <tr><td colspan="2" style="background:#f4f1ea"><b>그 밖</b></td></tr>
+          <tr><td>IP 주소로 제한</td><td>비움 (노트북·휴대폰·배포 서버 IP가 바뀜)</td></tr><tr><td>유출 시 자동 비활성화</td><td>켬(기본값 유지)</td></tr>
+        </table>
+        <p style="margin:6px 0 0">요약: <b>접근/작성으로 켜는 건 딱 3개 — 텍스트 음성 변환·음성·사용자.</b> 나머지 전부 접근 불가.</p></details></div>
       <p class="muted" style="font-size:13px;margin-top:12px">Instant Voice Clone은 Starter 요금제(월 $6, 30,000크레딧)부터 가능합니다. 답변 1회 60자 ≈ 60크레딧이므로 10분 대화(20회 왕복) ≈ 1,200크레딧, Starter로 월 25회 정도입니다. <b>약관상 본인 동의가 전제</b>이므로 시연은 생전 기록 자원자(본인 목소리)로, 고인 적용은 법률 자문 뒤에 합니다.</p>
     </div>`;
   const out = (msg, ok) => { const el = $("#aiOut"); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
