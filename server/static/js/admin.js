@@ -321,6 +321,13 @@ async function aisettings() {
       </div>
       ${s.elevenlabs_key_masked && s.tts_provider === "browser" ? '<div class="notice" style="margin-top:8px">키는 있지만 공급자가 "브라우저 기본 음성만"이라 복제 음성이 꺼져 있습니다. "자동"으로 바꾸고 저장하세요.</div>' : ""}
       <div class="toolbar" style="margin-top:10px"><button class="small" id="elSave">저장</button><button class="small secondary" id="elTest">연결 테스트</button>${s.elevenlabs_key_masked ? `<button class="small ghost" id="elClear">키 삭제</button>` : ""}<span id="elOut" class="muted"></span></div>
+      <div class="notice" style="margin-top:12px;font-size:13px"><b>ElevenLabs 키 만드는 법 (그대로 따라 하세요)</b><br>
+        1) <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank">elevenlabs.io/app/settings/api-keys</a> → <b>Create API Key</b><br>
+        2) 이름 아무거나 · 만료 기간 <b>90일 이상</b><br>
+        3) <b>키 제한 토글을 끄기(OFF)</b> ← 가장 확실. 끄면 아래 4)는 건너뜀<br>
+        4) 제한을 켜야 한다면 딱 세 개만: <b>텍스트 음성 변환 = 접근</b> · <b>음성(Voices) = 쓰기</b> · <b>사용자(User) = 읽기</b> (나머지 전부 접근 불가. "음성 변환"은 다른 기능이니 건드리지 않음)<br>
+        5) 키 생성 → 화면에 한 번만 보이는 키를 복사 → 위 칸에 붙여 넣기 → 저장 → 연결 테스트에서 ✓ 세 개 확인<br>
+        ※ 옛 키를 지우거나 새로 만들면 여기 저장된 키도 반드시 새 것으로 바꿔야 합니다("기존 키 유지"는 옛 키를 그대로 쓴다는 뜻).</div>
       <p class="muted" style="font-size:13px;margin-top:12px">Instant Voice Clone은 Starter 요금제(월 $6, 30,000크레딧)부터 가능합니다. 답변 1회 60자 ≈ 60크레딧이므로 10분 대화(20회 왕복) ≈ 1,200크레딧, Starter로 월 25회 정도입니다. <b>약관상 본인 동의가 전제</b>이므로 시연은 생전 기록 자원자(본인 목소리)로, 고인 적용은 법률 자문 뒤에 합니다.</p>
     </div>`;
   const out = (msg, ok) => { const el = $("#aiOut"); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
@@ -338,7 +345,10 @@ async function aisettings() {
   $("#elTest").onclick = async () => {
     if ($("#elKey").value.trim()) { try { await api("/api/admin/settings/ai", { method: "PUT", body: body() }); } catch (e) { return outEl(e.message, false); } }
     outEl("확인 중…", true); $("#elTest").disabled = true;
-    try { const r = await api("/api/admin/settings/tts/test", { method: "POST" }); outEl(r.note ? `연결 성공 · ${r.note}` : `연결 성공 · 요금제 ${r.tier || "-"} · 사용 ${r.used ?? "-"}/${r.limit ?? "-"} 크레딧${r.can_clone ? "" : " · 이 요금제는 음성 복제를 지원하지 않습니다"}`, true); }
+    try { const r = await api("/api/admin/settings/tts/test", { method: "POST" });
+      const c = r.checks || {}; const mark = (k) => c[k] === "ok" ? "✓" : "✗";
+      const list = `권한 확인 — 텍스트 음성 변환 ${mark("text_to_speech")} · 음성(Voices) ${mark("voices_read")} · 사용자 읽기 ${mark("user_read")}`;
+      outEl(`${r.all_ok ? "연결 성공" : "키는 유효하지만 권한 부족"} · ${list}${r.tier ? ` · 요금제 ${r.tier} · ${r.used ?? "-"}/${r.limit ?? "-"} 크레딧` : ""}${r.note ? " · " + r.note : ""}`, !!r.all_ok); }
     catch (e) { outEl("실패: " + e.message, false); }
     $("#elTest").disabled = false;
   };

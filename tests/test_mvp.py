@@ -247,7 +247,8 @@ def test_voice_register_and_tts_flow(client, monkeypatch):
     monkeypatch.setattr(ElevenLabsTTS, "add_voice", lambda self, name, files, description="": calls.setdefault("added", (name, len(files))) and "voice_abc123")
     monkeypatch.setattr(ElevenLabsTTS, "synthesize", lambda self, text, voice_id: TTSResult(audio=b"ID3fake-mp3-" + voice_id.encode(), mime="audio/mpeg"))
     monkeypatch.setattr(ElevenLabsTTS, "delete_voice", lambda self, voice_id: calls.setdefault("deleted", voice_id))
-    monkeypatch.setattr(ElevenLabsTTS, "ping", lambda self: {"tier": "starter", "used": 10, "limit": 30000, "can_clone": True})
+    monkeypatch.setattr(ElevenLabsTTS, "ping", lambda self: {"tier": "starter", "used": 10, "limit": 30000, "can_clone": True, "all_ok": True,
+                                                              "checks": {"user_read": "ok", "voices_read": "ok", "text_to_speech": "ok"}})
 
     did = db.one("SELECT id FROM deceased WHERE name='김철수'")["id"]
     # 키 저장 → ElevenLabs 공급자 활성

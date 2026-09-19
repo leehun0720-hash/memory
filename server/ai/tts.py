@@ -61,6 +61,83 @@ class ElevenLabsTTS:
             msg = f"ElevenLabs 크레딧·한도가 부족합니다 ({msg}). 요금제를 확인하세요."
         raise TTSError(r.status_code, msg or f"ElevenLabs 오류 {r.status_code}")
 
+    # 연결 테스트용 기본 제공 음성(ElevenLabs premade 'Rachel'). 합성 테스트는 두 글자라 크레딧이 거의 들지 않는다.
+    _PROBE_VOICE = "21m00Tcm4TlvDq8ikWAM"
+
+    def _status(self, r: requests.Response) -> str:
+        if r.ok:
+            return "ok"
+        try:
+            st = str(r.json().get("detail", {}).get("status", ""))
+        except (ValueError, AttributeError):
+            st = ""
+        if st == "missing_permissions" or "permission" in r.text.lower():
+            return "missing"
+        return f"error:{st or r.status_code}"
+
+    def ping(self) -> dict:
+        """키가 유효한지, 그리고 이 앱이 쓰는 권한 세 가지가 켜져 있는지 항목별로 확인한다."""
+        r_user = self.s.get(f"{self.BASE}/v1/user/subscription", timeout=15)
+        if r_user.status_code == 401 and self._status(r_user) != "missing":
+            self._raise(r_user)          # invalid_api_key 등 — 키 자체가 틀림
+        r_voices = self.s.get(f"{self.BASE}/v1/voices", params={"page_size": 1}, timeout=15)
+        if r_voices.status_code == 401 and self._status(r_voices) != "missing":
+            self._raise(r_voices)
+        r_tts = self.s.post(f"{self.BASE}/v1/text-to-speech/{self._PROBE_VOICE}", params={"output_format": "mp3_22050_32"},
+                            json={"text": "안녕", "model_id": "eleven_flash_v2_5"}, timeout=30)
+        checks = {"user_read": self._status(r_user), "voices_read": self._status(r_voices), "text_to_speech": self._status(r_tts)}
+        info = {"tier": None, "used": None, "limit": None, "can_clone": True}
+        if r_user.ok:
+            j = r_user.json()
+            info = {"tier": j.get("tier"), "used": j.get("character_count"), "limit": j.get("character_limit"),
+                    "can_clone": bool(j.get("can_use_instant_voice_cloning", True))}
+        info["checks"] = checks
+        info["all_ok"] = checks["text_to_speech"] == "ok" and checks["voices_read"] == "ok"
+        if checks["text_to_speech"] != "ok":
+            info["note"] = "텍스트 음성 변환(Text to Speech) 권한이 없어 대화 음성이 나오지 않습니다."
+        elif checks["user_read"] != "ok":
+            info["note"] = "사용자(User) 읽기 권한이 없어 요금제·크레딧은 표시하지 못합니다(동작에는 지장 없음)."
+        return info
+
+    def synthesize(self, text: str, voice_id: str | None) -> TTSResult:
+        return TTSResult(audio=None)
+
+
+class ElevenLabsTTS:
+    name = "elevenlabs"
+    BASE = "https://api.elevenlabs.io"
+    MODELS = ["eleven_multilingual_v2", "eleven_flash_v2_5", "eleven_v3"]
+
+    def __init__(self, api_key: str, model: str = "eleven_multilingual_v2") -> None:
+        self.key = api_key
+        self.model = model if model in self.MODELS else self.MODELS[0]
+        self.s = requests.Session()
+        self.s.headers["xi-api-key"] = api_key
+
+    # 우리가 쓰는 엔드포인트와 필요한 키 권한(ElevenLabs 키 제한 화면 기준)
+    PERMISSIONS = "텍스트 음성 변환=접근, 음성(Voices)=쓰기, 사용자(User)=읽기"
+
+    def _raise(self, r: requests.Response) -> None:
+        if r.ok:
+            return
+        status, msg = "", ""
+        try:
+            detail = r.json().get("detail")
+            if isinstance(detail, dict):
+                status, msg = str(detail.get("status", "")), str(detail.get("message", ""))
+            else:
+                msg = str(detail)
+        except ValueError:
+            msg = r.text[:200]
+        log.warning("ElevenLabs %s %s: %s %s", r.request.method, r.request.path_url, r.status_code, msg)
+        if status == "missing_permissions" or "permission" in msg.lower():
+            msg = f"키에 권한이 부족합니다 ({msg}). ElevenLabs 키 설정에서 {self.PERMISSIONS} 를 켜 주세요."
+        elif r.status_code == 401:
+            msg = f"ElevenLabs 키가 올바르지 않습니다 ({status or msg or '인증 실패'})."
+        elif r.status_code == 402 or status in ("quota_exceeded", "voice_limit_reached") or "quota" in msg.lower():
+            msg = f"ElevenLabs 크레딧·한도가 부족합니다 ({msg}). 요금제를 확인하세요."
+        raise TTSError(r.status_code, msg or f"ElevenLabs 오류 {r.status_code}")
+
     def ping(self) -> dict:
         """연결 확인. 사용자 읽기 권한이 없으면 음성 목록으로 대신 확인한다."""
         r = self.s.get(f"{self.BASE}/v1/user/subscription", timeout=15)
