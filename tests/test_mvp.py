@@ -331,3 +331,58 @@ def test_elevenlabs_key_format_rejected(client):
                                                                    "elevenlabs_api_key": "0123456789abcdef0123456789abcdef", "tts_provider": "browser", "tts_model": "eleven_multilingual_v2"})
     assert ok.status_code == 200   # 구형 32자리 hex 키는 허용
     client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5", "elevenlabs_api_key": "", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2"})
+
+
+# ---------- 실시간 아바타 (Simli — 네트워크는 가짜로) ----------
+
+def test_avatar_register_and_session(client, monkeypatch):
+    from server.ai.avatar import SimliAvatar
+    from server.ai.tts import ElevenLabsTTS
+    from server.ai.base import TTSResult
+    calls = {}
+    monkeypatch.setattr(SimliAvatar, "ping", lambda self: {"faces": 2, "checks": {"faces_list": "ok", "session_token": "ok"}, "all_ok": True, "note": None})
+    monkeypatch.setattr(SimliAvatar, "create_face", lambda self, image, name, filename="photo.jpg": calls.setdefault("created", (name, len(image))) and "face_123")
+    monkeypatch.setattr(SimliAvatar, "delete_face", lambda self, fid: calls.setdefault("deleted", fid))
+    monkeypatch.setattr(SimliAvatar, "session_token", lambda self, fid, max_len=900, max_idle=120: f"tok-{fid}")
+    monkeypatch.setattr(SimliAvatar, "ice_servers", lambda self: [{"urls": ["stun:x"]}])
+    monkeypatch.setattr(ElevenLabsTTS, "synthesize", lambda self, text, voice_id: TTSResult(audio=b"ID3x", mime="audio/mpeg"))
+
+    # 키 저장 → 공급자 활성
+    r = client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5",
+                                                                  "elevenlabs_api_key": "sk_test00000000000000000000000000", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2",
+                                                                  "simli_api_key": "simli-test-key", "avatar_provider": "auto"}).json()
+    assert r["active_avatar"] == "simli" and r["simli_key_masked"]
+    assert client.post("/api/admin/settings/avatar/test", headers=ADMIN).json()["all_ok"]
+
+    tok = {"X-Family-Token": holder_token()}          # 이미영 → 김옥순(사진 있음)
+    did = db.one("SELECT id FROM deceased WHERE name='김옥순'")["id"]
+    st = client.get("/api/family/avatar", headers=tok).json()
+    assert st["provider_ready"] and st["deceased"][0]["has_photo"] and not st["deceased"][0]["has_face"]
+    # 보기 권한은 불가, 동의 없이는 불가
+    assert client.post("/api/family/avatar/register", headers={"X-Family-Token": holder_token("이하은")}, json={"deceased_id": did, "agree": True}).status_code == 403
+    assert client.post("/api/family/avatar/register", headers=tok, json={"deceased_id": did, "agree": False}).status_code == 400
+    # 등록(작별 테스트에서 동의가 철회됐으므로 앱이 초상 동의를 새로 기록)
+    r = client.post("/api/family/avatar/register", headers=tok, json={"deceased_id": did, "agree": True, "kind": "likeness"})
+    assert r.status_code == 200, r.text
+    assert db.one("SELECT face_id, face_provider FROM deceased WHERE id=?", (did,)) == {"face_id": "face_123", "face_provider": "simli"}
+    assert calls["created"][0].startswith("memorial-")
+    # 대화 시작: 목소리+얼굴+공급자 → avatar_available. 목소리가 없으면 아바타도 없음
+    db.execute("UPDATE deceased SET ai_enabled=1, voice_id='v1', voice_provider='elevenlabs' WHERE id=?", (did,))
+    client.post(f"/api/admin/deceased/{did}/consents", headers=ADMIN, json={"signer_name": "이미영", "relation": "큰딸", "kind": "ai_chat"})
+    s = client.post("/api/family/chat/start", headers=tok, json={"deceased_id": did, "acknowledged_ai": True}).json()
+    assert s["avatar_available"] is True and s["avatar_provider"] == "simli"
+    sess = client.post("/api/family/chat/avatar-session", headers=tok, json={"session_id": s["session_id"]}).json()
+    assert sess["session_token"] == "tok-face_123" and sess["ws_url"].startswith("wss://") and sess["ice_servers"]
+    db.execute("UPDATE deceased SET voice_id='' WHERE id=?", (did,))
+    s2 = client.post("/api/family/chat/start", headers=tok, json={"deceased_id": did, "acknowledged_ai": True}).json()
+    assert s2["avatar_available"] is False
+    # 유족 앱 me에는 face_id가 노출되지 않고 has_face만
+    me = client.get("/api/family/me", headers=tok).json()
+    d = next(x for x in me["deceased"] if x["id"] == did)
+    assert d["has_face"] is True and "face_id" not in d
+    # 삭제 → 공급자 얼굴도 삭제
+    assert client.delete(f"/api/family/avatar/{did}", headers=tok).status_code == 200
+    assert calls["deleted"] == "face_123" and db.one("SELECT face_id FROM deceased WHERE id=?", (did,))["face_id"] == ""
+    # 공급자 끔
+    r = client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5", "simli_api_key": "", "avatar_provider": "auto"}).json()
+    assert r["active_avatar"] == "none"

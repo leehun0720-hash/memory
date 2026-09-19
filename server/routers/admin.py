@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from .. import config, db, voice
+from .. import config, db, face, voice
 from ..ai import factory
 from ..deps import require_admin
 from ..state import state
@@ -437,6 +437,8 @@ class AISettingsIn(BaseModel):
     elevenlabs_api_key: str | None = None
     tts_provider: str = Field(default="auto", pattern="^(auto|elevenlabs|browser)$")
     tts_model: str = Field(default="eleven_multilingual_v2")
+    simli_api_key: str | None = None
+    avatar_provider: str = Field(default="auto", pattern="^(auto|simli|off)$")
 
 
 @router.get("/settings/ai")
@@ -456,6 +458,11 @@ def ai_settings_get():
         "tts_provider": t["provider"], "tts_model": t["model"], "tts_models": ElevenLabsTTS.MODELS,
         "active_tts": factory.tts().name,
         "voices_registered": db.one("SELECT COUNT(*) AS n FROM deceased WHERE voice_id<>''")["n"],
+        "simli_key_masked": _mask(db.get_setting("simli_api_key")),
+        "simli_key_source": "console" if db.get_setting("simli_api_key") else ("env" if factory.effective_avatar()["api_key"] else "none"),
+        "avatar_provider": factory.effective_avatar()["provider"],
+        "active_avatar": factory.avatar().name,
+        "faces_registered": db.one("SELECT COUNT(*) AS n FROM deceased WHERE face_id<>''")["n"],
     }
 
 
@@ -481,7 +488,40 @@ def ai_settings_put(body: AISettingsIn):
     db.set_setting("tts_provider", body.tts_provider)
     db.set_setting("tts_model", body.tts_model)
     factory.reset_tts()
+    if body.simli_api_key is not None:
+        db.set_setting("simli_api_key", body.simli_api_key.strip())
+        db.audit("admin", "settings.api_key", "simli", "set" if body.simli_api_key.strip() else "cleared")
+    db.set_setting("avatar_provider", body.avatar_provider)
+    factory.reset_avatar()
     return ai_settings_get()
+
+
+@router.post("/settings/avatar/test")
+def avatar_settings_test():
+    from ..ai.avatar import AvatarError, SimliAvatar
+    e = factory.effective_avatar()
+    if not e["api_key"]:
+        raise HTTPException(400, "Simli API 키가 없습니다. 먼저 저장하세요.")
+    try:
+        info = SimliAvatar(e["api_key"]).ping()
+        db.audit("admin", "settings.avatar_test", "simli", "ok" if info["all_ok"] else "partial")
+        return {"ok": True, **info}
+    except AvatarError as ex:
+        raise HTTPException(ex.status if 400 <= ex.status < 600 else 502, ex.message)
+    except Exception as ex:
+        raise HTTPException(503, f"Simli에 연결할 수 없습니다: {ex}")
+
+
+@router.post("/deceased/{did}/face/register")
+def face_register(did: int):
+    """대표 사진으로 실시간 아바타 얼굴을 만든다. 초상 사용 동의서가 있어야 한다."""
+    return face.register(did, "admin")
+
+
+@router.delete("/deceased/{did}/face")
+def face_delete(did: int):
+    face.delete(did, "admin")
+    return {"ok": True}
 
 
 @router.post("/settings/tts/test")

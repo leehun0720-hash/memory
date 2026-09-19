@@ -78,3 +78,33 @@ def tts():
 def reset_tts() -> None:
     global _tts, _tts_sig
     _tts, _tts_sig = None, None
+
+
+# ---------- 실시간 아바타 ----------
+_avatar = None
+_avatar_sig: tuple | None = None
+
+
+def effective_avatar() -> dict:
+    return {
+        "api_key": db.get_setting("simli_api_key") or os.getenv("SIMLI_API_KEY", ""),
+        "provider": (db.get_setting("avatar_provider") or os.getenv("AVATAR_PROVIDER", "auto")).lower(),   # auto | simli | off
+    }
+
+
+def avatar():
+    """실시간 아바타 공급자. 키가 있고 provider가 auto/simli일 때만 켜진다."""
+    global _avatar, _avatar_sig
+    e = effective_avatar()
+    sig = (e["api_key"], e["provider"])
+    if _avatar is None or sig != _avatar_sig:
+        from .avatar import NoAvatar, SimliAvatar
+        _avatar = SimliAvatar(e["api_key"]) if e["api_key"] and e["provider"] in ("auto", "simli") else NoAvatar()
+        _avatar_sig = sig
+        log.info("Avatar provider: %s", _avatar.name)
+    return _avatar
+
+
+def reset_avatar() -> None:
+    global _avatar, _avatar_sig
+    _avatar, _avatar_sig = None, None

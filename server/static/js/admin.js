@@ -62,6 +62,9 @@ async function runAllChecks() {
     const mk = (k) => c[k] === "ok" ? "✓" : c[k] === "quota" ? "✗(키 크레딧 한도 0)" : "✗";
     html += line(!!r.all_ok, "ElevenLabs 복제 음성", `텍스트 음성 변환 ${mk("text_to_speech")} · 음성 ${mk("voices_read")} · 사용자 ${mk("user_read")}${r.note ? " · " + r.note : ""}${!r.all_ok && c.text_to_speech !== "quota" ? " → 가장 쉬운 해결: ElevenLabs에서 '키 제한'을 끈 새 키를 만들어 AI 설정에 저장" : ""}`); }
   catch (e) { html += line(false, "ElevenLabs 복제 음성", e.message + (e.message.includes("없습니다") ? "" : " → 가장 쉬운 해결: '키 제한'을 끈 새 키")); }
+  try { const r = await api("/api/admin/settings/avatar/test", { method: "POST" }); const c = r.checks || {};
+    html += line(!!r.all_ok, "Simli 실시간 아바타", `얼굴 목록 ${c.faces_list === "ok" ? "✓" : "✗"} · 세션 토큰 ${c.session_token === "ok" ? "✓" : "✗"} · 등록된 얼굴 ${r.faces}개${r.note ? " · " + r.note : ""}`); }
+  catch (e) { html += line(false, "Simli 실시간 아바타", e.message.includes("없습니다") ? "키 없음 — 사진 아바타로 동작(선택 기능)" : e.message); }
   overview.lastCheck = html; out.innerHTML = html;
 }
 
@@ -212,7 +215,7 @@ async function deceased() {
 }
 async function deceasedForm(did, contractId) {
   const detail = await api(`/api/admin/contracts/${contractId}`);
-  const x = did ? detail.deceased.find((d) => d.id === did) : { contract_id: contractId, name: "", honorific: "", birth_date: "", death_date: "", memory_card: "", voice_note: "", ai_enabled: 0, chat_min_days_after_death: 49, consents: [], media: [], photo_path: "" };
+  const x = did ? detail.deceased.find((d) => d.id === did) : { contract_id: contractId, name: "", honorific: "", birth_date: "", death_date: "", memory_card: "", voice_note: "", ai_enabled: 0, chat_min_days_after_death: 49, consents: [], media: [], photo_path: "", face_id: "", face_provider: "" };
   const kindName = { ai_chat: "AI 대화", likeness: "초상 사용", voice: "음성 사용", lifetime_record: "생전 기록" };
   const m = modal(`<h2>${did ? "고인 편집" : "고인 등록"}</h2>
     <div class="form-grid">
@@ -234,6 +237,8 @@ async function deceasedForm(did, contractId) {
     <h3 style="margin-top:16px">복제 음성 <span class="muted">(음성 자료 + 음성 사용 동의서가 있어야 등록됩니다)</span></h3>
     <div class="row" style="flex-wrap:wrap">${x.voice_id ? `<span class="tag on">등록됨 · ${esc(x.voice_provider)} · <span class="mono">${esc(x.voice_id.slice(0, 8))}…</span></span><button class="small secondary" id="vPreview">미리 듣기</button><button class="small ghost" id="vDelete">음성 삭제</button>` : `<span class="tag">미등록</span><button class="small secondary" id="vRegister">음성 등록 (ElevenLabs)</button>`}<span id="vOut" class="muted"></span></div>
     <audio id="vAudio" controls style="display:none;margin-top:6px;width:100%"></audio>
+    <h3 style="margin-top:16px">실시간 아바타 얼굴 <span class="muted">(대표 사진 + 초상 사용 동의서가 있어야 등록됩니다)</span></h3>
+    <div class="row" style="flex-wrap:wrap">${x.face_id ? `<span class="tag on">등록됨 · ${esc(x.face_provider)} · <span class="mono">${esc(x.face_id.slice(0, 8))}…</span></span><button class="small ghost" id="fDelete">얼굴 삭제</button>` : `<span class="tag">미등록</span><button class="small secondary" id="fRegister">얼굴 등록 (Simli)</button>`}<span id="fOut" class="muted"></span></div>
     <h3 style="margin-top:16px">동의서</h3>
     ${x.consents.map((k) => `<div class="list-item"><span>${kindName[k.kind]} · ${esc(k.signer_name)}(${esc(k.relation)}) · ${fmt(k.signed_at)} ${k.revoked_at ? `<span class="tag off">철회 ${fmt(k.revoked_at)}</span>` : '<span class="tag on">유효</span>'}</span>${!k.revoked_at ? `<button class="small ghost" data-revoke="${k.id}" style="min-height:26px">철회</button>` : ""}</div>`).join("") || '<p class="muted">동의서 없음 — AI 대화 동의서가 없으면 대화가 열리지 않습니다.</p>'}
     <div class="row" style="margin-top:8px;flex-wrap:wrap"><input id="cSigner" placeholder="서명자" style="width:120px"><input id="cRel" placeholder="관계" style="width:100px"><select id="cKind" style="width:auto"><option value="ai_chat">AI 대화</option><option value="likeness">초상 사용</option><option value="voice">음성 사용</option><option value="lifetime_record">생전 기록</option></select><button class="small secondary" id="cAdd">동의서 등록</button></div>
@@ -250,6 +255,9 @@ async function deceasedForm(did, contractId) {
     if ($("#vRegister", m)) $("#vRegister", m).onclick = async () => { vOut("등록 중… (1분 안팎)", true); $("#vRegister", m).disabled = true; try { const r = await api(`/api/admin/deceased/${did}/voice/register`, { method: "POST" }); toast(`음성을 등록했습니다 (${r.files}개 파일)`); m.remove(); deceasedForm(did, contractId); } catch (e) { vOut("실패: " + e.message, false); $("#vRegister", m).disabled = false; } };
     if ($("#vDelete", m)) $("#vDelete", m).onclick = async () => { if (confirm("복제 음성을 삭제할까요? 공급자 쪽 데이터도 지웁니다.")) { await api(`/api/admin/deceased/${did}/voice`, { method: "DELETE" }); m.remove(); deceasedForm(did, contractId); } };
     if ($("#vPreview", m)) $("#vPreview", m).onclick = async () => { vOut("합성 중…", true); try { const r = await fetch(`/api/admin/deceased/${did}/voice/preview`, { method: "POST", headers: { "X-Admin-Key": KEY } }); if (!r.ok) throw new Error((await r.json()).detail); const a = $("#vAudio", m); a.src = URL.createObjectURL(await r.blob()); a.style.display = "block"; a.play(); vOut("", true); } catch (e) { vOut("실패: " + e.message, false); } };
+    const fOut = (msg, ok) => { const el = $("#fOut", m); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
+    if ($("#fRegister", m)) $("#fRegister", m).onclick = async () => { fOut("얼굴 생성 중… (1~3분)", true); $("#fRegister", m).disabled = true; try { await api(`/api/admin/deceased/${did}/face/register`, { method: "POST" }); toast("얼굴을 등록했습니다."); m.remove(); deceasedForm(did, contractId); } catch (e) { fOut("실패: " + e.message, false); $("#fRegister", m).disabled = false; } };
+    if ($("#fDelete", m)) $("#fDelete", m).onclick = async () => { await api(`/api/admin/deceased/${did}/face`, { method: "DELETE" }); m.remove(); deceasedForm(did, contractId); };
     $("#cAdd", m).onclick = async () => { try { await api(`/api/admin/deceased/${did}/consents`, { method: "POST", body: { signer_name: $("#cSigner", m).value, relation: $("#cRel", m).value, kind: $("#cKind", m).value } }); m.remove(); deceasedForm(did, contractId); } catch (e) { toast(e.message); } };
   }
 }
@@ -367,12 +375,46 @@ async function aisettings() {
         </table>
         <p style="margin:6px 0 0">요약: <b>접근/작성으로 켜는 건 딱 3개 — 텍스트 음성 변환·음성·사용자.</b> 나머지 전부 접근 불가.</p></details></div>
       <p class="muted" style="font-size:13px;margin-top:12px">Instant Voice Clone은 Starter 요금제(월 $6, 30,000크레딧)부터 가능합니다. 답변 1회 60자 ≈ 60크레딧이므로 10분 대화(20회 왕복) ≈ 1,200크레딧, Starter로 월 25회 정도입니다. <b>약관상 본인 동의가 전제</b>이므로 시연은 생전 기록 자원자(본인 목소리)로, 고인 적용은 법률 자문 뒤에 합니다.</p>
+    </div>
+    <h2 style="margin-top:20px">실시간 아바타 (Simli)</h2>
+    <p class="muted">고인의 정면 사진 1장으로 얼굴을 만들고, 대화 중 복제 음성에 입을 맞춘 영상을 실시간으로 보여 줍니다(A등급). 복제 음성(ElevenLabs)이 있어야 동작하며, 없으면 사진 아바타로 자동 복귀합니다.</p>
+    <div class="kpi" style="margin:14px 0;max-width:720px">
+      <div class="card"><div class="muted">지금 동작 중인 아바타</div><div class="n" style="font-size:20px">${s.active_avatar === "simli" ? "Simli 실시간 아바타" : "사진 아바타(기본)"}</div><div class="muted" style="font-size:12px">등록된 얼굴 ${s.faces_registered}건</div></div>
+      <div class="card"><div class="muted">Simli 키</div><div class="n" style="font-size:20px">${s.simli_key_masked ? `<span class="mono">${esc(s.simli_key_masked)}</span>` : (s.simli_key_source === "env" ? ".env에서 읽음" : '<span class="tag off">없음</span>')}</div></div>
+    </div>
+    <div class="card" style="max-width:720px">
+      <div class="field"><label>Simli API 키 <span class="muted">(비워 두면 기존 키 유지)</span></label>
+        <div class="row"><input id="smKey" type="password" placeholder="${s.simli_key_masked ? "기존 키 유지" : "app.simli.com 에서 발급한 키"}" autocomplete="off" spellcheck="false"><button class="small ghost" id="smEye" style="min-height:40px">보기</button></div></div>
+      <div class="field"><label>아바타 공급자</label><select id="avProv">
+        <option value="auto" ${s.avatar_provider === "auto" ? "selected" : ""}>자동 (키가 있으면 Simli)</option>
+        <option value="simli" ${s.avatar_provider === "simli" ? "selected" : ""}>Simli</option>
+        <option value="off" ${s.avatar_provider === "off" ? "selected" : ""}>끔 (사진 아바타만)</option></select></div>
+      ${s.simli_key_masked && s.avatar_provider === "off" ? '<div class="notice" style="margin-top:8px">키는 있지만 공급자가 "끔"이라 실시간 아바타가 꺼져 있습니다. "자동"으로 바꾸고 저장하세요.</div>' : ""}
+      <div class="toolbar" style="margin-top:10px"><button class="small" id="smSave">저장</button><button class="small secondary" id="smTest">연결 테스트</button>${s.simli_key_masked ? `<button class="small ghost" id="smClear">키 삭제</button>` : ""}<span id="smOut" class="muted"></span></div>
+      <div class="notice" style="margin-top:12px;font-size:13px"><b>Simli 키 만드는 법 (2026-09-19 문서 기준)</b><br>
+        1) <a href="https://app.simli.com" target="_blank">app.simli.com</a> 가입 → 무료로 $10 + 매월 50분이 들어옵니다<br>
+        2) 대시보드에서 API 키를 만들어 복사 → 위 칸에 붙여 넣고 저장 → 연결 테스트<br>
+        ※ 키 발급 화면의 정확한 메뉴 이름은 로그인이 필요해 확인하지 못했습니다. 화면 문구를 알려 주시면 이 안내에 그대로 넣겠습니다.<br>
+        ※ 사진 조건: JPEG/PNG/WEBP, 5MB 이하, 512×512 이상, 정면, 머리가 화면 높이의 15% 이상. 얼굴 생성은 수 분 걸릴 수 있습니다.</div>
     </div>`;
   const out = (msg, ok) => { const el = $("#aiOut"); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
+  const outSm = (msg, ok) => { const el = $("#smOut"); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
   $("#aiEye").onclick = () => { const i = $("#aiKey"); i.type = i.type === "password" ? "text" : "password"; $("#aiEye").textContent = i.type === "password" ? "보기" : "숨기기"; };
   const outEl = (msg, ok) => { const el = $("#elOut"); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
   const body = (o = {}) => ({ api_key: $("#aiKey").value.trim() || null, provider: $("#aiProv").value, model: $("#aiModel").value,
-    elevenlabs_api_key: $("#elKey").value.trim() || null, tts_provider: $("#ttsProv").value, tts_model: $("#ttsModel").value, ...o });
+    elevenlabs_api_key: $("#elKey").value.trim() || null, tts_provider: $("#ttsProv").value, tts_model: $("#ttsModel").value,
+    simli_api_key: $("#smKey").value.trim() || null, avatar_provider: $("#avProv").value, ...o });
+  $("#smEye").onclick = () => { const i = $("#smKey"); i.type = i.type === "password" ? "text" : "password"; $("#smEye").textContent = i.type === "password" ? "보기" : "숨기기"; };
+  async function runSmTest() {
+    outSm("확인 중…", true); $("#smTest").disabled = true;
+    try { const r = await api("/api/admin/settings/avatar/test", { method: "POST" }); const c = r.checks || {};
+      outSm(`${r.all_ok ? "연결 성공" : "키는 유효하지만 세션 실패"} · 얼굴 목록 ${c.faces_list === "ok" ? "✓" : "✗"} · 세션 토큰 ${c.session_token === "ok" ? "✓" : "✗"} · 등록된 얼굴 ${r.faces}개${r.note ? " · " + r.note : ""}`, !!r.all_ok); }
+    catch (e) { outSm("실패: " + e.message, false); }
+    $("#smTest").disabled = false;
+  }
+  $("#smSave").onclick = async () => { const typed = $("#smKey").value.trim(); try { await api("/api/admin/settings/ai", { method: "PUT", body: body() }); } catch (e) { return outSm(e.message, false); } if (typed) { outSm("저장됨 · 연결 확인 중…", true); await runSmTest(); } else { toast("저장했습니다."); aisettings(); } };
+  $("#smTest").onclick = async () => { if ($("#smKey").value.trim()) { try { await api("/api/admin/settings/ai", { method: "PUT", body: body() }); } catch (e) { return outSm(e.message, false); } } await runSmTest(); };
+  if ($("#smClear")) $("#smClear").onclick = async () => { const b = $("#smClear"); if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "정말 삭제 (다시 누르기)"; b.style.color = "var(--danger)"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "키 삭제"; b.style.color = ""; }, 5000); return; } try { await api("/api/admin/settings/ai", { method: "PUT", body: body({ simli_api_key: "" }) }); toast("Simli 키를 삭제했습니다."); aisettings(); } catch (e) { outSm(e.message, false); } };
   const save = async (keyOverride) => {
     try { await api("/api/admin/settings/ai", { method: "PUT", body: body(keyOverride !== undefined ? { api_key: keyOverride } : {}) }); toast("저장했습니다. 다음 대화부터 적용됩니다."); aisettings(); }
     catch (e) { out(e.message, false); }

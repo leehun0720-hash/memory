@@ -138,6 +138,7 @@ async function renderMemorial() {
 let speech = { rec: null, listening: false, audio: null };
 function stopSpeech() {
   try { window.speechSynthesis?.cancel(); speech.rec?.stop(); if (speech.audio) { speech.audio.pause(); speech.audio.src = ""; speech.audio = null; } } catch {}
+  try { window.__avatarStop?.(); window.__avatarStop = null; } catch {}
   speech.listening = false;
 }
 // 브라우저 내장 한국어 음성 고르기. 엣지는 'Natural' 신경망 음성(SunHi·InJoon 등)이 있어 품질이 가장 좋다.
@@ -157,13 +158,69 @@ function speak(text, onend, hint = "any") {
   u.onend = () => onend?.(); u.onerror = () => onend?.();
   window.speechSynthesis.speak(u);
 }
+// ---------------- 실시간 립싱크 아바타 (Simli WebRTC, SDK 없이) ----------------
+// 서버가 세션 토큰을 주면 브라우저가 WebRTC로 연결하고, 우리가 만든 음성(PCM16 16kHz)을 웹소켓으로 보내면 입을 맞춘 영상이 돌아온다.
+class LiveAvatar {
+  constructor(videoEl) { this.video = videoEl; this.pc = null; this.ws = null; this.ready = false; this.onstate = () => {}; }
+  async connect(sess) {
+    const cfg = await api("/api/family/chat/avatar-session", { method: "POST", body: { session_id: sess.session_id } });
+    this.pc = new RTCPeerConnection({ iceServers: cfg.ice_servers || [{ urls: ["stun:stun.l.google.com:19302"] }] });
+    this.pc.addTransceiver("audio", { direction: "recvonly" }); this.pc.addTransceiver("video", { direction: "recvonly" });
+    this.pc.ontrack = (e) => { if (e.streams[0] && this.video.srcObject !== e.streams[0]) { this.video.srcObject = e.streams[0]; this.video.play().catch(() => {}); } };
+    this.pc.onconnectionstatechange = () => { if (["failed", "disconnected", "closed"].includes(this.pc.connectionState)) this.stop("연결 끊김"); };
+    const offer = await this.pc.createOffer(); await this.pc.setLocalDescription(offer);
+    await new Promise((res) => { if (this.pc.iceGatheringState === "complete") return res(); const t = setTimeout(res, 1500); this.pc.onicegatheringstatechange = () => { if (this.pc.iceGatheringState === "complete") { clearTimeout(t); res(); } }; });
+    await new Promise((resolve, reject) => {
+      const ws = new WebSocket(`${cfg.ws_url}?session_token=${encodeURIComponent(cfg.session_token)}&enableSFU=false`);
+      ws.binaryType = "arraybuffer"; this.ws = ws;
+      const timeout = setTimeout(() => reject(new Error("아바타 연결 시간 초과")), 12000);
+      ws.onopen = () => ws.send(JSON.stringify({ sdp: this.pc.localDescription.sdp, type: "offer" }));
+      ws.onmessage = async (ev) => {
+        if (typeof ev.data !== "string") return;
+        if (ev.data.startsWith("{")) { try { const m = JSON.parse(ev.data); if (m.type === "answer") await this.pc.setRemoteDescription(m); } catch (e) { clearTimeout(timeout); reject(e); } return; }
+        if (ev.data === "START") { this.ready = true; ws.send(new Uint8Array(64000)); clearTimeout(timeout); this.onstate("live"); resolve(); }
+        else if (ev.data === "STOP") this.stop("세션 종료");
+      };
+      ws.onerror = () => { clearTimeout(timeout); reject(new Error("아바타 웹소켓 오류")); };
+      ws.onclose = () => { if (this.ready) this.stop("연결 종료"); };
+    });
+  }
+  // mp3 → PCM16 16kHz 모노 → 6000바이트씩 전송. 반환값은 재생 길이(초).
+  async speak(mp3Blob) {
+    if (!this.ready || !this.ws || this.ws.readyState !== 1) throw new Error("아바타 미연결");
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await ctx.decodeAudioData(await mp3Blob.arrayBuffer());
+    const off = new OfflineAudioContext(1, Math.ceil(decoded.duration * 16000), 16000);
+    const src = off.createBufferSource(); src.buffer = decoded; src.connect(off.destination); src.start();
+    const rendered = await off.startRendering(); ctx.close();
+    const f32 = rendered.getChannelData(0); const pcm = new Int16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) { const v = Math.max(-1, Math.min(1, f32[i])); pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff; }
+    const bytes = new Uint8Array(pcm.buffer);
+    for (let i = 0; i < bytes.length; i += 6000) this.ws.send(bytes.subarray(i, i + 6000));
+    return decoded.duration;
+  }
+  interrupt() { try { this.ws?.send(new TextEncoder().encode("SKIP")); } catch {} }
+  stop(reason) {
+    if (!this.pc && !this.ws) return;
+    try { this.ws?.send(new TextEncoder().encode("DONE")); } catch {}
+    try { this.ws?.close(); } catch {} try { this.pc?.close(); } catch {}
+    this.ws = null; this.pc = null; this.ready = false; this.video.srcObject = null; this.onstate("off", reason);
+  }
+}
+
 // 복제 음성이 등록된 고인이면 서버(ElevenLabs 등)에서 오디오를 받아 재생하고, 실패하면 브라우저 음성으로 내려간다.
+// 실시간 아바타가 연결돼 있으면 오디오를 아바타로 보내고(아바타 영상에 소리가 실려 옴) 로컬에서는 재생하지 않는다.
 async function speakAs(sess, text, onend, onstart) {
   if (sess.voice_available) {
     try {
       const r = await fetch(withToken(`/api/family/chat/tts?session_id=${encodeURIComponent(sess.session_id)}&text=${encodeURIComponent(text)}`));
       if (r.status === 200) {
-        const blob = await r.blob(); const url = URL.createObjectURL(blob);
+        const blob = await r.blob();
+        if (sess._avatar?.ready) {
+          try { const secs = await sess._avatar.speak(blob); onstart?.(); setTimeout(() => onend?.(), secs * 1000 + 600); return; }
+          catch (e) { console.warn("avatar speak failed → local audio", e); }
+        }
+        const url = URL.createObjectURL(blob);
         const a = new Audio(url); speech.audio = a;
         a.onplay = () => onstart?.();
         a.onended = () => { URL.revokeObjectURL(url); speech.audio = null; onend?.(); };
@@ -187,7 +244,8 @@ async function renderChat() {
     <div class="card" style="margin-top:12px">
       <h2>기념일 대화</h2>
       <p class="muted">기일·명절·생신처럼 특별한 날에, 가족이 남긴 기억과 말투로 만든 AI와 짧게 이야기합니다. 1회 ${me.chat_max_minutes}분.</p>
-      <p class="muted" style="font-size:14px">${first.has_voice ? "🎙️ 가족이 등록한 목소리로 만든 AI 음성으로 답합니다." : `🔈 기본 AI 음성으로 답합니다. ${me.member.role === "manage" ? '<a href="#" id="toVoice">목소리 등록하기 →</a>' : "계약자가 목소리를 등록하면 그 음성으로 바뀝니다."}`}</p>
+      <p class="muted" style="font-size:14px">${first.has_voice ? "🎙️ 가족이 등록한 목소리로 만든 AI 음성으로 답합니다." : `🔈 기본 AI 음성으로 답합니다. ${me.member.role === "manage" ? '<a href="#" id="toVoice">목소리 등록하기 →</a>' : "계약자가 목소리를 등록하면 그 음성으로 바뀝니다."}`}
+      ${first.has_face && first.has_voice ? " · 🎬 등록한 얼굴로 실시간 아바타가 나옵니다." : first.has_face ? " · 실시간 아바타는 목소리 등록 뒤에 켜집니다." : ""}</p>
       <div class="field"><label>누구와 이야기할까요</label><select id="chatWho">${options}</select></div>
       <div class="field"><label>오늘의 자리</label><select id="occ"><option value="">평소</option><option>기일</option><option>명절</option><option>생신</option><option>49재</option></select></div>
       ${first.days_since_death !== null && first.days_since_death < 49 ? `<div class="notice">첫 대화는 49재 이후를 권장합니다. (별세 후 ${first.days_since_death}일)</div>` : ""}
@@ -213,9 +271,9 @@ function runChat(sess, d) {
     <div class="notice ai">🔈 AI가 만든 음성·영상입니다 · 실제 고인이 아닙니다</div>
     <div class="chat-wrap">
       <div class="avatar-stage" id="stage">
-        <div class="avatar-photo">${sess.photo_url ? `<img src="${withToken(sess.photo_url)}" alt="">` : `<div class="no-photo">🕊️</div>`}</div>
+        <div class="avatar-photo" style="position:relative">${sess.photo_url ? `<img src="${withToken(sess.photo_url)}" alt="">` : `<div class="no-photo">🕊️</div>`}<video id="avatarVideo" autoplay playsinline></video><span class="live-badge">AI 실시간 영상</span></div>
         <div class="voice-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <div class="voice-tag">${sess.voice_available ? "가족이 등록한 목소리로 만든 AI 음성" : "기본 AI 음성 · 사진 아바타"}</div>
+        <div class="voice-tag" id="voiceTag">${sess.voice_available ? "가족이 등록한 목소리로 만든 AI 음성" : "기본 AI 음성 · 사진 아바타"}${sess.avatar_available ? " · 실시간 아바타 연결 중…" : ""}</div>
       </div>
       <div class="chat-head" style="margin:6px 0 4px">
         <div><h2 style="margin:0">${esc(d.name)} 님</h2><div class="timer" id="timer"></div></div>
@@ -237,7 +295,15 @@ function runChat(sess, d) {
 
   const stage = $("#stage");
   const say = (text, onend) => speakAs(sess, text, () => { stage.classList.remove("speaking"); onend?.(); }, () => stage.classList.add("speaking"));
-  add("them", sess.greeting); say(sess.greeting);
+  // 실시간 아바타(A등급): 연결되면 사진 대신 영상. 실패하면 조용히 사진 아바타로.
+  if (sess.avatar_available) {
+    const av = new LiveAvatar($("#avatarVideo")); sess._avatar = av;
+    av.onstate = (st, reason) => { stage.classList.toggle("live", st === "live"); $("#voiceTag").textContent = st === "live" ? "가족이 등록한 목소리와 얼굴로 만든 AI · 실시간 아바타" : `가족이 등록한 목소리로 만든 AI 음성 · 사진 아바타${reason ? ` (${reason})` : ""}`; };
+    av.connect(sess).then(() => { add("them", sess.greeting); say(sess.greeting); }).catch((e) => { console.warn("avatar connect failed", e); av.stop(e.message); add("them", sess.greeting); say(sess.greeting); });
+    window.__avatarStop = () => av.stop();   // 화면을 떠날 때 아바타도 끊는다
+  } else {
+    add("them", sess.greeting); say(sess.greeting);
+  }
 
   async function sendText(text) {
     text = text.trim(); if (!text || busy || ended) return;
@@ -253,13 +319,14 @@ function runChat(sess, d) {
     busy = false;
   }
   async function finish(silent) {
-    if (ended) return; ended = true; clearTimers(); stopSpeech();
+    if (ended) return; ended = true; clearTimers();
     try {
       const r = await api("/api/family/chat/end", { method: "POST", body: { session_id: sess.session_id } });
       if (!silent && r.closing) { add("them", r.closing); say(r.closing); }
       add("sys", `오늘의 대화 요약: ${r.summary || "(요약 없음)"}`);
     } catch {}
     $("#mic").disabled = $("#send").disabled = $("#txt").disabled = true;
+    setTimeout(() => { try { sess._avatar?.stop("대화 종료"); } catch {} }, 8000);   // 마지막 인사가 끝난 뒤 아바타 종료
     $("#endBtn").textContent = "처음으로"; $("#endBtn").onclick = () => go("chat");
   }
   $("#send").onclick = () => sendText($("#txt").value);
@@ -271,7 +338,7 @@ function runChat(sess, d) {
   function listen() {
     if (!SR) return toast("이 브라우저는 음성 인식을 지원하지 않습니다. 글로 적어 주세요.");
     if (speech.listening) { speech.rec?.stop(); return; }
-    window.speechSynthesis?.cancel(); if (speech.audio) { speech.audio.pause(); speech.audio = null; stage.classList.remove("speaking"); }
+    window.speechSynthesis?.cancel(); if (speech.audio) { speech.audio.pause(); speech.audio = null; } sess._avatar?.interrupt(); stage.classList.remove("speaking");
     const rec = new SR(); rec.lang = "ko-KR"; rec.interimResults = true; rec.maxAlternatives = 1;
     speech.rec = rec; speech.listening = true; $("#mic").classList.add("listening"); stage.classList.add("listening");
     let final = "";
@@ -343,11 +410,12 @@ async function renderSettings() {
     </div>
     <div class="card"><h3>지난 대화 요약</h3>${history.length ? history.map((h) => `<div class="guest"><span class="who">${esc(h.deceased_name)} 님</span><span class="when">${esc(fmtDT(h.started_at))} · ${h.turns}회</span><div class="muted">${esc(h.summary || "(요약 없음)")}</div></div>`).join("") : `<p class="muted">아직 대화 기록이 없습니다. 대화 원문은 저장하지 않고 요약만 남깁니다.</p>`}</div>
     <div class="card" id="voiceCard"><h3>목소리 등록</h3><div id="voiceBody"><p class="muted">불러오는 중…</p></div></div>
+    <div class="card" id="faceCard"><h3>얼굴 등록 <span class="muted">(실시간 아바타)</span></h3><div id="faceBody"><p class="muted">불러오는 중…</p></div></div>
     ${canManage && me.deceased.some((d) => d.ai_enabled) ? `<div class="card"><h3>대화 기능 작별</h3><p class="muted">대화 기능은 가족이 원하면 언제든 닫을 수 있습니다. 닫을 때 등록한 기억 카드와 음성 자료를 돌려받거나 삭제합니다.</p><button class="ghost" id="farewellBtn">작별 절차 시작</button></div>` : ""}
     <div class="card"><h3>내 정보</h3><p>${esc(me.member.name)} · ${esc(me.member.relation)} · ${roleName[me.member.role]}</p><p class="muted">계약자 ${esc(me.contract.holder_name)} · 봉안함 ${esc(me.niche?.code || "-")} · ${me.contract.plan === "premium" ? "프리미엄" : "기본"}</p>
       <button class="ghost small" id="logout">이 기기에서 나가기</button></div>`;
   $("#logout").onclick = () => { localStorage.removeItem("family_token"); location.href = "/"; };
-  renderVoiceCard();
+  renderVoiceCard(); renderFaceCard();
   $("#inviteBtn") && ($("#inviteBtn").onclick = () => {
     const m = modal(`<h2>가족 초대</h2><p class="muted">만들어진 링크를 카카오톡으로 보내 주세요. 링크를 누르면 바로 열립니다.</p>
       <div class="field"><label>이름</label><input id="ivName"></div>
@@ -461,6 +529,46 @@ function openRecorder(d, minSeconds) {
     try { const r = await api("/api/family/voice/register", { method: "POST", body: fd }); m.remove(); toast(`목소리를 등록했습니다${r.seconds ? ` (${Math.round(r.seconds)}초)` : ""}. 대화에서 바로 쓰입니다.`, 4000); renderVoiceCard(); state.me = await api("/api/family/me"); }
     catch (e) { out("실패: " + e.message); $("#vGo", m).disabled = false; }
   };
+}
+
+// ---------------- 얼굴 등록 (실시간 아바타) ----------------
+async function renderFaceCard() {
+  const box = $("#faceBody"); if (!box) return;
+  let v; try { v = await api("/api/family/avatar"); } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
+  if (!v.provider_ready) { box.innerHTML = `<p class="muted">봉안당에서 아직 실시간 아바타 기능을 켜지 않았습니다. 지금은 사진 아바타로 대화합니다.</p>`; return; }
+  box.innerHTML = `<p class="muted" style="font-size:14px">정면 사진 한 장으로 말할 때 입이 움직이는 아바타를 만듭니다. <b>목소리 등록이 먼저</b> 되어 있어야 대화에서 쓰입니다. 화면에는 항상 'AI 실시간 영상' 표시가 붙습니다.</p>` +
+    v.deceased.map((d) => `<div class="list-item" style="align-items:flex-start;flex-direction:column;gap:6px">
+      <div class="row between" style="width:100%"><div><b>${esc(d.name)} 님</b> <span class="muted">${esc(d.honorific)}</span></div>
+        ${d.has_face ? '<span class="pill" style="background:#dff3e6;color:#1e7a45">얼굴 등록됨</span>' : '<span class="pill">미등록</span>'}</div>
+      <div class="muted" style="font-size:14px">사진 ${d.has_photo ? "있음" : "없음"} · 목소리 ${d.has_voice ? "있음" : "없음"}${d.consent ? ` · 동의: ${esc(d.consent.signer_name)}` : ""}</div>
+      <div class="row" style="flex-wrap:wrap">
+        ${v.can_manage ? `<label class="btn small secondary" style="width:auto;cursor:pointer">📷 정면 사진 올리기<input type="file" accept="image/*" data-fphoto="${d.id}" hidden></label>` : ""}
+        ${v.can_manage && d.has_photo ? `<button class="small" data-freg="${d.id}">${d.has_face ? "다시 만들기" : "🎬 얼굴 등록"}</button>` : ""}
+        ${v.can_manage && d.has_face ? `<button class="small ghost" data-fdel="${d.id}">삭제</button>` : ""}
+      </div><div class="muted" style="font-size:13px" data-fout="${d.id}"></div></div>`).join("");
+  box.querySelectorAll("[data-fphoto]").forEach((inp) => inp.onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return; const fd = new FormData(); fd.append("deceased_id", inp.dataset.fphoto); fd.append("file", f);
+    try { await api("/api/family/avatar/photo", { method: "POST", body: fd }); toast("사진을 올렸습니다."); renderFaceCard(); } catch (err) { toast(err.message, 4000); }
+  });
+  box.querySelectorAll("[data-freg]").forEach((b) => b.onclick = () => {
+    const d = v.deceased.find((x) => x.id === +b.dataset.freg);
+    const m = modal(`<h2>${esc(d.name)} 님 얼굴 등록</h2><p class="muted">정면을 보는 사진이 가장 좋습니다(옆모습·모자·선글라스는 실패할 수 있음). 사진은 아바타 공급자(Simli)로 전송되어 얼굴 모델이 만들어집니다.</p>
+      <div class="seg" style="margin-bottom:12px"><button class="active" data-kind="likeness">고인의 사진<br><small>가족 동의</small></button><button data-kind="lifetime_record">본인 사진<br><small>생전 기록</small></button></div>
+      <div class="check"><input type="checkbox" id="fAgree"><label for="fAgree" style="margin:0;color:var(--ink)">이 사진을 AI 대화의 얼굴로만 쓰는 것에 동의합니다. 다른 가족이 반대하면 즉시 삭제하겠습니다.</label></div>
+      <button id="fGo" disabled>얼굴 만들기</button><p class="muted center" id="fOut" style="margin-top:8px;font-size:14px"></p>`);
+    let kind = "likeness";
+    m.querySelectorAll("[data-kind]").forEach((k) => k.onclick = () => { m.querySelectorAll("[data-kind]").forEach((x) => x.classList.remove("active")); k.classList.add("active"); kind = k.dataset.kind; });
+    $("#fAgree", m).onchange = () => { $("#fGo", m).disabled = !$("#fAgree", m).checked; };
+    $("#fGo", m).onclick = async () => {
+      $("#fGo", m).disabled = true; $("#fOut", m).textContent = "얼굴을 만드는 중… 1~3분 걸릴 수 있습니다.";
+      try { await api("/api/family/avatar/register", { method: "POST", body: { deceased_id: d.id, agree: true, kind } }); m.remove(); toast("얼굴을 등록했습니다. 다음 대화부터 실시간 아바타가 나옵니다.", 4000); renderFaceCard(); state.me = await api("/api/family/me"); }
+      catch (e) { $("#fOut", m).textContent = "실패: " + e.message; $("#fGo", m).disabled = false; }
+    };
+  });
+  box.querySelectorAll("[data-fdel]").forEach((b) => b.onclick = async () => {
+    if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "정말 삭제 (다시 누르기)"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "삭제"; }, 5000); return; }
+    await api(`/api/family/avatar/${b.dataset.fdel}`, { method: "DELETE" }); renderFaceCard();
+  });
 }
 
 if ("speechSynthesis" in window) window.speechSynthesis.onvoiceschanged = () => {};

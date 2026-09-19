@@ -154,3 +154,11 @@ nav.tabs button.active .ico { transform: translateY(-1px); }
 .seg { display: flex; border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden; }
 .seg button { border-radius: 0; background: #fff; color: var(--muted); font-size: 15px; min-height: 44px; font-weight: 600; }
 .seg button.active { background: var(--accent); color: #fff; }
+
+/* 실시간 립싱크 아바타(A등급): 연결되면 사진 대신 영상 */
+.avatar-photo video { width: 100%; height: 100%; object-fit: cover; display: none; background: #000; }
+.avatar-stage.live .avatar-photo img, .avatar-stage.live .avatar-photo .no-photo { display: none; }
+.avatar-stage.live .avatar-photo video { display: block; }
+.avatar-stage.live .avatar-photo { animation: none; }
+.live-badge { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; display: none; }
+.avatar-stage.live .live-badge { display: block; }

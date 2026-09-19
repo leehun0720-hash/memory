@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from .. import config, db, voice
+from .. import config, db, face, voice
 from ..deps import require_member, require_role
 from ..state import state
 
@@ -23,8 +23,9 @@ def _deceased_for(contract_id: int) -> list[dict]:
         d["chat_available"] = bool(d["ai_enabled"]) and d["consent_valid"]
         d["days_since_death"] = _days_since(d["death_date"])
         d["has_voice"] = bool(d.get("voice_id"))
+        d["has_face"] = bool(d.get("face_id"))
         d.pop("memory_card", None)   # 기억 카드는 유족 화면에 노출하지 않음
-        d.pop("voice_id", None); d.pop("voice_provider", None)
+        d.pop("voice_id", None); d.pop("voice_provider", None); d.pop("face_id", None); d.pop("face_provider", None)
     return rows
 
 
@@ -269,8 +270,9 @@ def farewell(body: FarewellIn, m: dict = Depends(require_member)):
         exported = {"name": d["name"], "memory_card": d["memory_card"], "voice_note": d["voice_note"],
                     "media": db.rows("SELECT kind, path, caption FROM media WHERE deceased_id=?", (d["id"],))}
     voice.delete(d["id"], f"member:{m['id']}")   # 공급자 쪽 복제 음성도 지운다
+    face.delete(d["id"], f"member:{m['id']}")    # 아바타 얼굴도 지운다
     with db.tx() as conn:
-        conn.execute("UPDATE deceased SET ai_enabled=0, memory_card='', voice_note='', voice_id='', voice_provider='' WHERE id=?", (d["id"],))
+        conn.execute("UPDATE deceased SET ai_enabled=0, memory_card='', voice_note='', voice_id='', voice_provider='', face_id='', face_provider='' WHERE id=?", (d["id"],))
         conn.execute("UPDATE consents SET revoked_at=? WHERE deceased_id=? AND revoked_at IS NULL", (db.now(), d["id"]))
         if body.action == "delete":
             for r in conn.execute("SELECT path FROM media WHERE deceased_id=? AND kind IN ('voice','message_video')", (d["id"],)).fetchall():
@@ -349,4 +351,73 @@ def voice_remove(deceased_id: int, m: dict = Depends(require_member)):
     if not db.one("SELECT id FROM deceased WHERE id=? AND contract_id=?", (deceased_id, m["contract_id"])):
         raise HTTPException(404)
     voice.delete(deceased_id, f"member:{m['id']}")
+    return {"ok": True}
+
+
+# ---------- 실시간 아바타 얼굴 등록 (유족 앱) ----------
+
+@router.get("/avatar")
+def avatar_status(m: dict = Depends(require_member)):
+    out = []
+    for d in db.rows("SELECT id, name, honorific, photo_path, face_id, face_provider, voice_id FROM deceased WHERE contract_id=? ORDER BY id", (m["contract_id"],)):
+        out.append({
+            "id": d["id"], "name": d["name"], "honorific": d["honorific"],
+            "has_photo": bool(d["photo_path"]), "has_face": bool(d["face_id"]), "has_voice": bool(d["voice_id"]),
+            "consent": db.one("SELECT kind, signer_name FROM consents WHERE deceased_id=? AND kind IN ('likeness','lifetime_record') AND revoked_at IS NULL ORDER BY id DESC", (d["id"],)),
+        })
+    return {"provider_ready": face.provider_ready(), "can_manage": m["role"] == "manage", "deceased": out}
+
+
+class FaceRegisterIn(BaseModel):
+    deceased_id: int
+    agree: bool = False
+    kind: str = Field(default="likeness", pattern="^(likeness|lifetime_record)$")
+
+
+@router.post("/avatar/register")
+def avatar_register(body: FaceRegisterIn, m: dict = Depends(require_member)):
+    """대표 사진으로 얼굴을 만든다. 동의(초상 사용/생전 기록)를 함께 기록한다."""
+    require_role(m, "manage")
+    d = db.one("SELECT id FROM deceased WHERE id=? AND contract_id=?", (body.deceased_id, m["contract_id"]))
+    if not d:
+        raise HTTPException(404)
+    if not body.agree:
+        raise HTTPException(400, "동의 확인이 필요합니다.")
+    if not db.one("SELECT id FROM consents WHERE deceased_id=? AND kind=? AND revoked_at IS NULL", (d["id"], body.kind)):
+        db.execute("INSERT INTO consents(deceased_id, signer_name, relation, kind, signed_at, note) VALUES (?,?,?,?,?,?)",
+                   (d["id"], m["name"], m["relation"], body.kind, db.now(), "유족 앱에서 동의 · 실시간 아바타"))
+        db.audit(f"member:{m['id']}", "consent.create", f"deceased:{d['id']}", body.kind)
+    return face.register(d["id"], f"member:{m['id']}")
+
+
+@router.post("/avatar/photo")
+async def avatar_photo(deceased_id: int = Form(...), file: UploadFile = File(...), m: dict = Depends(require_member)):
+    """앱에서 정면 사진을 올려 대표 사진으로 쓴다(얼굴 등록 전 단계)."""
+    require_role(m, "manage")
+    d = db.one("SELECT id FROM deceased WHERE id=? AND contract_id=?", (deceased_id, m["contract_id"]))
+    if not d:
+        raise HTTPException(404)
+    from pathlib import Path
+    import uuid
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+        raise HTTPException(400, "jpg·png·webp 사진만 올릴 수 있습니다.")
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(400, "사진이 5MB를 넘습니다.")
+    rel = f"photos/{uuid.uuid4().hex}{ext}"
+    dest = config.MEDIA_DIR / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    db.execute("UPDATE deceased SET photo_path=? WHERE id=?", (rel, d["id"]))
+    db.audit(f"member:{m['id']}", "photo.update", f"deceased:{d['id']}")
+    return {"ok": True}
+
+
+@router.delete("/avatar/{deceased_id}")
+def avatar_remove(deceased_id: int, m: dict = Depends(require_member)):
+    require_role(m, "manage")
+    if not db.one("SELECT id FROM deceased WHERE id=? AND contract_id=?", (deceased_id, m["contract_id"])):
+        raise HTTPException(404)
+    face.delete(deceased_id, f"member:{m['id']}")
     return {"ok": True}

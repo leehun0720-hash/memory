@@ -123,6 +123,8 @@ def connect() -> sqlite3.Connection:
 _MIGRATIONS = [
     ("deceased", "voice_id", "TEXT DEFAULT ''"),          # 복제 음성 ID(공급자 측)
     ("deceased", "voice_provider", "TEXT DEFAULT ''"),    # elevenlabs | supertone
+    ("deceased", "face_id", "TEXT DEFAULT ''"),           # 실시간 아바타 얼굴 ID(공급자 측)
+    ("deceased", "face_provider", "TEXT DEFAULT ''"),     # simli
 ]
 
 

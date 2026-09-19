@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from .. import config, db
+from .. import config, db, face
 from ..ai import factory, safety
 from ..ai.base import Persona, Turn
 from ..ai.prompt import build_greeting
@@ -79,7 +79,9 @@ def start(body: StartIn, m: dict = Depends(require_member)):
                (sid, d["id"], m["id"], db.now(), factory.llm().name))
     db.audit(f"member:{m['id']}", "chat.start", f"deceased:{d['id']}", body.occasion)
     voice_available = bool(d["voice_id"]) and factory.tts().name != "browser"
+    avatar_available = voice_available and bool(d["face_id"]) and face.provider_ready()   # 아바타는 서버 음성이 있을 때만
     return {
+        "avatar_available": avatar_available, "avatar_provider": factory.avatar().name if avatar_available else None,
         "session_id": sid, "greeting": greeting, "notice": AI_NOTICE, "notices": notices,
         "max_seconds": config.CHAT_MAX_MINUTES * 60, "provider": factory.llm().name,
         "photo_url": f"/api/family/deceased/{d['id']}/photo.jpg" if d["photo_path"] else None,
@@ -183,3 +185,21 @@ def tts(session_id: str, text: str, m: dict = Depends(require_member)):
     if r.audio is None:
         return Response(status_code=204)
     return Response(content=r.audio, media_type=r.mime, headers={"Cache-Control": "no-store"})
+
+
+class AvatarSessionIn(BaseModel):
+    session_id: str
+
+
+@router.post("/avatar-session")
+def avatar_session(body: AvatarSessionIn, m: dict = Depends(require_member)):
+    """실시간 아바타 세션 토큰. API 키는 서버에만 있고 브라우저에는 토큰만 간다."""
+    with _lock:
+        s = _sessions.get(body.session_id)
+    if not s or s["member_id"] != m["id"]:
+        raise HTTPException(404, "대화 세션이 없습니다.")
+    sess = face.session(s["deceased_id"])
+    if not sess:
+        raise HTTPException(404, "실시간 아바타를 쓸 수 없습니다. 사진 아바타로 진행합니다.")
+    db.audit(f"member:{m['id']}", "avatar.session", f"session:{body.session_id}", sess["provider"])
+    return sess
