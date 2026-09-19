@@ -1,10 +1,8 @@
+# 서버(웹앱·API). 현장 프로그램(웹캠)은 edge/requirements.txt 를 추가로 설치.
 fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 python-dotenv>=1.0
-opencv-python>=4.10
-numpy>=1.26
 requests>=2.32
 anthropic>=1.0
-pytest>=8
-httpx>=0.27
+pillow>=10

@@ -1,0 +1,11 @@
+[project]
+name = "memorial-mvp"
+version = "0.1.0"
+description = "봉안함 원격 참배·AI 추모 대화 MVP"
+requires-python = ">=3.11"
+
+[tool.vercel]
+entrypoint = "server.main:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

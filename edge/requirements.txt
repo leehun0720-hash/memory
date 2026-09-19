@@ -1,0 +1,5 @@
+# 현장 프로그램(웹캠 캡처·사람 감지). 서버와 같은 PC에서 돌리면 둘 다 설치.
+opencv-python>=4.10
+numpy>=1.26
+requests>=2.32
+python-dotenv>=1.0

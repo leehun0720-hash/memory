@@ -17,7 +17,26 @@ def _int(name: str, default: int) -> int:
 
 ADMIN_KEY = os.getenv("ADMIN_KEY", "admin1234")
 EDGE_KEY = os.getenv("EDGE_KEY", "edge1234")
-DATA_DIR = Path(os.getenv("DATA_DIR", ROOT / "data")).resolve()
+
+
+def _writable_data_dir() -> Path:
+    """서버리스(Vercel 등)는 프로젝트 폴더가 읽기 전용이라 /tmp 로 내려간다. 그 경우 데이터는 인스턴스가 바뀌면 사라진다."""
+    want = Path(os.getenv("DATA_DIR", ROOT / "data")).resolve()
+    try:
+        want.mkdir(parents=True, exist_ok=True)
+        (want / ".w").write_text("ok")
+        (want / ".w").unlink()
+        return want
+    except OSError:
+        tmp = Path(os.getenv("TMPDIR", "/tmp")) / "memorial-data"
+        tmp.mkdir(parents=True, exist_ok=True)
+        return tmp
+
+
+DATA_DIR = _writable_data_dir()
+EPHEMERAL = not str(DATA_DIR).startswith(str(ROOT))   # /tmp 로 내려간 상태(서버리스)
+AUTO_SEED = os.getenv("AUTO_SEED", "0") == "1"           # 서버 시작 시 비어 있으면 시연 데이터 생성
+SEED_SALT = os.getenv("SEED_SALT", "")                   # 있으면 시연 초대 토큰이 고정됨(서버리스 재시작에도 링크 유지)
 SNAPSHOT_DIR = DATA_DIR / "snapshots"
 FRAME_DIR = DATA_DIR / "frames"
 MEDIA_DIR = DATA_DIR / "media"

@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db
+from . import config, db
 from .routers import admin, chat, edge, family
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -19,6 +19,12 @@ STATIC = Path(__file__).parent / "static"
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.connect()
+    if config.EPHEMERAL:
+        logging.getLogger(__name__).warning("데이터 폴더가 읽기 전용이라 %s 를 씁니다. 서버리스에서는 인스턴스가 바뀌면 데이터가 사라집니다.", config.DATA_DIR)
+    if config.AUTO_SEED and not db.one("SELECT id FROM facilities LIMIT 1"):
+        from . import seed
+        seed.run(quiet=True)
+        logging.getLogger(__name__).info("AUTO_SEED: 시연 데이터를 만들었습니다.")
     yield
 
 

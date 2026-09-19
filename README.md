@@ -92,6 +92,18 @@ tests/test_mvp.py  26개 테스트: python -m pytest -q
 | `CAMERA_INDEX` | 0 | 웹캠 장치 번호 |
 | `CAPTURE_WIDTH/HEIGHT` | 1920/1080 | 4K 웹캠이면 3840/2160 |
 | `EDGE_PREVIEW` | 0 | 1이면 현장 프로그램이 미리보기 창을 띄움(칸·감지 상태 확인) |
+| `AUTO_SEED` / `SEED_SALT` | 0 / (없음) | 서버리스용: 시작 시 시연 데이터 생성, 초대 토큰 고정 |
+| `DATA_DIR` | ./data | 쓰기 불가면 자동으로 /tmp 로 내려감(서버리스) |
+
+## 배포
+
+| 방식 | 되는 것 | 안 되는 것 | 언제 |
+|---|---|---|---|
+| **노트북 + https 터널** (`cloudflared tunnel --url http://localhost:8765`) | 전부. 휴대폰에서 마이크 녹음·음성 인식까지 | — | **시연에 권장.** 웹캠이 노트북에 있으므로 서버도 같은 곳이 가장 단순 |
+| Railway / Fly.io / 작은 VM (상시 컨테이너 + 볼륨) | 전부(현장 프로그램은 봉안당 PC에서 `SERVER_URL`을 이 주소로) | — | 파일럿 |
+| **Vercel** (서버리스) | 유족 앱·관리자 콘솔 화면, AI 대화, 제사·공양·초대 | 카메라 사진·실시간 보기(인스턴스마다 저장소가 달라 현장 업로드가 안 보임), 데이터 영구 저장(재시작 시 초기화), 60초 넘는 음성 등록 | 화면만 보여 주는 링크 |
+
+Vercel에 올릴 때 환경변수: `AUTO_SEED=1`(시작 시 시연 데이터), `SEED_SALT=아무문자열`(초대 링크 고정), `ADMIN_KEY`, `EDGE_KEY`. API 키는 배포 뒤 관리자 콘솔에서 넣되, 서버리스는 재시작 시 사라지므로 `ANTHROPIC_API_KEY`·`ELEVENLABS_API_KEY`를 환경변수로 넣는 편이 낫습니다. 진입점은 `pyproject.toml`의 `[tool.vercel] entrypoint`.
 
 ## 설계에서 지킨 것 (계획서 4·5·7장)
 

@@ -1,4 +1,5 @@
 """시연 데이터. `python -m server.seed` 로 실행. 이미 데이터가 있으면 건드리지 않는다(--reset 으로 초기화)."""
+import hashlib
 import sys
 from datetime import datetime, timedelta
 
@@ -39,7 +40,10 @@ def _portrait(path, initials: str, color: tuple[int, int, int]) -> None:
     img.save(path, quality=90)
 
 
-def run(reset: bool = False) -> None:
+def run(reset: bool = False, quiet: bool = False) -> None:
+    if quiet:
+        global print
+        print = lambda *a, **k: None  # noqa: E731
     if reset and config.DB_PATH.exists():
         db.reset_for_tests(config.DB_PATH)
         config.DB_PATH.unlink()
@@ -74,8 +78,9 @@ def run(reset: bool = False) -> None:
         cid = db.execute("INSERT INTO contracts(niche_id, holder_name, holder_phone, plan, created_at) VALUES (?,?,?,?,?)",
                          (niches[niche_code], holder, phone, plan, db.now()))
         for name, relation, role, minor in members:
+            tok = hashlib.sha256(f"{config.SEED_SALT}:{name}".encode()).hexdigest()[:22] if config.SEED_SALT else db.token(16)
             db.execute("INSERT INTO family_members(contract_id, name, relation, role, invite_token, is_minor, created_at) VALUES (?,?,?,?,?,?,?)",
-                       (cid, name, relation, role, db.token(16), minor, db.now()))
+                       (cid, name, relation, role, tok, minor, db.now()))
         name, honorific, birth, death, card, ai = dec
         photo_rel = f"photos/seed_{cid}.jpg"
         _portrait(config.MEDIA_DIR / photo_rel, photo_initials, color)
