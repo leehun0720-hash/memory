@@ -46,7 +46,7 @@ DB_PATH = DATA_DIR / "memorial.db"
 LIVE_SECONDS = _int("LIVE_SECONDS", 30)
 CHAT_MAX_MINUTES = _int("CHAT_MAX_MINUTES", 15)
 SNAPSHOT_INTERVAL = _int("SNAPSHOT_INTERVAL", 10)
-LIVE_FPS = _int("LIVE_FPS", 5)
+LIVE_FPS = _int("LIVE_FPS", 12)          # 실시간 보기 초당 프레임(현장 프로그램이 이 값으로 보냄)
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "auto").strip().lower()
 LLM_MODEL = os.getenv("LLM_MODEL", "claude-opus-5")

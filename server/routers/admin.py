@@ -33,7 +33,24 @@ def overview():
         "offerings_pending": db.one("SELECT COUNT(*) AS n FROM offerings WHERE status='requested'")["n"],
         "live_today": db.one("SELECT COUNT(*) AS n FROM live_sessions WHERE started_at >= date('now')")["n"],
     }
-    return {"cameras": cams, "counts": counts, "facility": db.one("SELECT * FROM facilities ORDER BY id LIMIT 1")}
+    return {"cameras": cams, "counts": counts, "facility": db.one("SELECT * FROM facilities ORDER BY id LIMIT 1"),
+            "live_protect": db.get_setting("live_ignore_occupied") != "1"}
+
+
+class LiveSettingsIn(BaseModel):
+    protect: bool   # True=운용(사람 감지 시 실시간 중단) · False=시연(웹캠 앞에 사람이 있어도 계속 송출)
+
+
+@router.get("/settings/live")
+def live_settings_get():
+    return {"protect": db.get_setting("live_ignore_occupied") != "1"}
+
+
+@router.put("/settings/live")
+def live_settings_put(body: LiveSettingsIn):
+    db.set_setting("live_ignore_occupied", "0" if body.protect else "1")
+    db.audit("admin", "settings.live_protect", "live", "on" if body.protect else "off")
+    return {"protect": body.protect}
 
 
 # ---------- 카메라 · 칸 좌표 ----------

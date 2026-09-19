@@ -147,11 +147,12 @@ async function renderVisit() {
   async function refreshStatus() {
     try {
       const s = await api("/api/family/niche/status");
-      $("#camStatus").innerHTML = s.camera_online
-        ? (s.occupied ? `<span class="dot busy"></span>현장에 참배객이 계십니다` : `<span class="dot on"></span>카메라 연결됨`)
-        : `<span class="dot"></span>카메라 연결 안 됨`;
+      const demo = s.live_protect === false;   // 관리자 콘솔에서 참배객 보호를 끈 시연 모드
+      $("#camStatus").innerHTML = (s.camera_online
+        ? (s.occupied && !demo ? `<span class="dot busy"></span>현장에 참배객이 계십니다` : `<span class="dot on"></span>카메라 연결됨`)
+        : `<span class="dot"></span>카메라 연결 안 됨`) + (demo ? ' <span class="pill" title="참배객 감지를 꺼 둔 상태">시연 모드</span>' : "");
       $("#snapAt").textContent = s.last_snapshot_at ? `사진 ${ago(s.last_snapshot_at)}` : "사진 없음";
-      if (live.on && s.occupied) endLive("현장에 참배객이 계셔서 사진 화면으로 바꿨습니다.");
+      if (live.on && s.occupied && !demo) endLive("현장에 참배객이 계셔서 사진 화면으로 바꿨습니다.");
     } catch {}
   }
   function showSnapshot() {

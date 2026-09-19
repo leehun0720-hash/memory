@@ -73,6 +73,11 @@ def set_theme(body: ThemeIn, m: dict = Depends(require_member)):
 
 # ---------- 원격 참배 ----------
 
+def _live_protect() -> bool:
+    """참배객 보호: 현장에 사람이 감지되면 실시간 송출을 멈춘다. 관리자 콘솔에서 시연용으로 끌 수 있다."""
+    return db.get_setting("live_ignore_occupied") != "1"
+
+
 @router.get("/niche/status")
 def niche_status(m: dict = Depends(require_member)):
     if not m["niche_id"]:
@@ -83,6 +88,7 @@ def niche_status(m: dict = Depends(require_member)):
                   (m["niche_id"], m["id"], db.now()))
     return {
         "last_snapshot_at": n["last_snapshot_at"],
+        "live_protect": _live_protect(),
         "camera_online": cam.online,
         "occupied": cam.occupied,
         "live_until": live["expires_at"] if live else None,
@@ -107,7 +113,7 @@ def live_start(m: dict = Depends(require_member)):
     cam = state.camera(m["camera_id"])
     if not cam.online:
         raise HTTPException(503, "현장 카메라가 연결되어 있지 않습니다. 마지막 사진을 보여 드립니다.")
-    if cam.occupied:
+    if cam.occupied and _live_protect():
         raise HTTPException(409, "지금 현장에 다른 참배객이 계십니다. 잠시 뒤 다시 시도해 주세요.")
     sid = db.token(12)
     started = datetime.now().astimezone()
@@ -123,7 +129,7 @@ def _mjpeg(key: int, deadline: float, cam_id: int | None):
     seq = 0
     idle_since = time.time()
     while time.time() < deadline:
-        if cam_id is not None and state.camera(cam_id).occupied:
+        if cam_id is not None and state.camera(cam_id).occupied and _live_protect():
             break   # 참배객 보호: 사람 감지 시 송출 중단 → 클라이언트가 사진 화면으로 전환
         f = state.wait_live(key, seq, timeout=1.0)
         if f is None:

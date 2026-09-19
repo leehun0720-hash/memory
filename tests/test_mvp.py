@@ -513,3 +513,37 @@ def test_tts_voice_settings_roundtrip_and_v3_snap(client, monkeypatch):
     # ElevenLabs가 꺼져 있으면 미리 듣기는 400
     assert client.put("/api/admin/settings/ai", headers=ADMIN, json={"elevenlabs_api_key": ""}).status_code == 200
     assert client.post("/api/admin/settings/tts/preview", headers=ADMIN, json={}).status_code == 400
+
+
+# ---------- 실시간 보기 보호 스위치 · 현장 프로그램 처리 속도 ----------
+
+def test_live_protect_toggle(client):
+    cfg = client.get("/api/edge/config", headers=EDGE).json()
+    cam = cfg["cameras"][0]
+    tok = {"X-Family-Token": holder_token()}
+    client.post(f"/api/edge/cameras/{cam['id']}/status", headers=EDGE, data={"occupied": "true", "persons": 1, "fps": 10})
+    assert client.post("/api/family/live/start", headers=tok).status_code == 409          # 운용 기본: 사람 있으면 거부
+    assert client.put("/api/admin/settings/live", headers=ADMIN, json={"protect": False}).json()["protect"] is False
+    assert client.get("/api/edge/config", headers=EDGE).json()["live_ignore_occupied"] is True
+    assert client.get("/api/admin/settings/live", headers=ADMIN).json()["protect"] is False
+    assert client.post("/api/family/live/start", headers=tok).status_code == 200          # 시연 모드: 사람 있어도 시작
+    assert client.get("/api/family/niche/status", headers=tok).json()["live_protect"] is False
+    assert client.get("/api/admin/overview", headers=ADMIN).json()["live_protect"] is False
+    client.put("/api/admin/settings/live", headers=ADMIN, json={"protect": True})
+    assert client.get("/api/edge/config", headers=EDGE).json()["live_ignore_occupied"] is False
+    client.post(f"/api/edge/cameras/{cam['id']}/status", headers=EDGE, data={"occupied": "false", "persons": 0, "fps": 10})
+
+
+def test_edge_crop_is_fast_and_bounded():
+    import time
+    import numpy as np
+    from edge.agent import crop_niche, jpeg
+    frame = np.random.randint(0, 255, (720, 1280, 3), dtype=np.uint8)
+    rect = {"x": 0.4, "y": 0.2, "w": 0.18, "h": 0.26}
+    out = crop_niche(frame, rect)
+    assert out.shape[1] <= 720 and out.ndim == 3
+    assert len(jpeg(out, 75)) > 1000
+    t = time.perf_counter()
+    for _ in range(5):
+        jpeg(crop_niche(frame, rect), 75)
+    assert (time.perf_counter() - t) / 5 < 0.05      # 한 장에 50ms 미만(1080p 큰 반경 흐림은 66ms였다)

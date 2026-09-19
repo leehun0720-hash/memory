@@ -44,10 +44,15 @@ async function overview() {
         ${o.cameras.map((cm) => `<tr><td>${esc(cm.name)}<div class="muted">${esc(cm.room_name)}</div></td><td>${cm.kind === "wall" ? "벽면" : "제례"}</td><td>#${cm.device_index}</td><td>${cm.niche_count}</td>
           <td>${cm.online ? '<span class="tag on">연결됨</span>' : '<span class="tag off">끊김</span>'}</td><td>${cm.occupied ? `<span class="tag busy">사람 ${cm.persons}명 · 송출 중단</span>` : '<span class="tag">없음</span>'}</td><td>${cm.fps}</td><td class="muted">${fmt(cm.last_seen_at)}</td></tr>`).join("")}</table>
         <p class="muted" style="margin-top:8px">현장 프로그램이 꺼져 있으면 <span class="mono">python -m edge.agent</span> 로 실행하세요.</p></div>
+      <div class="card"><h3>실시간 보기 보호 <span class="muted">(참배객 감지)</span></h3>
+        <div class="toolbar"><button class="small ${o.live_protect ? "" : "danger"}" id="liveProtect">${o.live_protect ? "켬 (운용)" : "끔 (시연 모드)"}</button>
+          <span class="muted">${o.live_protect ? "현장에 사람이 감지되면 실시간 영상을 멈추고 사진으로 보여 줍니다. 운용 기본값." : "웹캠 앞에 사람이 있어도 실시간 영상을 계속 보냅니다. 노트북 시연용 — 실제 운용 전에 반드시 켜세요."}</span></div>
+        <p class="muted" style="font-size:13px">노트북 시연에서는 카메라 앞에 앉은 사람이 '참배객'으로 잡혀 영상이 몇 초마다 멈춥니다. 시연 중에만 끄고, 안치실에 설치하면 켭니다.</p></div>
       <div class="card"><h3>AI 연결 점검 <span class="muted">(시연 전에 한 번 누르세요)</span></h3>
         <div class="toolbar"><button class="small" id="chkAll">지금 점검</button><span class="muted">Claude 키·크레딧, ElevenLabs 키·권한 3개를 한 번에 확인합니다.</span></div>
         <div id="chkOut" class="stack" style="font-size:14px"></div></div>`;
     $("#chkAll").onclick = runAllChecks;
+    $("#liveProtect").onclick = async () => { try { await api("/api/admin/settings/live", { method: "PUT", body: { protect: !o.live_protect } }); toast(o.live_protect ? "참배객 보호를 껐습니다(시연 모드)." : "참배객 보호를 켰습니다."); render(); } catch (e) { toast(e.message); } };
     if (overview.lastCheck) $("#chkOut").innerHTML = overview.lastCheck;
   };
   await render(); every(render, 5000);

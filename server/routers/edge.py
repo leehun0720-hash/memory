@@ -42,6 +42,7 @@ def edge_config():
         "ritual_live_camera_ids": sorted(set(ritual_live)),
         "snapshot_interval": config.SNAPSHOT_INTERVAL,
         "live_fps": config.LIVE_FPS,
+        "live_ignore_occupied": db.get_setting("live_ignore_occupied") == "1",   # 시연 모드: 사람이 있어도 실시간 프레임을 보낸다
     }
 
 
