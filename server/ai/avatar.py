@@ -27,6 +27,17 @@ class SimliAvatar:
     WS_URL = "wss://api.simli.ai/compose/webrtc/p2p"
     # 연결 테스트용 기본 제공 얼굴(Simli 'Nonna'). 세션 토큰 발급만 확인하고 실제로 연결하지는 않는다.
     PROBE_FACE = "c2f1d5d7-074b-405d-be4c-df52cd52166a"
+    # Simli 기본 제공 얼굴(무료 플랜에서도 사용 가능). 문서 2026-09-19 확인: https://docs.simli.com/api-reference/preset-faces.md
+    PRESET_FACES = [
+        {"id": "c2f1d5d7-074b-405d-be4c-df52cd52166a", "label": "노년 여성 (Nonna)"},
+        {"id": "121cd5ae-7df7-4ea3-a389-401a9463db52", "label": "노년 여성 2 (Edna)"},
+        {"id": "cace3ef7-a4c4-425d-a8cf-a5358eb0c427", "label": "동양 여성 (Tina)"},
+        {"id": "d2a5c7c6-fed9-4f55-bcb3-062f7cd20103", "label": "여성 (Kate)"},
+        {"id": "f1abe833-b44c-4650-a01c-191b9c3c43b8", "label": "남성 (Tony)"},
+        {"id": "dd10cb5a-d31d-4f12-b69f-6db3383c006e", "label": "남성 2 (Hank)"},
+        {"id": "7e74d6e7-d559-4394-bd56-4923a3ab75ad", "label": "남성 3 (Sabour)"},
+    ]
+    PRESET_IDS = {f["id"] for f in PRESET_FACES}
 
     def __init__(self, api_key: str) -> None:
         self.key = api_key
@@ -49,7 +60,11 @@ class SimliAvatar:
             return
         msg = self._msg(r)
         log.warning("Simli %s %s: %s %s", r.request.method, r.request.path_url, r.status_code, msg)
-        if r.status_code in (401, 403):
+        if "max number of" in msg.lower() and "face" in msg.lower():
+            msg = ("현재 Simli 요금제에서는 사진으로 얼굴을 더 만들 수 없습니다(무료 플랜은 맞춤 얼굴 불가). "
+                   "'기본 얼굴'로 시연하거나, app.simli.com 에서 유료 플랜으로 올린 뒤 다시 시도하세요. "
+                   f"(원문: {msg})")
+        elif r.status_code in (401, 403):
             msg = f"Simli 키가 올바르지 않거나 권한이 없습니다 ({msg})."
         elif r.status_code == 402 or "credit" in msg.lower() or "balance" in msg.lower():
             msg = f"Simli 크레딧이 부족합니다 ({msg}). app.simli.com 에서 잔액을 확인하세요."

@@ -524,6 +524,20 @@ def face_delete(did: int):
     return {"ok": True}
 
 
+@router.get("/avatar/presets")
+def avatar_presets():
+    return face.presets()
+
+
+class PresetIn(BaseModel):
+    face_id: str
+
+
+@router.post("/deceased/{did}/face/preset")
+def face_preset(did: int, body: PresetIn):
+    return face.set_preset(did, body.face_id, "admin")
+
+
 @router.post("/settings/tts/test")
 def tts_settings_test():
     from ..ai.tts import ElevenLabsTTS, TTSError

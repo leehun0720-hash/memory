@@ -536,16 +536,23 @@ async function renderFaceCard() {
   const box = $("#faceBody"); if (!box) return;
   let v; try { v = await api("/api/family/avatar"); } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
   if (!v.provider_ready) { box.innerHTML = `<p class="muted">봉안당에서 아직 실시간 아바타 기능을 켜지 않았습니다. 지금은 사진 아바타로 대화합니다.</p>`; return; }
-  box.innerHTML = `<p class="muted" style="font-size:14px">정면 사진 한 장으로 말할 때 입이 움직이는 아바타를 만듭니다. <b>목소리 등록이 먼저</b> 되어 있어야 대화에서 쓰입니다. 화면에는 항상 'AI 실시간 영상' 표시가 붙습니다.</p>` +
+  box.innerHTML = `<p class="muted" style="font-size:14px">말할 때 입이 움직이는 아바타입니다. <b>목소리 등록이 먼저</b> 되어 있어야 대화에서 쓰입니다. 화면에는 항상 'AI 실시간 영상' 표시가 붙습니다.<br>
+    <b>기본 얼굴</b>은 무료 플랜에서 바로 되고, <b>사진으로 만든 얼굴</b>은 Simli 유료 플랜이 필요합니다.</p>` +
     v.deceased.map((d) => `<div class="list-item" style="align-items:flex-start;flex-direction:column;gap:6px">
       <div class="row between" style="width:100%"><div><b>${esc(d.name)} 님</b> <span class="muted">${esc(d.honorific)}</span></div>
-        ${d.has_face ? '<span class="pill" style="background:#dff3e6;color:#1e7a45">얼굴 등록됨</span>' : '<span class="pill">미등록</span>'}</div>
+        ${d.has_face ? `<span class="pill" style="background:#dff3e6;color:#1e7a45">${esc(d.face_label || "얼굴 등록됨")}</span>` : '<span class="pill">미등록</span>'}</div>
       <div class="muted" style="font-size:14px">사진 ${d.has_photo ? "있음" : "없음"} · 목소리 ${d.has_voice ? "있음" : "없음"}${d.consent ? ` · 동의: ${esc(d.consent.signer_name)}` : ""}</div>
+      ${v.can_manage ? `<div class="row" style="width:100%"><select data-fpreset="${d.id}" style="flex:1"><option value="">기본 얼굴 고르기…</option>${v.presets.map((pf) => `<option value="${pf.id}">${esc(pf.label)}</option>`).join("")}</select><button class="small secondary" data-fpresetgo="${d.id}" style="min-height:44px">기본 얼굴로 시연</button></div>` : ""}
       <div class="row" style="flex-wrap:wrap">
         ${v.can_manage ? `<label class="btn small secondary" style="width:auto;cursor:pointer">📷 정면 사진 올리기<input type="file" accept="image/*" data-fphoto="${d.id}" hidden></label>` : ""}
-        ${v.can_manage && d.has_photo ? `<button class="small" data-freg="${d.id}">${d.has_face ? "다시 만들기" : "🎬 얼굴 등록"}</button>` : ""}
+        ${v.can_manage && d.has_photo ? `<button class="small" data-freg="${d.id}">🎬 사진으로 얼굴 만들기 (유료)</button>` : ""}
         ${v.can_manage && d.has_face ? `<button class="small ghost" data-fdel="${d.id}">삭제</button>` : ""}
       </div><div class="muted" style="font-size:13px" data-fout="${d.id}"></div></div>`).join("");
+  box.querySelectorAll("[data-fpresetgo]").forEach((b) => b.onclick = async () => {
+    const id = b.dataset.fpresetgo; const sel = box.querySelector(`[data-fpreset="${id}"]`); if (!sel.value) return toast("기본 얼굴을 먼저 고르세요.");
+    try { await api("/api/family/avatar/preset", { method: "POST", body: { deceased_id: +id, face_id: sel.value } }); toast("기본 얼굴을 설정했습니다. 다음 대화부터 실시간 아바타가 나옵니다.", 4000); renderFaceCard(); state.me = await api("/api/family/me"); }
+    catch (e) { toast(e.message, 5000); }
+  });
   box.querySelectorAll("[data-fphoto]").forEach((inp) => inp.onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return; const fd = new FormData(); fd.append("deceased_id", inp.dataset.fphoto); fd.append("file", f);
     try { await api("/api/family/avatar/photo", { method: "POST", body: fd }); toast("사진을 올렸습니다."); renderFaceCard(); } catch (err) { toast(err.message, 4000); }

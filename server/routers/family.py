@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .. import config, db, face, voice
+from ..ai.avatar import SimliAvatar  # 기본 얼굴 목록
 from ..deps import require_member, require_role
 from ..state import state
 
@@ -365,7 +366,25 @@ def avatar_status(m: dict = Depends(require_member)):
             "has_photo": bool(d["photo_path"]), "has_face": bool(d["face_id"]), "has_voice": bool(d["voice_id"]),
             "consent": db.one("SELECT kind, signer_name FROM consents WHERE deceased_id=? AND kind IN ('likeness','lifetime_record') AND revoked_at IS NULL ORDER BY id DESC", (d["id"],)),
         })
-    return {"provider_ready": face.provider_ready(), "can_manage": m["role"] == "manage", "deceased": out}
+    for o in out:
+        fid = db.one("SELECT face_id FROM deceased WHERE id=?", (o["id"],))["face_id"]
+        o["face_is_preset"] = fid in SimliAvatar.PRESET_IDS
+        o["face_label"] = next((f["label"] for f in SimliAvatar.PRESET_FACES if f["id"] == fid), "사진으로 만든 얼굴" if fid else None)
+    return {"provider_ready": face.provider_ready(), "can_manage": m["role"] == "manage", "deceased": out, "presets": face.presets()}
+
+
+class PresetIn(BaseModel):
+    deceased_id: int
+    face_id: str
+
+
+@router.post("/avatar/preset")
+def avatar_preset(body: PresetIn, m: dict = Depends(require_member)):
+    """사진 대신 기본 제공 얼굴로 실시간 아바타를 쓴다(무료 플랜 시연용)."""
+    require_role(m, "manage")
+    if not db.one("SELECT id FROM deceased WHERE id=? AND contract_id=?", (body.deceased_id, m["contract_id"])):
+        raise HTTPException(404)
+    return face.set_preset(body.deceased_id, body.face_id, f"member:{m['id']}")
 
 
 class FaceRegisterIn(BaseModel):

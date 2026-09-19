@@ -386,3 +386,23 @@ def test_avatar_register_and_session(client, monkeypatch):
     # 공급자 끔
     r = client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5", "simli_api_key": "", "avatar_provider": "auto"}).json()
     assert r["active_avatar"] == "none"
+
+
+def test_avatar_preset_face(client, monkeypatch):
+    from server.ai.avatar import SimliAvatar
+    monkeypatch.setattr(SimliAvatar, "session_token", lambda self, fid, max_len=900, max_idle=120: f"tok-{fid}")
+    monkeypatch.setattr(SimliAvatar, "ice_servers", lambda self: [])
+    monkeypatch.setattr(SimliAvatar, "delete_face", lambda self, fid: (_ for _ in ()).throw(AssertionError("기본 얼굴은 공급자 삭제를 부르면 안 됨")))
+    client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5", "simli_api_key": "simli-test-key", "avatar_provider": "auto"})
+    tok = {"X-Family-Token": holder_token()}
+    did = db.one("SELECT id FROM deceased WHERE name='김옥순'")["id"]
+    presets = client.get("/api/family/avatar", headers=tok).json()["presets"]
+    assert presets and presets[0]["id"] == SimliAvatar.PROBE_FACE
+    assert client.post("/api/family/avatar/preset", headers=tok, json={"deceased_id": did, "face_id": "not-a-preset"}).status_code == 400
+    r = client.post("/api/family/avatar/preset", headers=tok, json={"deceased_id": did, "face_id": presets[0]["id"]})
+    assert r.status_code == 200 and r.json()["preset"] is True
+    st = client.get("/api/family/avatar", headers=tok).json()["deceased"][0]
+    assert st["has_face"] and st["face_is_preset"] and "Nonna" in st["face_label"]
+    # 기본 얼굴 삭제는 공급자를 부르지 않고 우리 쪽만 비운다
+    assert client.delete(f"/api/family/avatar/{did}", headers=tok).status_code == 200
+    assert db.one("SELECT face_id FROM deceased WHERE id=?", (did,))["face_id"] == ""

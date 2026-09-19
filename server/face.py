@@ -38,13 +38,36 @@ def register(deceased_id: int, actor: str) -> dict:
     return {"face_id": fid, "provider": provider.name}
 
 
+def presets() -> list[dict]:
+    from .ai.avatar import SimliAvatar
+    return SimliAvatar.PRESET_FACES
+
+
+def set_preset(deceased_id: int, face_id: str, actor: str) -> dict:
+    """사진 없이 Simli 기본 제공 얼굴을 쓴다(무료 플랜 시연용). 고인의 초상이 아니므로 초상 동의는 필요 없다."""
+    from .ai.avatar import SimliAvatar
+    if face_id not in SimliAvatar.PRESET_IDS:
+        raise HTTPException(400, "기본 얼굴 목록에 없는 ID입니다.")
+    d = db.one("SELECT id, face_id, face_provider FROM deceased WHERE id=?", (deceased_id,))
+    if not d:
+        raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
+    if not provider_ready():
+        raise HTTPException(400, "봉안당에서 아직 실시간 아바타 기능을 켜지 않았습니다.")
+    if d["face_id"] and d["face_id"] not in SimliAvatar.PRESET_IDS:
+        delete(deceased_id, actor)   # 맞춤 얼굴이 있었다면 공급자 쪽도 정리
+    db.execute("UPDATE deceased SET face_id=?, face_provider='simli' WHERE id=?", (face_id, deceased_id))
+    db.audit(actor, "face.preset", f"deceased:{deceased_id}", face_id)
+    return {"face_id": face_id, "provider": "simli", "preset": True}
+
+
 def delete(deceased_id: int, actor: str) -> None:
+    from .ai.avatar import SimliAvatar
     d = db.one("SELECT face_id, face_provider FROM deceased WHERE id=?", (deceased_id,))
     if not d or not d["face_id"]:
         return
     try:
         p = factory.avatar()
-        if d["face_provider"] == p.name and p.name != "none":
+        if d["face_provider"] == p.name and p.name != "none" and d["face_id"] not in SimliAvatar.PRESET_IDS:
             p.delete_face(d["face_id"])
     except Exception as e:
         db.audit(actor, "face.delete_failed", f"deceased:{deceased_id}", str(e)[:200])
