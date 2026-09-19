@@ -242,15 +242,16 @@ class DeceasedIn(BaseModel):
     voice_note: str = ""
     ai_enabled: bool = False
     chat_min_days_after_death: int = 49
+    theme: str = Field(default="classic", pattern="^(classic|buddhist|catholic|christian)$")   # 추모 공간 테마(종교)
 
 
 @router.post("/deceased")
 def deceased_create(body: DeceasedIn):
     did = db.execute(
-        """INSERT INTO deceased(contract_id, name, honorific, birth_date, death_date, memory_card, voice_note, ai_enabled, chat_min_days_after_death, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        """INSERT INTO deceased(contract_id, name, honorific, birth_date, death_date, memory_card, voice_note, ai_enabled, chat_min_days_after_death, theme, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
         (body.contract_id, body.name, body.honorific, body.birth_date, body.death_date, body.memory_card, body.voice_note,
-         int(body.ai_enabled), body.chat_min_days_after_death, db.now()))
+         int(body.ai_enabled), body.chat_min_days_after_death, body.theme, db.now()))
     db.audit("admin", "deceased.create", f"deceased:{did}")
     return {"id": did}
 
@@ -258,9 +259,9 @@ def deceased_create(body: DeceasedIn):
 @router.put("/deceased/{did}")
 def deceased_update(did: int, body: DeceasedIn):
     db.execute(
-        """UPDATE deceased SET contract_id=?, name=?, honorific=?, birth_date=?, death_date=?, memory_card=?, voice_note=?, ai_enabled=?, chat_min_days_after_death=? WHERE id=?""",
+        """UPDATE deceased SET contract_id=?, name=?, honorific=?, birth_date=?, death_date=?, memory_card=?, voice_note=?, ai_enabled=?, chat_min_days_after_death=?, theme=? WHERE id=?""",
         (body.contract_id, body.name, body.honorific, body.birth_date, body.death_date, body.memory_card, body.voice_note,
-         int(body.ai_enabled), body.chat_min_days_after_death, did))
+         int(body.ai_enabled), body.chat_min_days_after_death, body.theme, did))
     db.audit("admin", "deceased.update", f"deceased:{did}")
     return {"ok": True}
 
@@ -437,6 +438,7 @@ class AISettingsIn(BaseModel):
     elevenlabs_api_key: str | None = None
     tts_provider: str = Field(default="auto", pattern="^(auto|elevenlabs|browser)$")
     tts_model: str = Field(default="eleven_multilingual_v2")
+    tts_voice_settings: dict | None = None   # {"stability","similarity_boost","style","speed"} · None이면 유지
     simli_api_key: str | None = None
     did_api_key: str | None = None
     avatar_provider: str = Field(default="auto", pattern="^(auto|did|simli|off)$")
@@ -457,6 +459,7 @@ def ai_settings_get():
         "elevenlabs_key_masked": _mask(db.get_setting("elevenlabs_api_key")),
         "elevenlabs_key_source": "console" if db.get_setting("elevenlabs_api_key") else ("env" if t["api_key"] else "none"),
         "tts_provider": t["provider"], "tts_model": t["model"], "tts_models": ElevenLabsTTS.MODELS,
+        "tts_voice_settings": ElevenLabsTTS.clean_settings(t.get("voice_settings")), "tts_voice_defaults": ElevenLabsTTS.DEFAULT_SETTINGS,
         "active_tts": factory.tts().name,
         "voices_registered": db.one("SELECT COUNT(*) AS n FROM deceased WHERE voice_id<>''")["n"],
         "simli_key_masked": _mask(db.get_setting("simli_api_key")),
@@ -490,6 +493,10 @@ def ai_settings_put(body: AISettingsIn):
         db.audit("admin", "settings.api_key", "elevenlabs", "set" if body.elevenlabs_api_key.strip() else "cleared")
     db.set_setting("tts_provider", body.tts_provider)
     db.set_setting("tts_model", body.tts_model)
+    if body.tts_voice_settings is not None:
+        import json
+        from ..ai.tts import ElevenLabsTTS
+        db.set_setting("tts_voice_settings", json.dumps(ElevenLabsTTS.clean_settings(body.tts_voice_settings)))
     factory.reset_tts()
     if body.simli_api_key is not None:
         db.set_setting("simli_api_key", body.simli_api_key.strip())
@@ -561,6 +568,31 @@ class PresetIn(BaseModel):
 @router.post("/deceased/{did}/face/preset")
 def face_preset(did: int, body: PresetIn):
     return face.set_preset(did, body.face_id, "admin")
+
+
+class TTSPreviewIn(BaseModel):
+    text: str = Field(default="아이고, 우리 강아지 왔냐. 밥은 묵었냐? 요즘 날이 쌀쌀헌디 옷 따숩게 입고 댕겨라.", max_length=300)
+    model: str | None = None
+    settings: dict | None = None
+    deceased_id: int | None = None
+
+
+@router.post("/settings/tts/preview")
+def tts_settings_preview(body: TTSPreviewIn):
+    """음성 세부 설정을 저장하기 전에 등록된 복제 음성으로 들어 본다. deceased_id가 없으면 첫 등록 음성."""
+    from ..ai.tts import ElevenLabsTTS, TTSError
+    t = factory.tts()
+    if t.name != "elevenlabs":
+        raise HTTPException(400, "ElevenLabs가 꺼져 있습니다. 키를 저장하고 공급자를 '자동'으로 두세요.")
+    q = "SELECT voice_id, name FROM deceased WHERE voice_id<>''" + (" AND id=?" if body.deceased_id else "") + " ORDER BY id LIMIT 1"
+    d = db.one(q, (body.deceased_id,) if body.deceased_id else ())
+    if not d:
+        raise HTTPException(404, "등록된 복제 음성이 없습니다. 고인 화면에서 먼저 음성을 등록하세요.")
+    try:
+        r = t.synthesize(body.text[:300], d["voice_id"], settings=body.settings, model=body.model)
+    except TTSError as e:
+        raise HTTPException(e.status if 400 <= e.status < 600 else 502, e.message)
+    return Response(content=r.audio, media_type=r.mime, headers={"Cache-Control": "no-store", "X-Voice-Name": "preview"})
 
 
 @router.post("/settings/tts/test")

@@ -36,7 +36,8 @@ def _writable_data_dir() -> Path:
 DATA_DIR = _writable_data_dir()
 EPHEMERAL = not str(DATA_DIR).startswith(str(ROOT))   # /tmp 로 내려간 상태(서버리스)
 AUTO_SEED = os.getenv("AUTO_SEED", "0") == "1"           # 서버 시작 시 비어 있으면 시연 데이터 생성
-SEED_SALT = os.getenv("SEED_SALT", "")                   # 있으면 시연 초대 토큰이 고정됨(서버리스 재시작에도 링크 유지)
+SEED_SALT = os.getenv("SEED_SALT", "")
+LAUNCHER_DISABLED = os.getenv("LAUNCHER", "1") != "1"   # LAUNCHER=0 이면 로컬 시작 화면(바로가기)도 끔                   # 있으면 시연 초대 토큰이 고정됨(서버리스 재시작에도 링크 유지)
 SNAPSHOT_DIR = DATA_DIR / "snapshots"
 FRAME_DIR = DATA_DIR / "frames"
 MEDIA_DIR = DATA_DIR / "media"

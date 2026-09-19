@@ -34,11 +34,54 @@ const state = { me: null, tab: "visit", timers: [] };
 function clearTimers() { state.timers.forEach(clearInterval); state.timers = []; }
 function every(fn, ms) { const id = setInterval(fn, ms); state.timers.push(id); return id; }
 
+// ---------------- 테마(전통·불교·천주교·기독교) ----------------
+const THEMES = [
+  ["classic", "전통", "먹빛과 금, 한지의 결"],
+  ["buddhist", "불교", "연꽃과 등불의 붉은 빛"],
+  ["catholic", "천주교", "성당 창의 푸른 빛"],
+  ["christian", "기독교", "새벽 빛과 십자가"],
+];
+const THEME_META = { classic: "#0f1216", buddhist: "#15090d", catholic: "#0b0e1e", christian: "#0a171c" };
+function applyTheme(t) {
+  if (!THEME_META[t]) t = "classic";
+  document.documentElement.dataset.theme = t;
+  const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.content = THEME_META[t];
+  state.theme = t;
+}
+function currentTheme() { return localStorage.getItem("theme_local") || state.me?.deceased?.[0]?.theme || "classic"; }
+
+// ---------------- 종소리(범종 느낌, 외부 파일 없이 합성) ----------------
+function chimeEnabled() { return localStorage.getItem("chime") !== "0"; }
+function chime() {
+  if (!chimeEnabled()) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const master = ctx.createGain(); master.gain.setValueAtTime(0.0001, now); master.connect(ctx.destination);
+    master.gain.exponentialRampToValueAtTime(0.45, now + 0.03);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + 5.5);
+    [[110, .8, 0], [110.6, .5, 0], [220, .45, .2], [331, .3, .4], [442, .18, .6], [660, .08, .8]].forEach(([f, g, decay]) => {
+      const o = ctx.createOscillator(); const gn = ctx.createGain();
+      o.type = "sine"; o.frequency.value = f; gn.gain.setValueAtTime(g, now);
+      gn.gain.exponentialRampToValueAtTime(0.0001, now + 5.4 - decay * 3);
+      o.connect(gn); gn.connect(master); o.start(now); o.stop(now + 5.6);
+    });
+    setTimeout(() => { try { ctx.close(); } catch {} }, 6000);
+  } catch {}
+}
+
 // ---------------- 부팅 ----------------
 async function boot() {
-  if (!TOKEN) { view.innerHTML = `<div class="card"><h2>초대 링크로 열어 주세요</h2><p class="muted">계약자에게 받은 카카오톡 링크를 눌러 접속합니다. 링크가 없으면 봉안당 사무실로 문의해 주세요.</p></div>`; $("#tabs").classList.add("hidden"); return; }
+  applyTheme(localStorage.getItem("theme_local") || "classic");
+  if (!TOKEN) {
+    $("#tabs").classList.add("hidden");
+    if (await renderLauncher()) return;
+    view.innerHTML = `<div class="card hero"><div class="orn"><i>✦ ✦ ✦</i></div><h2>초대 링크로 열어 주세요</h2><p class="muted">계약자에게 받은 카카오톡 링크를 눌러 접속합니다. 링크가 없으면 봉안당 사무실로 문의해 주세요.</p></div>`;
+    return;
+  }
   try { state.me = await api("/api/family/me"); }
   catch (e) { view.innerHTML = `<div class="card"><h2>접속할 수 없습니다</h2><p class="muted">${esc(e.message)}</p></div>`; $("#tabs").classList.add("hidden"); return; }
+  applyTheme(currentTheme());
   $("#who").textContent = `${state.me.member.name} 님`;
   $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) go(b.dataset.tab); });
   go("visit");
@@ -50,27 +93,55 @@ function go(tab) {
   window.scrollTo(0, 0);
 }
 
+// ---------------- 로컬 시작 화면 (서버를 켠 컴퓨터에서 초대 링크 없이 열었을 때) ----------------
+async function renderLauncher() {
+  let L;
+  try { const r = await fetch("/api/launcher"); if (!r.ok) return false; L = await r.json(); } catch { return false; }
+  const roleName = { view: "보기", chat: "보기·대화", manage: "계약자(관리)" };
+  view.innerHTML = `<div class="launch">
+    <div class="card hero"><div class="orn"><i>✦ ✦ ✦</i></div><h1>${esc(L.facility || "봉안당")} · 시연 시작</h1>
+      <p class="muted">이 화면은 서버를 켠 컴퓨터에서 초대 링크 없이 열었을 때만 보입니다. 아래에서 열고 싶은 화면을 누르세요.</p></div>
+    <div class="card"><h3>관리자</h3><a class="btn" href="${esc(L.admin_url)}" target="_blank">관리자 콘솔 열기 (새 창)</a>
+      <p class="muted" style="font-size:14px;margin-top:10px">시연 전에 <b>현황 → AI 연결 점검</b>에서 Claude·ElevenLabs·D-ID가 모두 ✓인지 확인하세요.</p></div>
+    <div class="card"><h3>유족 앱 · 시연 계정</h3>
+      ${L.members.map((m) => `<div class="who-row"><div><b>${esc(m.name)}</b> <span class="muted">${esc(m.relation)} · ${roleName[m.role] || m.role}</span>
+        <div class="muted" style="font-size:13px">${esc(m.deceased_names || "고인 미등록")} · 봉안함 ${esc(m.niche_code || "-")} · ${m.plan === "premium" ? "프리미엄" : "기본"}</div></div>
+        <div class="row" style="gap:6px"><a class="btn" href="${esc(m.url)}">열기</a><a class="btn secondary" href="${esc(m.url)}" target="_blank">새 창</a></div></div>`).join("") || '<p class="muted">시연 계정이 없습니다. 관리자 콘솔에서 계약·가족을 만들거나 python -m server.seed 를 실행하세요.</p>'}
+    </div>
+    <div class="card"><h3>다음부터 여는 법</h3><p class="muted" style="font-size:14px">바탕화면의 <b>봉안당 시연 시작</b> 바로가기(또는 프로젝트 폴더의 <b>시작.bat</b>)를 두 번 누르면 서버와 웹캠 프로그램이 켜지고 이 화면이 열립니다.</p></div>
+  </div>`;
+  return true;
+}
+
 // ---------------- 1. 원격 참배 ----------------
 async function renderVisit() {
   const me = state.me;
   if (!me.niche) { view.innerHTML = `<div class="card"><h2>연결된 봉안함이 없습니다</h2><p class="muted">봉안당 사무실에서 봉안함 번호를 연결해 드립니다.</p></div>`; return; }
   const d = me.deceased[0];
+  const liveLabel = `<svg viewBox="0 0 24 24" width="22" height="22" style="stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg> 실시간으로 뵙기 <small style="opacity:.7;font-weight:600;color:inherit">(${me.live_seconds}초)</small>`;
   view.innerHTML = `
     <div class="card tight">
-      <div class="row between"><h2>${esc(d ? d.name + " 님" : "내 가족")} 봉안함 <small>${esc(me.niche.code)}</small></h2></div>
-      <div class="snapshot" id="snap"><div class="placeholder">사진을 불러오는 중…</div></div>
-      <div class="status-line"><span id="camStatus"><span class="dot"></span>확인 중</span><span id="snapAt"></span></div>
+      <div class="row between" style="margin-bottom:10px"><h2 style="margin:0">${esc(d ? d.name + " 님" : "내 가족")} <small class="muted" style="font-family:var(--font-sans)">봉안함 ${esc(me.niche.code)}</small></h2></div>
+      <div class="viewer" id="viewer">
+        <div class="snapshot" id="snap"><div class="placeholder">사진을 불러오는 중…</div></div>
+        <div class="veil"><div class="pane l"></div><div class="pane r"></div></div>
+        <div class="candle l"></div><div class="candle r"></div><div class="smoke"></div>
+        <div class="title-card">${esc(d ? d.name + " 님을 뵙습니다" : "가족을 뵙습니다")}</div>
+      </div>
+      <div class="status-line"><span id="camStatus"><span class="dot"></span>확인 중</span><span class="row" style="gap:8px"><span id="snapAt"></span><button class="chime-toggle ${chimeEnabled() ? "on" : ""}" id="chimeBtn">🔔 종소리 ${chimeEnabled() ? "켬" : "끔"}</button></span></div>
     </div>
     <div class="stack">
-      <button id="liveBtn">👁️ 실시간으로 보기 <small style="color:#dfe;font-weight:600">(${me.live_seconds}초)</small></button>
-      <button class="secondary" id="toMemorial">📷 추모 공간 열기</button>
+      <button id="liveBtn">${liveLabel}</button>
+      <button class="secondary" id="toMemorial">추모 공간 열기</button>
     </div>
-    <p class="muted center" style="margin-top:12px">사진은 ${10}초마다 새로 찍힙니다. 현장에 다른 참배객이 계시면 실시간 영상은 잠시 멈추고 사진으로 보여 드립니다.</p>`;
+    <p class="muted center" style="margin-top:12px;font-size:14px">사진은 10초마다 새로 찍힙니다. 현장에 다른 참배객이 계시면 실시간 영상은 잠시 멈추고 사진으로 보여 드립니다.</p>`;
   $("#toMemorial").onclick = () => go("memorial");
   $("#snap").onclick = () => { if (!live.on) go("memorial"); };   // 화면 속 봉안함을 누르면 추모 공간
+  $("#chimeBtn").onclick = () => { localStorage.setItem("chime", chimeEnabled() ? "0" : "1"); const on = chimeEnabled(); $("#chimeBtn").classList.toggle("on", on); $("#chimeBtn").textContent = `🔔 종소리 ${on ? "켬" : "끔"}`; if (on) chime(); };
   const live = { on: false, timer: null };
+  let firstShown = false;
 
-  const snap = $("#snap");
+  const snap = $("#snap"), viewer = $("#viewer");
   async function refreshStatus() {
     try {
       const s = await api("/api/family/niche/status");
@@ -83,25 +154,31 @@ async function renderVisit() {
   }
   function showSnapshot() {
     const img = new Image();
-    img.onload = () => { snap.innerHTML = ""; snap.appendChild(img); snap.insertAdjacentHTML("beforeend", `<span class="badge">방금 찍은 사진</span><span class="tap-hint">눌러서 추모 공간 열기</span>`); };
+    img.onload = () => { snap.innerHTML = ""; snap.classList.remove("live"); snap.classList.toggle("reveal", !firstShown); firstShown = true; snap.appendChild(img); snap.insertAdjacentHTML("beforeend", `<span class="badge">방금 찍은 사진</span><span class="tap-hint">눌러서 추모 공간 열기</span>`); };
     img.onerror = () => { if (!snap.querySelector("img")) snap.innerHTML = `<div class="placeholder">아직 사진이 없습니다.<br><small>현장 카메라가 켜지면 자동으로 나타납니다.</small></div>`; };
     img.src = withToken("/api/family/niche/snapshot.jpg") + "&_=" + Date.now();
   }
   function endLive(msg) {
     if (!live.on) return; live.on = false; clearInterval(live.timer);
-    $("#liveBtn").disabled = false; $("#liveBtn").innerHTML = `👁️ 실시간으로 보기 <small style="color:#dfe;font-weight:600">(${me.live_seconds}초)</small>`;
+    viewer.classList.remove("live", "open", "curtain");
+    $("#liveBtn").disabled = false; $("#liveBtn").innerHTML = liveLabel;
     showSnapshot(); if (msg) toast(msg);
   }
   $("#liveBtn").onclick = async () => {
     try {
       const r = await api("/api/family/live/start", { method: "POST" });
       live.on = true; let left = r.seconds;
+      // 극적 연출: 막이 내린 상태에서 종소리와 함께 막이 열리고, 영상이 안개 속에서 또렷해지며 촛불·향이 켜진다.
+      viewer.classList.remove("open", "live"); viewer.classList.add("curtain");
       const img = new Image();
       img.onerror = () => endLive("실시간 영상이 끊겼습니다. 사진으로 보여 드립니다.");
-      snap.innerHTML = ""; snap.appendChild(img); snap.insertAdjacentHTML("beforeend", `<span class="badge live">● 실시간</span>`);
+      snap.innerHTML = ""; snap.classList.remove("reveal"); snap.classList.add("live"); snap.appendChild(img); snap.insertAdjacentHTML("beforeend", `<span class="badge live">● 실시간</span>`);
       img.src = withToken(`/api/family/live/stream?sid=${r.session_id}`);
-      $("#liveBtn").disabled = true; $("#liveBtn").textContent = `실시간 보는 중 ${left}초`;
-      live.timer = every(() => { const b = $("#liveBtn"); if (!b) { clearInterval(live.timer); return; } left--; if (left <= 0) endLive("실시간 보기가 끝났습니다."); else b.textContent = `실시간 보는 중 ${left}초`; }, 1000);
+      chime();
+      requestAnimationFrame(() => requestAnimationFrame(() => viewer.classList.add("open", "live")));
+      setTimeout(() => { if (live.on) viewer.classList.remove("curtain"); }, 3600);
+      $("#liveBtn").disabled = true; $("#liveBtn").textContent = `실시간으로 뵙는 중 ${left}초`;
+      live.timer = every(() => { const b = $("#liveBtn"); if (!b) { clearInterval(live.timer); return; } left--; if (left <= 0) endLive("실시간 보기가 끝났습니다."); else b.textContent = `실시간으로 뵙는 중 ${left}초`; }, 1000);
     } catch (e) { toast(e.message, 3500); }
   };
   showSnapshot(); refreshStatus();
@@ -113,11 +190,12 @@ async function renderVisit() {
 async function renderMemorial() {
   let data; try { data = await api("/api/family/memorial"); } catch (e) { view.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
   const cards = data.deceased.map((d) => `
-    <div class="card center">
+    <div class="card hero">
       ${d.has_photo ? `<img class="portrait big" src="${withToken(`/api/family/deceased/${d.id}/photo.jpg`)}" alt="">` : `<div class="portrait big" style="display:inline-block"></div>`}
-      <h2 style="margin-top:10px">${esc(d.name)} 님 <small class="muted">${esc(d.honorific)}</small></h2>
+      <h2 style="margin-top:12px">${esc(d.name)} 님 <small class="muted" style="font-family:var(--font-sans)">${esc(d.honorific)}</small></h2>
       <div class="dates">${esc(fmtD(d.birth_date))} ~ ${esc(fmtD(d.death_date))}</div>
-      ${d.media.length ? `<div class="media-grid" style="margin-top:12px">${d.media.slice(0, 9).map((m) => m.kind === "video" || m.kind === "message_video"
+      <div class="orn"><i>✦</i></div>
+      ${d.media.length ? `<div class="media-grid" style="margin-top:6px">${d.media.slice(0, 9).map((m) => m.kind === "video" || m.kind === "message_video"
         ? `<div><video src="${withToken(`/api/family/media/${m.id}`)}" controls playsinline></video><div class="cap">${esc(m.caption)}${m.ai_generated ? '<span class="ai-tag">AI 제작</span>' : ""}</div></div>`
         : m.kind === "voice" ? `<div><audio src="${withToken(`/api/family/media/${m.id}`)}" controls style="width:100%"></audio><div class="cap">${esc(m.caption)}</div></div>`
         : `<div><img src="${withToken(`/api/family/media/${m.id}`)}" alt=""><div class="cap">${esc(m.caption)}</div></div>`).join("")}</div>` : `<p class="muted">등록된 사진·영상이 없습니다. 봉안당 사무실에서 등록해 드립니다.</p>`}
@@ -285,8 +363,9 @@ async function renderChat() {
   const options = eligible.map((d) => `<option value="${d.id}">${esc(d.name)} 님${d.honorific ? ` (${esc(d.honorific)})` : ""}</option>`).join("");
   const first = eligible[0];
   view.innerHTML = `
-    <div class="notice ai">🔈 이 화면의 목소리와 답변은 AI가 만든 것입니다. 실제 고인이 아닙니다.</div>
-    <div class="card" style="margin-top:12px">
+    <div class="notice ai" style="font-size:14px;padding:8px 12px">🔈 이 화면의 목소리와 답변은 AI가 만든 것입니다. 실제 고인이 아닙니다.</div>
+    <div class="card hero" style="margin-top:12px;text-align:left">
+      <div class="orn"><i>✦ ✦ ✦</i></div>
       <h2>기념일 대화</h2>
       <p class="muted">기일·명절·생신처럼 특별한 날에, 가족이 남긴 기억과 말투로 만든 AI와 짧게 이야기합니다. 1회 ${me.chat_max_minutes}분.</p>
       <p class="muted" style="font-size:14px">${first.has_voice ? "🎙️ 가족이 등록한 목소리로 만든 AI 음성으로 답합니다." : `🔈 기본 AI 음성으로 답합니다. ${me.member.role === "manage" ? '<a href="#" id="toVoice">목소리 등록하기 →</a>' : "계약자가 목소리를 등록하면 그 음성으로 바뀝니다."}`}
@@ -297,7 +376,7 @@ async function renderChat() {
       <div class="check"><input type="checkbox" id="ack"><label for="ack" style="margin:0;color:var(--ink)">이 대화가 AI가 만든 음성·답변이며, 실제 고인이 아님을 이해했습니다.</label></div>
       ${me.member.is_minor ? `<div class="check"><input type="checkbox" id="guardian"><label for="guardian" style="margin:0;color:var(--ink)">보호자가 함께 있습니다.</label></div>` : ""}
       <button id="startChat" style="margin-top:8px">대화 시작하기</button>
-      <p class="muted center" style="margin-top:10px">마음이 많이 힘드시면 자살예방 상담전화 <b>109</b>로 먼저 연락해 주세요.</p>
+      <p class="muted center" style="margin-top:10px;font-size:14px">마음이 많이 힘드시면 자살예방 상담전화 <b>109</b>로 먼저 연락해 주세요.</p>
     </div>`;
   if ($("#toVoice")) $("#toVoice").onclick = (e) => { e.preventDefault(); go("settings"); setTimeout(() => $("#voiceCard")?.scrollIntoView({ behavior: "smooth" }), 300); };
   $("#startChat").onclick = async () => {
@@ -313,12 +392,20 @@ function runChat(sess, d) {
   clearTimers();
   let left = sess.max_seconds, ended = false, busy = false;
   view.innerHTML = `
-    <div class="notice ai">🔈 AI가 만든 음성·영상입니다 · 실제 고인이 아닙니다</div>
+    <div class="notice ai" style="font-size:13px;padding:6px 12px;text-align:center">🔈 AI가 만든 음성·영상입니다 · 실제 고인이 아닙니다</div>
     <div class="chat-wrap">
-      <div class="avatar-stage" id="stage">
-        <div class="avatar-photo" style="position:relative">${sess.photo_url ? `<img src="${withToken(sess.photo_url)}" alt="">` : `<div class="no-photo">🕊️</div>`}<video id="avatarVideo" autoplay playsinline></video><span class="live-badge">AI 실시간 영상</span></div>
-        <div class="voice-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <div class="voice-tag" id="voiceTag">${sess.voice_available ? "가족이 등록한 목소리로 만든 AI 음성" : "기본 AI 음성 · 사진 아바타"}${sess.avatar_available ? " · 실시간 아바타 연결 중…" : ""}</div>
+      <div class="shrine" id="stage">
+        <div class="shrine-halo"></div>
+        <div class="shrine-frame"><div class="shrine-inner">
+          <div class="backdrop"></div>
+          ${sess.photo_url ? `<img src="${withToken(sess.photo_url)}" alt="">` : `<div class="no-photo">🕊️</div>`}
+          <video id="avatarVideo" autoplay playsinline></video>
+          <div class="rays"></div><div class="mist"></div>
+        </div></div>
+        <div class="shrine-particles"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="shrine-caption"><span class="live-badge" id="liveBadge">AI 사진 아바타</span>
+          <div class="voice-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="voice-tag" id="voiceTag">${sess.voice_available ? "가족이 등록한 목소리로 만든 AI 음성" : "기본 AI 음성"}${sess.avatar_available ? " · 실시간 아바타 연결 중…" : ""}</div></div>
       </div>
       <div class="chat-head" style="margin:6px 0 4px">
         <div><h2 style="margin:0">${esc(d.name)} 님</h2><div class="timer" id="timer"></div></div>
@@ -331,7 +418,7 @@ function runChat(sess, d) {
         <input id="txt" placeholder="말하거나 글로 적어 주세요" autocomplete="off">
         <button class="small" id="send" style="min-height:48px">보내기</button>
       </div>
-      <p class="muted center" style="margin:6px 0 0;font-size:13px">대화: ${esc(sess.provider)} · 음성: ${esc(sess.voice_provider || "browser")} · 내 목소리 원본은 저장하지 않습니다</p>
+      <p class="muted center" style="margin:6px 0 0;font-size:12px">대화: ${esc(sess.provider)} · 음성: ${esc(sess.voice_provider || "browser")} · 내 목소리 원본은 저장하지 않습니다</p>
     </div>`;
   const log = $("#log");
   const add = (cls, text) => { const b = document.createElement("div"); b.className = `bubble ${cls}`; b.textContent = text; log.appendChild(b); log.scrollTop = log.scrollHeight; return b; };
@@ -340,6 +427,8 @@ function runChat(sess, d) {
 
   const stage = $("#stage");
   const say = (text, onend) => speakAs(sess, text, () => { stage.classList.remove("speaking"); onend?.(); }, () => stage.classList.add("speaking"));
+  // 첫 인사는 초상이 안개 속에서 나타난 뒤에 시작한다(등장 연출과 겹치지 않게).
+  const greet = () => setTimeout(() => { add("them", sess.greeting); say(sess.greeting); }, 2600);
   // 실시간 아바타(A등급): 연결되면 사진 대신 영상. 실패하면 조용히 사진 아바타로.
   if (sess.avatar_available) {
     const av = sess.avatar_provider === "did" ? new DIDAvatar($("#avatarVideo")) : new LiveAvatar($("#avatarVideo")); sess._avatar = av;
@@ -347,12 +436,13 @@ function runChat(sess, d) {
       if (st === "speaking") { stage.classList.add("speaking"); return; }
       if (st === "silent") { stage.classList.remove("speaking"); return; }
       stage.classList.toggle("live", st === "live");
+      $("#liveBadge").textContent = st === "live" ? "AI 실시간 영상" : "AI 사진 아바타";
       $("#voiceTag").textContent = st === "live" ? `가족이 등록한 목소리와 사진으로 만든 AI · 실시간 아바타(${sess.avatar_provider === "did" ? "D-ID" : "Simli"})` : `가족이 등록한 목소리로 만든 AI 음성 · 사진 아바타${reason ? ` (${reason})` : ""}`;
     };
-    av.connect(sess).then(() => { add("them", sess.greeting); say(sess.greeting); }).catch((e) => { console.warn("avatar connect failed", e); av.stop(e.message); add("them", sess.greeting); say(sess.greeting); });
+    av.connect(sess).then(greet).catch((e) => { console.warn("avatar connect failed", e); av.stop(e.message); greet(); });
     window.__avatarStop = () => av.stop();   // 화면을 떠날 때 아바타도 끊는다
   } else {
-    add("them", sess.greeting); say(sess.greeting);
+    greet();
   }
 
   async function sendText(text) {
@@ -453,7 +543,10 @@ async function renderSettings() {
   try { [members, history] = await Promise.all([api("/api/family/members"), api("/api/family/chat/history")]); } catch (e) { view.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
   const roleName = { view: "보기", chat: "보기·대화", manage: "관리" };
   const canManage = me.member.role === "manage";
+  const cur = currentTheme();
   view.innerHTML = `
+    <div class="card"><h3>추모 공간 분위기</h3><p class="muted" style="font-size:14px;margin-top:0">${canManage ? "가족 모두의 화면에 함께 적용됩니다." : "이 기기에서만 바뀝니다. 가족 전체는 계약자가 정합니다."}</p>
+      <div class="theme-grid">${THEMES.map(([id, name, desc]) => `<button class="tile ${cur === id ? "active" : ""}" data-theme="${id}"><span class="sw">${id === "buddhist" ? "❁" : id === "classic" ? "✦" : "✝"}</span><span>${name}<small>${desc}</small></span></button>`).join("")}</div></div>
     <div class="card"><h2>가족</h2>
       ${members.map((m) => `<div class="list-item"><div><b>${esc(m.name)}</b> <span class="muted">${esc(m.relation)}</span>${m.is_minor ? '<span class="pill">미성년</span>' : ""}</div><span class="pill">${roleName[m.role]}</span></div>`).join("")}
       ${canManage ? `<button class="secondary" style="margin-top:12px" id="inviteBtn">가족 초대 링크 만들기</button>` : `<p class="muted" style="margin-top:8px">가족 초대는 계약자(${esc(me.contract.holder_name)})가 할 수 있습니다.</p>`}
@@ -464,6 +557,14 @@ async function renderSettings() {
     ${canManage && me.deceased.some((d) => d.ai_enabled) ? `<div class="card"><h3>대화 기능 작별</h3><p class="muted">대화 기능은 가족이 원하면 언제든 닫을 수 있습니다. 닫을 때 등록한 기억 카드와 음성 자료를 돌려받거나 삭제합니다.</p><button class="ghost" id="farewellBtn">작별 절차 시작</button></div>` : ""}
     <div class="card"><h3>내 정보</h3><p>${esc(me.member.name)} · ${esc(me.member.relation)} · ${roleName[me.member.role]}</p><p class="muted">계약자 ${esc(me.contract.holder_name)} · 봉안함 ${esc(me.niche?.code || "-")} · ${me.contract.plan === "premium" ? "프리미엄" : "기본"}</p>
       <button class="ghost small" id="logout">이 기기에서 나가기</button></div>`;
+  view.querySelectorAll(".tile").forEach((t) => t.onclick = async () => {
+    const id = t.dataset.theme; applyTheme(id);
+    view.querySelectorAll(".tile").forEach((x) => x.classList.toggle("active", x === t));
+    if (canManage && me.deceased[0]) {
+      try { await api("/api/family/theme", { method: "POST", body: { deceased_id: me.deceased[0].id, theme: id } }); localStorage.removeItem("theme_local"); me.deceased[0].theme = id; toast("가족 모두의 화면에 적용했습니다."); }
+      catch (e) { localStorage.setItem("theme_local", id); toast(e.message); }
+    } else { localStorage.setItem("theme_local", id); }
+  });
   $("#logout").onclick = () => { localStorage.removeItem("family_token"); location.href = "/"; };
   renderVoiceCard(); renderFaceCard();
   $("#inviteBtn") && ($("#inviteBtn").onclick = () => {
@@ -502,7 +603,8 @@ async function renderSettings() {
 
 // ---------------- 목소리 등록 (앱에서 직접 녹음 · 생전 기록) ----------------
 const VOICE_SCRIPT = `<b>1분 정도, 평소 말투로 편하게</b> 이야기해 주세요. 조용한 곳에서, 휴대폰을 입에서 한 뼘쯤 떨어뜨리고요.<br>
-예를 들면 — 가족 이름을 부르며 안부 묻기 · 요즘 지내는 이야기 · 좋아하는 음식이나 장소 · 가족에게 꼭 하고 싶은 말 · 자주 하시던 말씀`;
+예를 들면 — 가족 이름을 부르며 안부 묻기 · 요즘 지내는 이야기 · 좋아하는 음식이나 장소 · 가족에게 꼭 하고 싶은 말 · 자주 하시던 말씀<br>
+<small>또박또박 읽는 말투보다 <b>평소 대화하듯 웃고 쉬어 가며</b> 말할수록 AI 목소리가 자연스러워집니다. 3분 가까이 길게 남기면 더 좋습니다.</small>`;
 
 async function renderVoiceCard() {
   const box = $("#voiceBody"); if (!box) return;
@@ -511,7 +613,7 @@ async function renderVoiceCard() {
   const rows = v.deceased.map((d) => `
     <div class="list-item" style="align-items:flex-start;flex-direction:column;gap:6px">
       <div class="row between" style="width:100%"><div><b>${esc(d.name)} 님</b> <span class="muted">${esc(d.honorific)}</span></div>
-        ${d.has_voice ? '<span class="pill" style="background:#dff3e6;color:#1e7a45">목소리 등록됨</span>' : '<span class="pill">미등록</span>'}</div>
+        ${d.has_voice ? '<span class="pill ok">목소리 등록됨</span>' : '<span class="pill">미등록</span>'}</div>
       <div class="muted" style="font-size:14px">${d.has_voice ? `이 목소리로 대화가 재생됩니다.` : `자료 ${d.samples}개`}${d.consent ? ` · 동의: ${esc(d.consent.signer_name)} (${d.consent.kind === "lifetime_record" ? "생전 기록" : "음성 사용"})` : ""}</div>
       <div class="row" style="flex-wrap:wrap">
         ${d.has_voice ? `<button class="small secondary" data-vprev="${d.id}">미리 듣기</button>` : ""}
@@ -591,7 +693,7 @@ async function renderFaceCard() {
     ${isDid ? "<b>D-ID</b>: 올린 정면 사진 <b>그대로</b>를 움직이므로 얼굴이 실제와 같습니다." : "<b>Simli</b>: 기본 얼굴은 무료 플랜에서 바로 되고, 사진으로 만든 얼굴은 유료 플랜이 필요합니다."}</p>` +
     v.deceased.map((d) => `<div class="list-item" style="align-items:flex-start;flex-direction:column;gap:6px">
       <div class="row between" style="width:100%"><div><b>${esc(d.name)} 님</b> <span class="muted">${esc(d.honorific)}</span></div>
-        ${d.has_face ? `<span class="pill" style="background:#dff3e6;color:#1e7a45">${esc(d.face_label || "얼굴 등록됨")}</span>` : '<span class="pill">미등록</span>'}</div>
+        ${d.has_face ? `<span class="pill ok">${esc(d.face_label || "얼굴 등록됨")}</span>` : '<span class="pill">미등록</span>'}</div>
       <div class="muted" style="font-size:14px">사진 ${d.has_photo ? "있음" : "없음"} · 목소리 ${d.has_voice ? "있음" : "없음"}${d.consent ? ` · 동의: ${esc(d.consent.signer_name)}` : ""}</div>
       ${v.can_manage && v.presets.length ? `<div class="row" style="width:100%"><select data-fpreset="${d.id}" style="flex:1"><option value="">기본 얼굴 고르기…</option>${v.presets.map((pf) => `<option value="${pf.id}">${esc(pf.label)}</option>`).join("")}</select><button class="small secondary" data-fpresetgo="${d.id}" style="min-height:44px">기본 얼굴로 시연</button></div>` : ""}
       <div class="row" style="flex-wrap:wrap">

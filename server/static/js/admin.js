@@ -217,7 +217,7 @@ async function deceased() {
 }
 async function deceasedForm(did, contractId) {
   const detail = await api(`/api/admin/contracts/${contractId}`);
-  const x = did ? detail.deceased.find((d) => d.id === did) : { contract_id: contractId, name: "", honorific: "", birth_date: "", death_date: "", memory_card: "", voice_note: "", ai_enabled: 0, chat_min_days_after_death: 49, consents: [], media: [], photo_path: "", face_id: "", face_provider: "" };
+  const x = did ? detail.deceased.find((d) => d.id === did) : { contract_id: contractId, name: "", honorific: "", birth_date: "", death_date: "", memory_card: "", voice_note: "", ai_enabled: 0, chat_min_days_after_death: 49, theme: "classic", consents: [], media: [], photo_path: "", face_id: "", face_provider: "" };
   const kindName = { ai_chat: "AI 대화", likeness: "초상 사용", voice: "음성 사용", lifetime_record: "생전 기록" };
   const m = modal(`<h2>${did ? "고인 편집" : "고인 등록"}</h2>
     <div class="form-grid">
@@ -227,6 +227,7 @@ async function deceasedForm(did, contractId) {
       <div class="field"><label>별세일</label><input id="dDeath" type="date" value="${esc(x.death_date)}"></div>
       <div class="field"><label>첫 대화 권장 대기일</label><input id="dDays" type="number" value="${x.chat_min_days_after_death}"></div>
       <div class="field"><label>대화 기능</label><select id="dAi"><option value="0" ${!x.ai_enabled ? "selected" : ""}>닫힘</option><option value="1" ${x.ai_enabled ? "selected" : ""}>열림</option></select></div>
+      <div class="field"><label>추모 공간 테마(종교)</label><select id="dTheme">${[["classic", "전통 (먹빛과 금)"], ["buddhist", "불교 (연꽃·등불)"], ["catholic", "천주교 (성당의 빛)"], ["christian", "기독교 (새벽 빛·십자가)"]].map(([v, n]) => `<option value="${v}" ${(x.theme || "classic") === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
     </div>
     <div class="field" style="margin-top:10px"><label>기억 카드 (호칭·말투·입버릇·좋아하던 것·가족·가족만 아는 일화·성격·당부)</label><textarea id="dCard" style="min-height:220px;font-size:14px">${esc(x.memory_card)}</textarea><small class="muted" id="cardLen">${x.memory_card.length}자</small></div>
     <div class="field"><label>음성 자료 메모(출처·품질)</label><input id="dVoice" value="${esc(x.voice_note)}" placeholder="예: 2023년 생일 영상 1분 20초, 통화 녹음 3건(음질 낮음)"></div>
@@ -247,7 +248,7 @@ async function deceasedForm(did, contractId) {
     <div class="row" style="margin-top:8px;flex-wrap:wrap"><input id="cSigner" placeholder="서명자" style="width:120px"><input id="cRel" placeholder="관계" style="width:100px"><select id="cKind" style="width:auto"><option value="ai_chat">AI 대화</option><option value="likeness">초상 사용</option><option value="voice">음성 사용</option><option value="lifetime_record">생전 기록</option></select><button class="small secondary" id="cAdd">동의서 등록</button></div>
     <p class="muted" style="font-size:12px">가족 한 명이라도 이의를 제기하면 철회하고 대화 기능을 닫습니다(계획서 7장).</p>` : ""}`);
   $("#dCard", m).oninput = () => $("#cardLen", m).textContent = `${$("#dCard", m).value.length}자`;
-  const body = () => ({ contract_id: contractId, name: $("#dName", m).value, honorific: $("#dHon", m).value, birth_date: $("#dBirth", m).value, death_date: $("#dDeath", m).value, memory_card: $("#dCard", m).value, voice_note: $("#dVoice", m).value, ai_enabled: $("#dAi", m).value === "1", chat_min_days_after_death: +$("#dDays", m).value || 49 });
+  const body = () => ({ contract_id: contractId, name: $("#dName", m).value, honorific: $("#dHon", m).value, birth_date: $("#dBirth", m).value, death_date: $("#dDeath", m).value, memory_card: $("#dCard", m).value, voice_note: $("#dVoice", m).value, ai_enabled: $("#dAi", m).value === "1", chat_min_days_after_death: +$("#dDays", m).value || 49, theme: $("#dTheme", m).value });
   $("#dSave", m).onclick = async () => { try { if (did) await api(`/api/admin/deceased/${did}`, { method: "PUT", body: body() }); else { const r = await api("/api/admin/deceased", { method: "POST", body: body() }); did = r.id; } m.remove(); toast("저장했습니다."); contractDetail(contractId); } catch (e) { toast(e.message); } };
   if (did) {
     $("#dPhoto", m).onchange = async (e) => { const fd = new FormData(); fd.append("file", e.target.files[0]); await api(`/api/admin/deceased/${did}/photo`, { method: "POST", body: fd }); m.remove(); deceasedForm(did, contractId); };
@@ -347,8 +348,25 @@ async function aisettings() {
           <option value="auto" ${s.tts_provider === "auto" ? "selected" : ""}>자동 (키가 있으면 ElevenLabs)</option>
           <option value="elevenlabs" ${s.tts_provider === "elevenlabs" ? "selected" : ""}>ElevenLabs</option>
           <option value="browser" ${s.tts_provider === "browser" ? "selected" : ""}>브라우저 기본 음성만 (복제 음성 끔)</option></select></div>
-        <div class="field"><label>음성 모델</label><select id="ttsModel">${s.tts_models.map((m) => `<option value="${m}" ${m === s.tts_model ? "selected" : ""}>${m}${m === "eleven_multilingual_v2" ? " (권장·한국어)" : m === "eleven_flash_v2_5" ? " (빠름·저렴)" : ""}</option>`).join("")}</select></div>
+        <div class="field"><label>음성 모델</label><select id="ttsModel">${s.tts_models.map((m) => `<option value="${m}" ${m === s.tts_model ? "selected" : ""}>${m}${({ eleven_multilingual_v2: " (안정적 · 한국어 기본)", eleven_v3: " (가장 자연스러움 · 감정 표현 · 답 2~4초 느림)", eleven_v3_conversational: " (v3 실시간형 · 빠름)", eleven_flash_v2_5: " (가장 빠름·저렴 · 품질 낮음)" })[m] || ""}</option>`).join("")}</select></div>
       </div>
+      <details style="margin-top:6px" open><summary style="cursor:pointer;font-weight:700">음성 세부 설정 — 봇 느낌 줄이기 (저장 전에 미리 들어 보세요)</summary>
+        <div class="form-grid" style="margin-top:8px">
+          <div class="field"><label>안정감 <b id="vsStabV"></b> <span class="muted">낮을수록 억양·감정 기복이 커짐</span></label><input type="range" id="vsStab" min="0" max="1" step="0.05" value="${s.tts_voice_settings.stability}"></div>
+          <div class="field"><label>목소리 유사도 <b id="vsSimV"></b> <span class="muted">원본과 닮은 정도</span></label><input type="range" id="vsSim" min="0" max="1" step="0.05" value="${s.tts_voice_settings.similarity_boost}"></div>
+          <div class="field"><label>표현력 <b id="vsStyleV"></b> <span class="muted">높을수록 풍부, 너무 높으면 흔들림</span></label><input type="range" id="vsStyle" min="0" max="1" step="0.05" value="${s.tts_voice_settings.style}"></div>
+          <div class="field"><label>말 빠르기 <b id="vsSpeedV"></b> <span class="muted">어르신 말투는 0.9~0.95 · v3 계열은 미적용</span></label><input type="range" id="vsSpeed" min="0.7" max="1.2" step="0.05" value="${s.tts_voice_settings.speed}"></div>
+        </div>
+        <div class="field"><label>미리 듣기 문장</label><input id="vsText" value="아이고, 우리 강아지 왔냐. 밥은 묵었냐? 요즘 날이 쌀쌀헌디 옷 따숩게 입고 댕겨라."></div>
+        <div class="toolbar"><button class="small secondary" id="vsPreview">이 설정으로 미리 듣기</button><button class="small ghost" id="vsReset">권장값으로</button><span id="vsOut" class="muted"></span></div>
+        <audio id="vsAudio" controls style="display:none;width:100%;max-width:520px;margin-top:6px"></audio>
+        <div class="notice" style="margin-top:10px;font-size:13px"><b>더 자연스럽게 만드는 순서 (효과가 큰 것부터)</b><br>
+          1) <b>녹음 원본이 90%</b>: 또박또박 읽은 목소리는 봇처럼 나옵니다. 조용한 방에서 <b>평소 대화하듯 웃고 쉬어 가며 3분 이상</b> 녹음한 파일로 다시 등록하세요. 여러 파일(총 5분 안팎)을 함께 올리면 더 좋습니다.<br>
+          2) 위 슬라이더: 안정감 0.35~0.45 · 표현력 0.3~0.45 · 속도 0.9~0.95 → "미리 듣기"로 비교 후 저장<br>
+          3) 모델을 <b>eleven_v3</b>로 바꿔 보기(감정·억양이 가장 자연스럽지만 답이 2~4초 늦고 실시간 아바타와는 쓰지 못할 수 있음). 실시간이 필요하면 <b>eleven_v3_conversational</b><br>
+          4) <b>Professional Voice Clone(PVC)</b>: Creator 요금제(월 $11~)부터. 깨끗한 음성 30분 이상(3시간이 최적)이면 원본과 거의 구분되지 않습니다. 생전 기록 자원자에게 가장 권합니다.<br>
+          5) 다른 API(2026-09 조사): <b>Fish Audio S2.1 Pro</b>(한·중·일에 강함, TTS-Arena 상위, 15초~3분 샘플 복제, 저렴) · <b>Cartesia Sonic 3.6</b>(한국어 지원, 40~90ms 초저지연, 실시간 아바타용) · <b>MiniMax Speech-02</b>(다국어·저비용). 국내 <b>Supertone</b>은 검색 결과에 "2026-08-31 API 종료" 공지가 보이나 페이지 접근이 막혀 직접 확인하지 못했습니다. 연동은 tts.py에 공급자 클래스 하나 추가로 가능하며, 비교 청취 후 결정하는 것을 권합니다.</div>
+      </details>
       ${s.elevenlabs_key_masked && s.tts_provider === "browser" ? '<div class="notice" style="margin-top:8px">키는 있지만 공급자가 "브라우저 기본 음성만"이라 복제 음성이 꺼져 있습니다. "자동"으로 바꾸고 저장하세요.</div>' : ""}
       <div class="toolbar" style="margin-top:10px"><button class="small" id="elSave">저장</button><button class="small secondary" id="elTest">연결 테스트</button>${s.elevenlabs_key_masked ? `<button class="small ghost" id="elClear">키 삭제</button>` : ""}<span id="elOut" class="muted"></span></div>
       <div class="notice" style="margin-top:12px;font-size:13px"><b>ElevenLabs 키 만드는 법 (그대로 따라 하세요)</b><br>
@@ -416,8 +434,21 @@ async function aisettings() {
   const outSm = (msg, ok) => { const el = $("#smOut"); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
   $("#aiEye").onclick = () => { const i = $("#aiKey"); i.type = i.type === "password" ? "text" : "password"; $("#aiEye").textContent = i.type === "password" ? "보기" : "숨기기"; };
   const outEl = (msg, ok) => { const el = $("#elOut"); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
+  const voiceSettings = () => ({ stability: +$("#vsStab").value, similarity_boost: +$("#vsSim").value, style: +$("#vsStyle").value, speed: +$("#vsSpeed").value });
+  const showVs = () => { $("#vsStabV").textContent = (+$("#vsStab").value).toFixed(2); $("#vsSimV").textContent = (+$("#vsSim").value).toFixed(2); $("#vsStyleV").textContent = (+$("#vsStyle").value).toFixed(2); $("#vsSpeedV").textContent = (+$("#vsSpeed").value).toFixed(2); };
+  ["#vsStab", "#vsSim", "#vsStyle", "#vsSpeed"].forEach((id) => $(id).oninput = showVs); showVs();
+  $("#vsReset").onclick = () => { const d = s.tts_voice_defaults; $("#vsStab").value = d.stability; $("#vsSim").value = d.similarity_boost; $("#vsStyle").value = d.style; $("#vsSpeed").value = d.speed; showVs(); };
+  $("#vsPreview").onclick = async () => {
+    const o = $("#vsOut"); o.textContent = "합성 중… (2~6초)"; o.style.color = ""; $("#vsPreview").disabled = true;
+    try {
+      const r = await fetch("/api/admin/settings/tts/preview", { method: "POST", headers: { "X-Admin-Key": KEY, "Content-Type": "application/json" }, body: JSON.stringify({ text: $("#vsText").value, model: $("#ttsModel").value, settings: voiceSettings() }) });
+      if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+      const a = $("#vsAudio"); a.src = URL.createObjectURL(await r.blob()); a.style.display = "block"; await a.play(); o.textContent = "마음에 들면 '저장'을 누르세요. 다음 대화부터 적용됩니다.";
+    } catch (e) { o.textContent = "실패: " + e.message; o.style.color = "var(--danger)"; }
+    $("#vsPreview").disabled = false;
+  };
   const body = (o = {}) => ({ api_key: $("#aiKey").value.trim() || null, provider: $("#aiProv").value, model: $("#aiModel").value,
-    elevenlabs_api_key: $("#elKey").value.trim() || null, tts_provider: $("#ttsProv").value, tts_model: $("#ttsModel").value,
+    elevenlabs_api_key: $("#elKey").value.trim() || null, tts_provider: $("#ttsProv").value, tts_model: $("#ttsModel").value, tts_voice_settings: voiceSettings(),
     simli_api_key: $("#smKey").value.trim() || null, did_api_key: $("#ddKey").value.trim() || null, avatar_provider: $("#avProv").value, ...o });
   $("#ddEye").onclick = () => { const i = $("#ddKey"); i.type = i.type === "password" ? "text" : "password"; $("#ddEye").textContent = i.type === "password" ? "보기" : "숨기기"; };
   async function runDdTest() {

@@ -125,6 +125,7 @@ _MIGRATIONS = [
     ("deceased", "voice_provider", "TEXT DEFAULT ''"),    # elevenlabs | supertone
     ("deceased", "face_id", "TEXT DEFAULT ''"),           # 실시간 아바타 얼굴 ID(공급자 측)
     ("deceased", "face_provider", "TEXT DEFAULT ''"),     # simli
+    ("deceased", "theme", "TEXT DEFAULT 'classic'"),      # 추모 공간 테마: classic | buddhist | catholic | christian
 ]
 
 

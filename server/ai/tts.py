@@ -29,15 +29,18 @@ class BrowserTTS:
 class ElevenLabsTTS:
     name = "elevenlabs"
     BASE = "https://api.elevenlabs.io"
-    MODELS = ["eleven_multilingual_v2", "eleven_flash_v2_5", "eleven_v3"]
+    MODELS = ["eleven_multilingual_v2", "eleven_v3", "eleven_v3_conversational", "eleven_flash_v2_5"]
+    # 음성 세부 설정 기본값. 봇 느낌을 줄이려면 안정감(stability)을 낮추고 표현력(style)을 올리며 속도를 조금 늦춘다.
+    DEFAULT_SETTINGS = {"stability": 0.4, "similarity_boost": 0.8, "style": 0.35, "speed": 0.95, "use_speaker_boost": True}
     # 우리가 쓰는 엔드포인트와 필요한 키 권한(ElevenLabs 키 제한 화면 기준, 2026-09 한국어 UI)
     PERMISSIONS = "텍스트 음성 변환=접근, 음성=작성, 사용자=접근"
     # 연결 테스트용 기본 제공 음성(ElevenLabs premade 'Rachel'). 합성 테스트는 두 글자라 크레딧이 거의 들지 않는다.
     _PROBE_VOICE = "21m00Tcm4TlvDq8ikWAM"
 
-    def __init__(self, api_key: str, model: str = "eleven_multilingual_v2") -> None:
+    def __init__(self, api_key: str, model: str = "eleven_multilingual_v2", settings: dict | None = None) -> None:
         self.key = api_key
         self.model = model if model in self.MODELS else self.MODELS[0]
+        self.settings = self.clean_settings(settings)
         self.s = requests.Session()
         self.s.headers["xi-api-key"] = api_key
 
@@ -115,15 +118,42 @@ class ElevenLabsTTS:
 
     # ---------- 합성 · 음성 등록 ----------
 
-    def synthesize(self, text: str, voice_id: str | None) -> TTSResult:
+    @classmethod
+    def clean_settings(cls, raw: dict | None) -> dict:
+        """관리자 콘솔에서 온 값을 범위 안으로 정리한다. 모르는 키는 버린다."""
+        out = dict(cls.DEFAULT_SETTINGS)
+        for k in ("stability", "similarity_boost", "style"):
+            try:
+                if raw and raw.get(k) is not None:
+                    out[k] = round(min(1.0, max(0.0, float(raw[k]))), 2)
+            except (TypeError, ValueError):
+                pass
+        try:
+            if raw and raw.get("speed") is not None:
+                out["speed"] = round(min(1.2, max(0.7, float(raw["speed"]))), 2)
+        except (TypeError, ValueError):
+            pass
+        if raw and "use_speaker_boost" in raw:
+            out["use_speaker_boost"] = bool(raw["use_speaker_boost"])
+        return out
+
+    def _voice_settings(self, model: str, settings: dict | None = None) -> dict:
+        st = self.clean_settings(settings) if settings is not None else dict(self.settings)
+        if model.startswith("eleven_v3"):
+            # v3 계열은 안정감을 세 단계(0=창의적 · 0.5=자연 · 1=견고)로만 받고, 속도 필드는 받지 않는다.
+            st["stability"] = 0.0 if st["stability"] < 0.3 else 1.0 if st["stability"] > 0.75 else 0.5
+            st.pop("speed", None)
+        return st
+
+    def synthesize(self, text: str, voice_id: str | None, settings: dict | None = None, model: str | None = None) -> TTSResult:
         if not voice_id:
             return TTSResult(audio=None)
-        body = {"text": text, "model_id": self.model,
-                "voice_settings": {"stability": 0.55, "similarity_boost": 0.8, "style": 0.15, "use_speaker_boost": True}}
-        if "v2_5" in self.model or "flash" in self.model or "turbo" in self.model:
-            body["language_code"] = "ko"     # multilingual_v2는 이 필드를 받지 않는다
+        model = model if model in self.MODELS else self.model
+        body = {"text": text, "model_id": model, "voice_settings": self._voice_settings(model, settings)}
+        if "v2_5" in model or "flash" in model or "turbo" in model:
+            body["language_code"] = "ko"     # multilingual_v2 · v3는 이 필드를 받지 않는다
         r = self.s.post(f"{self.BASE}/v1/text-to-speech/{voice_id}", params={"output_format": "mp3_44100_64"},
-                        json=body, timeout=40)
+                        json=body, timeout=60)
         self._raise(r)
         return TTSResult(audio=r.content, mime="audio/mpeg")
 

@@ -53,7 +53,20 @@ def effective_tts() -> dict:
         "api_key": db.get_setting("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY", ""),
         "provider": (db.get_setting("tts_provider") or config.TTS_PROVIDER or "auto").lower(),   # auto | elevenlabs | browser
         "model": db.get_setting("tts_model") or "eleven_multilingual_v2",
+        "voice_settings": _json_setting("tts_voice_settings"),   # 안정감·유사도·표현력·속도(관리자 콘솔)
     }
+
+
+def _json_setting(key: str) -> dict:
+    import json
+    raw = db.get_setting(key)
+    if not raw:
+        return {}
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, dict) else {}
+    except ValueError:
+        return {}
 
 
 _tts_sig: tuple | None = None
@@ -63,11 +76,12 @@ def tts():
     """복제 음성 공급자. 키가 있고(provider auto/elevenlabs) 고인에게 voice_id가 있을 때만 실제로 쓰인다."""
     global _tts, _tts_sig
     e = effective_tts()
-    sig = (e["api_key"], e["provider"], e["model"])
+    import json
+    sig = (e["api_key"], e["provider"], e["model"], json.dumps(e.get("voice_settings") or {}, sort_keys=True))
     if _tts is None or sig != _tts_sig:
         if e["api_key"] and e["provider"] in ("auto", "elevenlabs"):
             from .tts import ElevenLabsTTS
-            _tts = ElevenLabsTTS(e["api_key"], e["model"])
+            _tts = ElevenLabsTTS(e["api_key"], e["model"], e.get("voice_settings"))
         else:
             _tts = BrowserTTS()
         _tts_sig = sig

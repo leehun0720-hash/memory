@@ -52,6 +52,25 @@ def me(m: dict = Depends(require_member)):
     }
 
 
+THEMES = ("classic", "buddhist", "catholic", "christian")
+
+
+class ThemeIn(BaseModel):
+    deceased_id: int
+    theme: str = Field(pattern="^(classic|buddhist|catholic|christian)$")
+
+
+@router.post("/theme")
+def set_theme(body: ThemeIn, m: dict = Depends(require_member)):
+    """추모 공간 테마(전통·불교·천주교·기독교). 계약자만 바꿀 수 있고 가족 모두에게 적용된다."""
+    require_role(m, "manage")
+    if not db.one("SELECT id FROM deceased WHERE id=? AND contract_id=?", (body.deceased_id, m["contract_id"])):
+        raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
+    db.execute("UPDATE deceased SET theme=? WHERE id=?", (body.theme, body.deceased_id))
+    db.audit(f"member:{m['id']}", "theme.set", f"deceased:{body.deceased_id}", body.theme)
+    return {"ok": True, "theme": body.theme}
+
+
 # ---------- 원격 참배 ----------
 
 @router.get("/niche/status")

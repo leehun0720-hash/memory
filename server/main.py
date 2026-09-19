@@ -3,7 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -58,6 +58,29 @@ def admin_app():
 @app.get("/health", include_in_schema=False)
 def health():
     return {"ok": True}
+
+
+@app.get("/api/launcher", include_in_schema=False)
+def launcher(request: Request):
+    """같은 컴퓨터에서 초대 링크 없이 /를 열었을 때 보여 주는 시작 화면용 바로가기(관리자 콘솔·시연 계정).
+    로컬(127.0.0.1) 직접 접속에만 열리고, 프록시 뒤·서버리스(EPHEMERAL)·외부 접속에는 404."""
+    client = (request.client.host if request.client else "") or ""
+    host = request.headers.get("host", "").split(":")[0].strip("[]")
+    if (client not in ("127.0.0.1", "::1") or host not in ("127.0.0.1", "localhost", "::1")
+            or request.headers.get("x-forwarded-for") or config.EPHEMERAL or config.LAUNCHER_DISABLED):
+        raise HTTPException(404)
+    members = db.rows(
+        """SELECT m.id, m.name, m.relation, m.role, m.invite_token, c.holder_name, c.plan, n.code AS niche_code,
+                  (SELECT GROUP_CONCAT(d.name, ', ') FROM deceased d WHERE d.contract_id=c.id) AS deceased_names
+           FROM family_members m JOIN contracts c ON c.id=m.contract_id LEFT JOIN niches n ON n.id=c.niche_id ORDER BY m.id""")
+    fac = db.one("SELECT name FROM facilities LIMIT 1")
+    return {
+        "facility": fac["name"] if fac else "",
+        "admin_url": f"/admin?key={config.ADMIN_KEY}",
+        "members": [{"id": r["id"], "name": r["name"], "relation": r["relation"], "role": r["role"], "holder_name": r["holder_name"],
+                     "plan": r["plan"], "niche_code": r["niche_code"], "deceased_names": r["deceased_names"] or "",
+                     "url": f"/?t={r['invite_token']}"} for r in members],
+    }
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

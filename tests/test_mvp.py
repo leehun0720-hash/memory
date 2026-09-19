@@ -445,3 +445,71 @@ def test_did_avatar_flow(client, monkeypatch):
     client.delete(f"/api/family/avatar/{did}", headers=tok)
     assert calls["deleted"] == "agt_test1"
     client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5", "did_api_key": "", "simli_api_key": "", "avatar_provider": "auto"})
+
+
+# ---------- 추모 테마 · 로컬 시작 화면 · 음성 세부 설정 ----------
+
+def test_theme_set_by_manager_only(client):
+    h = {"X-Family-Token": holder_token("이미영")}
+    me = client.get("/api/family/me", headers=h).json()
+    did = me["deceased"][0]["id"]
+    assert me["deceased"][0]["theme"] == "classic"
+    assert client.post("/api/family/theme", headers=h, json={"deceased_id": did, "theme": "buddhist"}).status_code == 200
+    assert client.get("/api/family/me", headers=h).json()["deceased"][0]["theme"] == "buddhist"
+    # 보기·대화 권한은 못 바꾼다
+    r = client.post("/api/family/theme", headers={"X-Family-Token": holder_token("이준호")}, json={"deceased_id": did, "theme": "catholic"})
+    assert r.status_code == 403
+    # 목록에 없는 테마는 거부
+    assert client.post("/api/family/theme", headers=h, json={"deceased_id": did, "theme": "islam"}).status_code == 422
+    # 관리자 콘솔 고인 편집에서도 저장된다
+    d = client.get(f"/api/admin/contracts/{me['contract']['id']}", headers=ADMIN).json()["deceased"][0]
+    body = {k: d[k] for k in ("contract_id", "name", "honorific", "birth_date", "death_date", "memory_card", "voice_note", "chat_min_days_after_death")}
+    body.update(ai_enabled=bool(d["ai_enabled"]), theme="christian")
+    assert client.put(f"/api/admin/deceased/{did}", headers=ADMIN, json=body).status_code == 200
+    assert client.get("/api/family/me", headers=h).json()["deceased"][0]["theme"] == "christian"
+
+
+def test_launcher_only_for_local_direct_access(client):
+    # 기본 테스트 클라이언트는 호스트가 testserver → 닫힘
+    assert client.get("/api/launcher").status_code == 404
+    from fastapi.testclient import TestClient
+    from server.main import app
+    local = TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 40000))   # with 없이: lifespan 재실행 안 함
+    r = local.get("/api/launcher")
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["admin_url"].endswith(config.ADMIN_KEY)
+    assert any(m["name"] == "이미영" and m["url"].startswith("/?t=") and m["deceased_names"] for m in j["members"])
+    # 프록시를 거친 요청(X-Forwarded-For)에는 닫힌다
+    assert local.get("/api/launcher", headers={"X-Forwarded-For": "203.0.113.5"}).status_code == 404
+
+
+def test_tts_voice_settings_roundtrip_and_v3_snap(client, monkeypatch):
+    r = client.put("/api/admin/settings/ai", headers=ADMIN,
+                   json={"tts_voice_settings": {"stability": 1.7, "similarity_boost": -1, "style": 0.3, "speed": 0.5, "bogus": 1}})
+    assert r.status_code == 200, r.text
+    vs = r.json()["tts_voice_settings"]
+    assert vs["stability"] == 1.0 and vs["similarity_boost"] == 0.0 and vs["style"] == 0.3 and vs["speed"] == 0.7 and "bogus" not in vs
+    assert client.get("/api/admin/settings/ai", headers=ADMIN).json()["tts_voice_settings"]["speed"] == 0.7
+    from server.ai.tts import ElevenLabsTTS
+    t = ElevenLabsTTS("sk_test", "eleven_v3", {"stability": 0.4, "speed": 0.9})
+    v3 = t._voice_settings("eleven_v3")
+    assert v3["stability"] == 0.5 and "speed" not in v3          # v3는 0/0.5/1 세 단계, 속도 없음
+    v2 = t._voice_settings("eleven_multilingual_v2")
+    assert v2["stability"] == 0.4 and v2["speed"] == 0.9
+    # 미리 듣기: 저장하지 않고 넘어온 설정·모델로 첫 등록 음성을 합성한다
+    from server.ai.tts import TTSResult
+    captured = {}
+    def fake_synth(self, text, voice_id, settings=None, model=None):
+        captured.update(text=text, voice_id=voice_id, settings=settings, model=model)
+        return TTSResult(audio=b"ID3preview", mime="audio/mpeg")
+    monkeypatch.setattr(ElevenLabsTTS, "synthesize", fake_synth)
+    assert client.put("/api/admin/settings/ai", headers=ADMIN, json={"elevenlabs_api_key": "sk_" + "b" * 40, "tts_provider": "auto"}).status_code == 200
+    db.execute("UPDATE deceased SET voice_id='v_prev', voice_provider='elevenlabs' WHERE id=?", (1,))
+    r = client.post("/api/admin/settings/tts/preview", headers=ADMIN, json={"text": "안녕", "model": "eleven_v3", "settings": {"style": 0.9}})
+    assert r.status_code == 200 and r.content == b"ID3preview", r.text
+    assert captured["model"] == "eleven_v3" and captured["settings"]["style"] == 0.9 and captured["voice_id"] == "v_prev"
+    db.execute("UPDATE deceased SET voice_id='', voice_provider='' WHERE id=?", (1,))
+    # ElevenLabs가 꺼져 있으면 미리 듣기는 400
+    assert client.put("/api/admin/settings/ai", headers=ADMIN, json={"elevenlabs_api_key": ""}).status_code == 200
+    assert client.post("/api/admin/settings/tts/preview", headers=ADMIN, json={}).status_code == 400

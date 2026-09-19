@@ -6,7 +6,21 @@
 <title>관리자 콘솔 · 봉안함 원격 참배</title>
 <link rel="stylesheet" href="/static/css/app.css">
 <style>
+  /* 관리자 콘솔은 밝은 사무용 화면을 유지한다(유족 앱의 어두운 테마 토큰을 되돌림). */
+  :root { --bg: #f6f2ea; --bg-2: #f6f2ea; --bg-3: #ece6d8; --surface: #ffffff; --surface-2: #f1ede4; --surface-solid: #ffffff; --line: #e4ddd0; --line-strong: #cdbf9e;
+    --ink: #2b2a27; --muted: #6f6a60; --accent: #2f5d50; --accent-ink: #ffffff; --btn-a: #3a7263; --btn-b: #2f5d50; --gold-2: #2b2a27; --glow: 47, 93, 80;
+    --danger: #a33a2c; --ok: #1e7a45; --warn-bg: #fff6e0; --ai-bg: #efe7f7; --ai-ink: #4a2d6b; --font-serif: "Noto Sans KR", "Pretendard", "Malgun Gothic", system-ui, sans-serif; }
+  body::before, body::after { display: none; }
   body { padding-bottom: 0; font-size: 15px; }
+  h1, h2, h3 { font-family: var(--font-sans); } h3 { color: var(--muted); }
+  input, textarea, select { background: #fff; } input::placeholder, textarea::placeholder { color: #9a948a; }
+  button, .btn { box-shadow: none; border-radius: 10px; } button.secondary, .btn.secondary { background: #fff; border-color: var(--accent); }
+  .card { box-shadow: none; backdrop-filter: none; } .modal { box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  .toast { background: #2b2a27; color: #fff; border: none; }
+  .notice { color: var(--ink); } .notice.danger { color: var(--danger); }
+  .portrait { box-shadow: none; }
+  .pill { background: #eee; color: #555; border: none; }
+  .bubble.them { background: #fff; } .bubble.me { background: var(--accent); color: #fff; }
   .layout { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
   aside { background: #2b2a27; color: #ddd; padding: 18px 14px; }
   aside .brand { font-weight: 800; color: #fff; margin-bottom: 14px; font-size: 16px; }
