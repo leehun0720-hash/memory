@@ -1,25 +1,26 @@
-# 봉안당 시연 시작: 서버 + 현장 카메라 프로그램을 띄우고 브라우저에서 시작 화면을 엽니다.
-# (더블클릭: 시작.bat  /  PowerShell: .\run.ps1)
-$env:PYTHONIOENCODING = "utf-8"
+# 봉안당 접속: 서버와 현장 카메라 프로그램을 창 없이 켜고(이미 켜져 있으면 건너뜀) 브라우저에서 시작 화면을 엽니다.
+# 바탕화면 '봉안당 접속' 아이콘이 이 파일을 실행합니다. 로그: data\server.log · data\edge.log (UTF-8)
+$ErrorActionPreference = "SilentlyContinue"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
+$env:PYTHONIOENCODING = "utf-8"; $env:PYTHONUTF8 = "1"
+New-Item -ItemType Directory -Force "$root\data" | Out-Null
 $health = "http://127.0.0.1:8765/health"
 function Up { try { (Invoke-WebRequest $health -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200 } catch { $false } }
+function Running($needle) { Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object { $_.CommandLine -like "*$needle*" } }
 
-if (Up) { Write-Host "서버가 이미 켜져 있습니다." }
-else {
-  Write-Host "서버를 켜는 중…"
-  Start-Process powershell -WindowStyle Minimized -ArgumentList "-NoExit", "-Command", "`$env:PYTHONIOENCODING='utf-8'; Set-Location '$root'; python -m uvicorn server.main:app --host 127.0.0.1 --port 8765 --reload --reload-dir server"
+if (-not (Up)) {
+  Start-Process -FilePath "python" -ArgumentList "-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", "8765" `
+    -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput "$root\data\server.out.log" -RedirectStandardError "$root\data\server.log"
   $i = 0; while (-not (Up) -and $i -lt 60) { Start-Sleep -Milliseconds 500; $i++ }
-  if (-not (Up)) { Write-Host "서버가 30초 안에 뜨지 않았습니다. 최소화된 '서버' 창의 오류를 확인하세요."; Read-Host "Enter를 누르면 닫힙니다"; exit 1 }
 }
-
-$edge = Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*edge.agent*' }
-if ($edge) { Write-Host "현장 카메라 프로그램이 이미 켜져 있습니다." }
+if (-not (Running "edge.agent")) {
+  Start-Process -FilePath "python" -ArgumentList "-m", "edge.agent" `
+    -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput "$root\data\edge.out.log" -RedirectStandardError "$root\data\edge.log"
+}
+if (Up) { Start-Process "http://127.0.0.1:8765/" }
 else {
-  Write-Host "현장 카메라 프로그램(웹캠)을 켜는 중…"
-  Start-Process powershell -WindowStyle Minimized -ArgumentList "-NoExit", "-Command", "`$env:PYTHONIOENCODING='utf-8'; Set-Location '$root'; python -m edge.agent"
+  Add-Type -AssemblyName System.Windows.Forms
+  [System.Windows.Forms.MessageBox]::Show("서버가 켜지지 않았습니다. data\server.log 를 확인해 주세요.", "봉안당 접속") | Out-Null
+  Start-Process notepad "$root\data\server.log"
 }
-
-Write-Host "시작 화면을 엽니다: http://127.0.0.1:8765/"
-Start-Process "http://127.0.0.1:8765/"

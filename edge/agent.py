@@ -175,9 +175,9 @@ def main() -> None:
         fps_n += 1
         if now - fps_t >= 2:
             fps, fps_t, fps_n = fps_n / (now - fps_t), now, 0
-            if uploader.dropped:
-                log.info("전송이 캡처를 못 따라가 프레임 %d장을 건너뛰었습니다(정상: 최신 화면 우선)", uploader.dropped)
-                uploader.dropped = 0
+            if uploader.dropped >= 30:      # 2초에 30장 넘게 버릴 때만(전송이 심하게 밀림) 알린다
+                log.info("전송이 캡처를 못 따라가 프레임 %d장을 건너뛰었습니다(최신 화면 우선)", uploader.dropped)
+            uploader.dropped = 0
 
         # 설정(카메라·칸·라이브 요청)은 1초마다 새로 받는다
         if cfg is None or now - cfg_at > 1.0:
