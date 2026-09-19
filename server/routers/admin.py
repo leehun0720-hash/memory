@@ -1,4 +1,5 @@
 """관리자 콘솔 API: 칸 좌표 · 계약·가족 · 고인 프로필·기억 카드·동의서 · 의례 일정 · 이용 현황."""
+import re
 import uuid
 from pathlib import Path
 
@@ -472,7 +473,10 @@ def ai_settings_put(body: AISettingsIn):
     db.set_setting("llm_model", body.model)
     factory.reset()
     if body.elevenlabs_api_key is not None:
-        db.set_setting("elevenlabs_api_key", body.elevenlabs_api_key.strip())
+        k = body.elevenlabs_api_key.strip()
+        if k and not (k.startswith("sk_") or re.fullmatch(r"[0-9a-f]{32}", k)):
+            raise HTTPException(400, f"ElevenLabs 키 형식이 아닙니다(받은 값: {k[:6]}… {len(k)}자). 키는 sk_ 로 시작하며, 키를 만든 직후 한 번만 보이는 전체 값을 복사해야 합니다. 키 목록에 보이는 요약본은 쓸 수 없습니다.")
+        db.set_setting("elevenlabs_api_key", k)
         db.audit("admin", "settings.api_key", "elevenlabs", "set" if body.elevenlabs_api_key.strip() else "cleared")
     db.set_setting("tts_provider", body.tts_provider)
     db.set_setting("tts_model", body.tts_model)

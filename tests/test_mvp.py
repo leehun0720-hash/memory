@@ -253,7 +253,7 @@ def test_voice_register_and_tts_flow(client, monkeypatch):
     did = db.one("SELECT id FROM deceased WHERE name='김철수'")["id"]
     # 키 저장 → ElevenLabs 공급자 활성
     r = client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5",
-                                                                  "elevenlabs_api_key": "xi-test-key", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2"}).json()
+                                                                  "elevenlabs_api_key": "sk_test00000000000000000000000000", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2"}).json()
     assert r["active_tts"] == "elevenlabs" and r["elevenlabs_key_masked"]
     assert client.post("/api/admin/settings/tts/test", headers=ADMIN).json()["tier"] == "starter"
     # 음성 자료 업로드 → 등록
@@ -293,7 +293,7 @@ def test_family_voice_register_from_app(client, monkeypatch):
     monkeypatch.setattr(ElevenLabsTTS, "synthesize", lambda self, text, voice_id: TTSResult(audio=b"ID3app", mime="audio/mpeg"))
     monkeypatch.setattr(ElevenLabsTTS, "delete_voice", lambda self, voice_id: None)
     client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5",
-                                                              "elevenlabs_api_key": "xi-test-key", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2"})
+                                                              "elevenlabs_api_key": "sk_test00000000000000000000000000", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2"})
     tok = {"X-Family-Token": holder_token("김태형")}
     did = db.one("SELECT id FROM deceased WHERE name='김철수'")["id"]
     st = client.get("/api/family/voice", headers=tok).json()
@@ -321,3 +321,13 @@ def test_family_voice_register_from_app(client, monkeypatch):
     assert pv.status_code == 200 and pv.content == b"ID3app"
     assert client.delete(f"/api/family/voice/{did}", headers=tok).status_code == 200
     assert db.one("SELECT voice_id FROM deceased WHERE id=?", (did,))["voice_id"] == ""
+
+
+def test_elevenlabs_key_format_rejected(client):
+    r = client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5",
+                                                                  "elevenlabs_api_key": "2322c97d1f0a4b7c9e8d6f5a4b3c2d1e4130", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2"})
+    assert r.status_code == 400 and "sk_" in r.json()["detail"]
+    ok = client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5",
+                                                                   "elevenlabs_api_key": "0123456789abcdef0123456789abcdef", "tts_provider": "browser", "tts_model": "eleven_multilingual_v2"})
+    assert ok.status_code == 200   # 구형 32자리 hex 키는 허용
+    client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5", "elevenlabs_api_key": "", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2"})

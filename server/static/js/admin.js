@@ -340,10 +340,23 @@ async function aisettings() {
     catch (e) { out(e.message, false); }
   };
   $("#elEye").onclick = () => { const i = $("#elKey"); i.type = i.type === "password" ? "text" : "password"; $("#elEye").textContent = i.type === "password" ? "보기" : "숨기기"; };
-  $("#elSave").onclick = () => save();
-  if ($("#elClear")) $("#elClear").onclick = async () => { if (confirm("ElevenLabs 키를 삭제할까요? 브라우저 기본 음성으로 전환됩니다.")) { try { await api("/api/admin/settings/ai", { method: "PUT", body: body({ elevenlabs_api_key: "" }) }); aisettings(); } catch (e) { outEl(e.message, false); } } };
-  $("#elTest").onclick = async () => {
-    if ($("#elKey").value.trim()) { try { await api("/api/admin/settings/ai", { method: "PUT", body: body() }); } catch (e) { return outEl(e.message, false); } }
+  // 확인창(confirm)은 일부 환경에서 자동으로 취소되므로, 화면 안에서 두 번 누르는 방식으로 삭제한다.
+  if ($("#elClear")) $("#elClear").onclick = async () => {
+    const b = $("#elClear");
+    if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "정말 삭제 (다시 누르기)"; b.style.color = "var(--danger)"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "키 삭제"; b.style.color = ""; }, 5000); return; }
+    try { await api("/api/admin/settings/ai", { method: "PUT", body: body({ elevenlabs_api_key: "" }) }); toast("ElevenLabs 키를 삭제했습니다."); aisettings(); } catch (e) { outEl(e.message, false); }
+  };
+  if ($("#aiClear")) $("#aiClear").onclick = async () => {
+    const b = $("#aiClear");
+    if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "정말 삭제 (다시 누르기)"; b.style.color = "var(--danger)"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "키 삭제"; b.style.color = ""; }, 5000); return; }
+    save("");
+  };
+  $("#elSave").onclick = async () => {
+    const typed = $("#elKey").value.trim();
+    try { await api("/api/admin/settings/ai", { method: "PUT", body: body() }); } catch (e) { return outEl(e.message, false); }
+    if (typed) { outEl("저장됨 · 연결 확인 중…", true); await runElTest(); } else { toast("저장했습니다."); aisettings(); }
+  };
+  async function runElTest() {
     outEl("확인 중…", true); $("#elTest").disabled = true;
     try { const r = await api("/api/admin/settings/tts/test", { method: "POST" });
       const c = r.checks || {}; const mark = (k) => c[k] === "ok" ? "✓" : "✗";
@@ -351,9 +364,12 @@ async function aisettings() {
       outEl(`${r.all_ok ? "연결 성공" : "키는 유효하지만 권한 부족"} · ${list}${r.tier ? ` · 요금제 ${r.tier} · ${r.used ?? "-"}/${r.limit ?? "-"} 크레딧` : ""}${r.note ? " · " + r.note : ""}`, !!r.all_ok); }
     catch (e) { outEl("실패: " + e.message, false); }
     $("#elTest").disabled = false;
+  }
+  $("#elTest").onclick = async () => {
+    if ($("#elKey").value.trim()) { try { await api("/api/admin/settings/ai", { method: "PUT", body: body() }); } catch (e) { return outEl(e.message, false); } }
+    await runElTest();
   };
   $("#aiSave").onclick = () => save();
-  if ($("#aiClear")) $("#aiClear").onclick = () => { if (confirm("저장된 API 키를 삭제할까요? Mock으로 전환됩니다.")) save(""); };
   $("#aiTest").onclick = async () => {
     if ($("#aiKey").value.trim()) { await save(); }
     out("확인 중…", true); $("#aiTest").disabled = true;
