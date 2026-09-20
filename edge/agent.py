@@ -36,7 +36,7 @@ session.headers["X-Edge-Key"] = EDGE_KEY
 
 # ---------- 영상 처리 ----------
 
-def crop_niche(frame: np.ndarray, rect: dict, margin: float = 0.35, max_width: int = 720) -> np.ndarray:
+def crop_niche(frame: np.ndarray, rect: dict, margin: float = 0.35, max_width: int = 720, blur: bool = True) -> np.ndarray:
     """내 칸은 선명하게, 그 바깥(옆 칸)은 흐리고 어둡게. 옆 칸의 이름·사진·날짜가 읽히지 않게 한다.
     먼저 720px로 줄인 뒤 1/4 크기에서 흐리고 다시 키운다(큰 반경 가우시안과 보기엔 같지만 비용은 1/10)."""
     H, W = frame.shape[:2]
@@ -50,13 +50,16 @@ def crop_niche(frame: np.ndarray, rect: dict, margin: float = 0.35, max_width: i
         s = max_width / region.shape[1]
         region = cv2.resize(region, (max_width, max(1, int(region.shape[0] * s))), interpolation=cv2.INTER_AREA)
     rh, rw = region.shape[:2]
-    tiny = cv2.resize(region, (max(1, rw // 4), max(1, rh // 4)), interpolation=cv2.INTER_AREA)
-    tiny = cv2.GaussianBlur(tiny, (0, 0), sigmaX=3)
-    out = cv2.resize(tiny, (rw, rh), interpolation=cv2.INTER_LINEAR)
-    out = cv2.convertScaleAbs(out, alpha=0.55)
     sx, sy = int((x - x0) * s), int((y - y0) * s)
     ex, ey = min(sx + max(1, int(w * s)), rw), min(sy + max(1, int(h * s)), rh)
-    out[sy:ey, sx:ex] = region[sy:ey, sx:ex]
+    if blur:
+        tiny = cv2.resize(region, (max(1, rw // 4), max(1, rh // 4)), interpolation=cv2.INTER_AREA)
+        tiny = cv2.GaussianBlur(tiny, (0, 0), sigmaX=3)
+        out = cv2.resize(tiny, (rw, rh), interpolation=cv2.INTER_LINEAR)
+        out = cv2.convertScaleAbs(out, alpha=0.55)
+        out[sy:ey, sx:ex] = region[sy:ey, sx:ex]
+    else:
+        out = region.copy()          # 시연 모드: 흐리지 않고 그대로, 내 칸 테두리만 표시
     cv2.rectangle(out, (sx, sy), (ex - 1, ey - 1), (150, 190, 220), 2)
     return out
 
@@ -208,11 +211,12 @@ def main() -> None:
         ritual_cams = [c for c in my_cams if c["kind"] == "ritual"]
 
         # 사진 갱신(사람 없을 때만). 전체 화면은 관리자 좌표용, 칸별 사진은 유족용.
-        if not occupied and now - last_snapshot >= cfg["snapshot_interval"]:
+        # 시연 모드(live_ignore_occupied)에서는 사람이 앞에 있어도 사진을 갱신한다(노트북 앞에 앉은 사람 = 시연자).
+        if (not occupied or cfg.get("live_ignore_occupied")) and now - last_snapshot >= cfg["snapshot_interval"]:
             for c in wall_cams:
                 uploader.submit(f"/api/edge/cameras/{c['id']}/frame", jpeg(frame, 80))
                 for n in c["niches"]:
-                    uploader.submit(f"/api/edge/niches/{n['id']}/snapshot", jpeg(crop_niche(frame, n)))
+                    uploader.submit(f"/api/edge/niches/{n['id']}/snapshot", jpeg(crop_niche(frame, n, blur=cfg.get("blur_outside", True))))
             last_snapshot = now
 
         # 실시간 보기(30초 세션이 열린 칸만) · 제례 중계
@@ -224,7 +228,7 @@ def main() -> None:
                 for c in wall_cams:
                     for n in c["niches"]:
                         if n["id"] in live_ids:
-                            uploader.submit(f"/api/edge/niches/{n['id']}/live", jpeg(crop_niche(frame, n), 75))
+                            uploader.submit(f"/api/edge/niches/{n['id']}/live", jpeg(crop_niche(frame, n, blur=cfg.get("blur_outside", True)), 75))
             for c in ritual_cams:
                 if c["id"] in ritual_ids:
                     small = cv2.resize(frame, (960, int(frame.shape[0] * 960 / frame.shape[1])), interpolation=cv2.INTER_AREA)

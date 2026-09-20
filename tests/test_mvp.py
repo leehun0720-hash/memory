@@ -599,3 +599,20 @@ def test_ritual_live_flow(client):
     r2 = client.post("/api/admin/rituals", headers=ADMIN, json={"title": "테스트 법회", "kind": "event", "access": "open", "scheduled_at": now_iso, "camera_id": ritual_cam["id"]}).json()
     assert client.get(f"/api/family/rituals/{r2['id']}/live", headers=tok2).status_code == 200
     assert client.get("/screen").status_code == 200
+
+
+def test_blur_outside_toggle_and_crop_clear(client):
+    import numpy as np
+    from edge.agent import crop_niche
+    r = client.put("/api/admin/settings/live", headers=ADMIN, json={"protect": True, "blur": False}).json()
+    assert r["blur"] is False and r["protect"] is True
+    assert client.get("/api/edge/config", headers=EDGE).json()["blur_outside"] is False
+    assert client.get("/api/admin/overview", headers=ADMIN).json()["blur_outside"] is False
+    client.put("/api/admin/settings/live", headers=ADMIN, json={"protect": True, "blur": True})
+    assert client.get("/api/edge/config", headers=EDGE).json()["blur_outside"] is True
+    # 시연 모드(blur=False)에서는 바깥을 어둡게·흐리게 하지 않는다
+    frame = np.full((720, 1280, 3), 200, dtype=np.uint8)
+    rect = {"x": 0.4, "y": 0.2, "w": 0.18, "h": 0.26}
+    clear, blurred = crop_niche(frame, rect, blur=False), crop_niche(frame, rect, blur=True)
+    assert clear.shape == blurred.shape
+    assert clear[5, 5].tolist() == [200, 200, 200] and blurred[5, 5][0] < 130   # 모서리(내 칸 밖): 선명 vs 어두움

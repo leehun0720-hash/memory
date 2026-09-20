@@ -159,7 +159,7 @@ nav.tabs button.active::after { content: ""; position: absolute; top: 0; left: 2
 .dot.on { background: var(--ok); box-shadow: 0 0 10px rgba(134,201,160,.7); } .dot.busy { background: #e2b04a; box-shadow: 0 0 10px rgba(226,176,74,.7); }
 .chime-toggle { background: transparent; border: 1px solid var(--line); color: var(--muted); min-height: 36px; font-size: 14px; padding: 0 10px; border-radius: 10px; width: auto; box-shadow: none; font-weight: 600; }
 .chime-toggle.on { color: var(--accent); border-color: var(--line-strong); }
-@keyframes emerge { 0% { opacity: 0; filter: blur(16px) brightness(1.8); transform: scale(1.06); } 60% { opacity: 1; } 100% { opacity: 1; filter: blur(0) brightness(1); transform: scale(1); } }
+@keyframes emerge { 0% { opacity: 0; transform: scale(1.04); } 100% { opacity: 1; transform: scale(1); } }   /* 영상은 흐리지 않고 밝아지며 나타난다 */
 @keyframes kenburns { 0% { transform: scale(1); } 100% { transform: scale(1.07) translateY(-1.5%); } }
 @keyframes flicker { 0%, 100% { opacity: .85; transform: scale(1); } 30% { opacity: 1; transform: scale(1.04); } 55% { opacity: .75; transform: scale(.97); } 80% { opacity: .95; } }
 @keyframes smoke { 0% { transform: translate(-50%, 0) scaleX(1); opacity: 0; } 20% { opacity: .9; } 100% { transform: translate(-30%, -260px) scaleX(2.2); opacity: 0; } }
@@ -236,6 +236,8 @@ nav.tabs button.active::after { content: ""; position: absolute; top: 0; left: 2
 .shrine-inner video { opacity: 0; transition: opacity 2s ease; background: transparent; }
 .shrine.live .shrine-inner video { opacity: 1; }
 .shrine.live .shrine-inner img { opacity: 0 !important; transition: opacity 1.6s .4s; animation: none; }
+.shrine.live .shrine-inner .mist { opacity: 0 !important; animation: none; }      /* 실시간 영상 위에는 안개·빛줄기를 거의 걷어 선명하게 */
+.shrine.live .shrine-inner .rays { opacity: .05 !important; }
 .shrine-inner .no-photo { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 64px; color: var(--gold); opacity: 0; animation: emerge-portrait 3s ease-out .6s forwards; }
 .shrine-inner .mist { position: absolute; inset: -20%; pointer-events: none; opacity: .7; animation: mist-settle 6s ease-out 1s forwards; }
 .shrine-inner .mist::before, .shrine-inner .mist::after { content: ""; position: absolute; width: 70%; height: 55%; border-radius: 50%; filter: blur(28px); background: rgba(255,255,255,.22); }
@@ -313,8 +315,7 @@ html[data-motion="reduce"] .veil .pane { transition: none; }
 
 /* ---------- 제사 생중계(틱톡 라이브식 전체 화면) ---------- */
 .noscroll { overflow: hidden; }
-.live-view { position: fixed; inset: 0; z-index: 80; background: #000; overflow: hidden; color: #fff; font-family: var(--font-sans); }
-.live-bg { position: absolute; inset: -12%; width: 124%; height: 124%; filter: blur(22px) brightness(.5); object-fit: cover; }
+.live-view { position: fixed; inset: 0; z-index: 80; background: radial-gradient(80% 60% at 50% 40%, #1b2029, #07080a); overflow: hidden; color: #fff; font-family: var(--font-sans); }
 .live-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .live-shade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(0,0,0,.6), transparent 22%, transparent 52%, rgba(0,0,0,.78)); }
 .live-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: max(12px, env(safe-area-inset-top)) 14px 8px; }

@@ -43,6 +43,7 @@ def edge_config():
         "snapshot_interval": config.SNAPSHOT_INTERVAL,
         "live_fps": config.LIVE_FPS,
         "live_ignore_occupied": db.get_setting("live_ignore_occupied") == "1",   # 시연 모드: 사람이 있어도 실시간 프레임을 보낸다
+        "blur_outside": db.get_setting("blur_outside") != "0",                 # 내 칸 바깥(옆 칸) 흐림. 시연에서는 끈다
     }
 
 

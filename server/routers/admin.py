@@ -36,23 +36,27 @@ def overview():
         "live_today": db.one("SELECT COUNT(*) AS n FROM live_sessions WHERE started_at >= date('now')")["n"],
     }
     return {"cameras": cams, "counts": counts, "facility": db.one("SELECT * FROM facilities ORDER BY id LIMIT 1"),
-            "live_protect": db.get_setting("live_ignore_occupied") != "1"}
+            "live_protect": db.get_setting("live_ignore_occupied") != "1", "blur_outside": db.get_setting("blur_outside") != "0"}
 
 
 class LiveSettingsIn(BaseModel):
-    protect: bool   # True=운용(사람 감지 시 실시간 중단) · False=시연(웹캠 앞에 사람이 있어도 계속 송출)
+    protect: bool                 # True=운용(사람 감지 시 실시간 중단) · False=시연(웹캠 앞에 사람이 있어도 계속 송출)
+    blur: bool | None = None      # True=옆 칸 흐림(운용) · False=흐리지 않음(시연) · None=유지
 
 
 @router.get("/settings/live")
 def live_settings_get():
-    return {"protect": db.get_setting("live_ignore_occupied") != "1"}
+    return {"protect": db.get_setting("live_ignore_occupied") != "1", "blur": db.get_setting("blur_outside") != "0"}
 
 
 @router.put("/settings/live")
 def live_settings_put(body: LiveSettingsIn):
     db.set_setting("live_ignore_occupied", "0" if body.protect else "1")
     db.audit("admin", "settings.live_protect", "live", "on" if body.protect else "off")
-    return {"protect": body.protect}
+    if body.blur is not None:
+        db.set_setting("blur_outside", "1" if body.blur else "0")
+        db.audit("admin", "settings.blur_outside", "live", "on" if body.blur else "off")
+    return live_settings_get()
 
 
 # ---------- 카메라 · 칸 좌표 ----------

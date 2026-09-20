@@ -562,7 +562,6 @@ function openRitualLive(r) {
   const el = document.createElement("div"); el.className = "live-view";
   const src = () => withToken(`/api/family/rituals/${r.id}/stream`) + "&_=" + Date.now();
   el.innerHTML = `
-    <canvas class="live-bg" id="lvBg"></canvas>
     <img class="live-video" id="lvVideo" alt="">
     <div class="live-shade"></div>
     <div class="live-top"><span class="live-badge-red">● LIVE</span><span class="live-title">${esc(r.title)}</span><span class="live-viewers" id="lvViewers">👁 1</span><button class="live-close" id="lvClose" title="닫기">✕</button></div>
@@ -573,11 +572,9 @@ function openRitualLive(r) {
     <div class="live-react"><button class="live-orderbtn" id="lvOrder">봉행 순서</button>${["🙏", "🕯️", "🌸", "💛"].map((e) => `<button data-react="${e}" title="반응 보내기">${e}</button>`).join("")}</div>
     <div class="live-drawer hidden" id="lvDrawer"><div class="live-drawer-in"><h3>봉행 순서</h3><div id="lvOrderList"></div><button class="small ghost" id="lvDrawerClose" style="margin-top:10px">닫기</button></div></div>`;
   document.body.appendChild(el); document.body.classList.add("noscroll");
-  const video = $("#lvVideo", el), bg = $("#lvBg", el), msgs = $("#lvMsgs", el), fx = $("#lvFx", el);
+  const video = $("#lvVideo", el), msgs = $("#lvMsgs", el), fx = $("#lvFx", el);
   video.src = src();
   video.onerror = () => setTimeout(() => { if (el.isConnected) video.src = src(); }, 3000);
-  // 가로 영상 뒤에 같은 영상을 흐리게 깔아 세로 화면을 채운다(틱톡의 가로 영상 처리와 같음). 별도 연결 없이 캔버스로 복사.
-  const paintBg = () => { try { if (video.naturalWidth) { bg.width = 64; bg.height = Math.max(1, Math.round(64 * video.naturalHeight / video.naturalWidth)); bg.getContext("2d").drawImage(video, 0, 0, bg.width, bg.height); } } catch {} };
   let since = 0, rseq = -1, ended = false;
   const addMsg = (m) => { const d = document.createElement("div"); d.className = `live-msg ${m.sender === "site" ? "site" : ""} ${m.kind === "notice" ? "notice" : ""}`; d.innerHTML = `<b>${esc(m.author)}</b>${esc(m.message)}`; msgs.appendChild(d); while (msgs.children.length > 8) msgs.firstChild.remove(); };
   const float = (emoji) => { const i = document.createElement("i"); i.textContent = emoji; i.style.left = (10 + Math.random() * 70) + "%"; i.style.setProperty("--dx", (Math.random() * 60 - 30) + "px"); fx.appendChild(i); setTimeout(() => i.remove(), 2600); };
@@ -594,10 +591,9 @@ function openRitualLive(r) {
       : (d.order.length ? `<div class="live-now-in"><span class="live-now-k">봉행 순서 ${d.order.length}가족</span><span>${d.current_order === 0 ? "곧 시작합니다" : "봉행을 마쳤습니다"}</span></div>` : "");
     $("#lvOrderList", el).innerHTML = d.order.map((x) => `<div class="live-order-row ${x.order_no === d.current_order ? "now" : ""} ${x.is_mine ? "mine" : ""}"><span class="no">${x.order_no || "-"}</span><div><b>${esc(x.deceased_name)} 님</b> <span class="muted">${esc(fmtD(x.birth_date))} ~ ${esc(fmtD(x.death_date))}</span><div class="muted" style="font-size:13px">상주 ${esc(x.mourner_name || "-")}${x.is_mine ? " · 우리 가족" : ""}</div></div></div>`).join("") || '<p class="muted">순서가 아직 정해지지 않았습니다.</p>';
     if (!d.live && !ended) { ended = true; el.insertAdjacentHTML("beforeend", `<div class="live-ended">중계가 끝났습니다</div>`); }
-    paintBg();
   }
-  poll(); const t = setInterval(poll, 2000); const tb = setInterval(paintBg, 700);
-  const close = () => { clearInterval(t); clearInterval(tb); video.src = ""; el.remove(); document.body.classList.remove("noscroll"); renderRitual(); };
+  poll(); const t = setInterval(poll, 2000);
+  const close = () => { clearInterval(t); video.src = ""; el.remove(); document.body.classList.remove("noscroll"); renderRitual(); };
   $("#lvClose", el).onclick = close;
   $("#lvOrder", el).onclick = () => $("#lvDrawer", el).classList.remove("hidden");
   $("#lvDrawerClose", el).onclick = () => $("#lvDrawer", el).classList.add("hidden");
