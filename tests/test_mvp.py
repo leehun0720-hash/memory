@@ -616,3 +616,13 @@ def test_blur_outside_toggle_and_crop_clear(client):
     clear, blurred = crop_niche(frame, rect, blur=False), crop_niche(frame, rect, blur=True)
     assert clear.shape[1] == 960 and blurred.shape[1] <= 720                     # 시연: 화면 전체(960) · 운용: 내 칸 잘라내기
     assert clear[5, 5].tolist() == [200, 200, 200] and blurred[5, 5][0] < 130   # 모서리(내 칸 밖): 선명 vs 어두움
+
+
+def test_camera_sharpness_warning(client):
+    cam = client.get("/api/edge/config", headers=EDGE).json()["cameras"][0]
+    client.post(f"/api/edge/cameras/{cam['id']}/status", headers=EDGE, data={"occupied": "false", "persons": 0, "fps": 10, "sharpness": 12.3})
+    c = next(x for x in client.get("/api/admin/overview", headers=ADMIN).json()["cameras"] if x["id"] == cam["id"])
+    assert c["sharpness"] == 12.3 and c["blurry"] is True
+    client.post(f"/api/edge/cameras/{cam['id']}/status", headers=EDGE, data={"occupied": "false", "persons": 0, "fps": 10, "sharpness": 180})
+    c = next(x for x in client.get("/api/admin/overview", headers=ADMIN).json()["cameras"] if x["id"] == cam["id"])
+    assert c["blurry"] is False

@@ -43,7 +43,7 @@ async function overview() {
       </div>
       <div class="card"><h3>카메라</h3><table><tr><th>이름</th><th>종류</th><th>장치</th><th>칸 수</th><th>상태</th><th>참배객</th><th>fps</th><th>마지막 신호</th></tr>
         ${o.cameras.map((cm) => `<tr><td>${esc(cm.name)}<div class="muted">${esc(cm.room_name)}</div></td><td>${cm.kind === "wall" ? "벽면" : "제례"}</td><td>#${cm.device_index}</td><td>${cm.niche_count}</td>
-          <td>${cm.online ? '<span class="tag on">연결됨</span>' : '<span class="tag off">끊김</span>'}</td><td>${cm.occupied ? `<span class="tag busy">사람 ${cm.persons}명 · 송출 중단</span>` : '<span class="tag">없음</span>'}</td><td>${cm.fps}</td><td class="muted">${fmt(cm.last_seen_at)}</td></tr>`).join("")}</table>
+          <td>${cm.online ? '<span class="tag on">연결됨</span>' : '<span class="tag off">끊김</span>'}</td><td>${cm.occupied ? `<span class="tag busy">사람 ${cm.persons}명 · 송출 중단</span>` : '<span class="tag">없음</span>'}</td><td>${cm.fps}${cm.blurry ? `<div class="tag off" title="윈도우 설정 → Bluetooth 및 장치 → 카메라 → 이 카메라 → Windows 스튜디오 효과 → 배경 효과 끄기">영상 흐림 의심 (선명도 ${cm.sharpness}) → 윈도우 카메라 배경 효과 끄기</div>` : (cm.sharpness >= 0 ? `<div class="muted" style="font-size:11px">선명도 ${cm.sharpness}</div>` : "")}</td><td class="muted">${fmt(cm.last_seen_at)}</td></tr>`).join("")}</table>
         <p class="muted" style="margin-top:8px">현장 프로그램이 꺼져 있으면 <span class="mono">python -m edge.agent</span> 로 실행하세요.</p></div>
       <div class="card"><h3>시연 모드 <span class="muted">(노트북 시연용 · 실제 운용 전에 반드시 운용 모드로)</span></h3>
         <div class="toolbar"><button class="small ${o.live_protect ? "" : "danger"}" id="liveProtect">참배객 감지: ${o.live_protect ? "켬 (운용)" : "끔 (시연)"}</button>

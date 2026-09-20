@@ -90,6 +90,7 @@ def niche_status(m: dict = Depends(require_member)):
     return {
         "last_snapshot_at": n["last_snapshot_at"],
         "live_protect": _live_protect(),
+        "blurry": cam.online and 0 <= cam.sharpness < 40,
         "camera_online": cam.online,
         "occupied": cam.occupied,
         "live_until": live["expires_at"] if live else None,

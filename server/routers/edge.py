@@ -48,10 +48,10 @@ def edge_config():
 
 
 @router.post("/cameras/{cam_id}/status")
-def camera_status(cam_id: int, occupied: bool = Form(...), persons: int = Form(0), fps: float = Form(0.0)):
+def camera_status(cam_id: int, occupied: bool = Form(...), persons: int = Form(0), fps: float = Form(0.0), sharpness: float = Form(-1.0)):
     if not db.one("SELECT id FROM cameras WHERE id=?", (cam_id,)):
         raise HTTPException(404, "camera")
-    state.set_camera(cam_id, occupied, persons, fps)
+    state.set_camera(cam_id, occupied, persons, fps, sharpness)
     db.execute("UPDATE cameras SET last_seen_at=? WHERE id=?", (db.now(), cam_id))
     return {"ok": True}
 

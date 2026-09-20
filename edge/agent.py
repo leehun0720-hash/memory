@@ -125,10 +125,10 @@ def post_file(path: str, data: bytes) -> bool:
         return False
 
 
-def post_status(cam_id: int, occupied: bool, persons: int, fps: float) -> None:
+def post_status(cam_id: int, occupied: bool, persons: int, fps: float, sharpness: float = -1.0) -> None:
     try:
         session.post(f"{SERVER}/api/edge/cameras/{cam_id}/status",
-                     data={"occupied": str(occupied).lower(), "persons": persons, "fps": round(fps, 1)}, timeout=3)
+                     data={"occupied": str(occupied).lower(), "persons": persons, "fps": round(fps, 1), "sharpness": round(sharpness, 1)}, timeout=3)
     except requests.RequestException as e:
         log.warning("status failed: %s", e)
 
@@ -171,6 +171,7 @@ def main() -> None:
     last_status = 0.0
     last_occupied: bool | None = None
     fps_t, fps_n, fps = time.time(), 0, 0.0
+    sharpness = -1.0      # 라플라시안 분산. 윈도우 '배경 효과'가 켜져 화면이 뿌예지면 40 아래로 떨어진다
     uploader.start()
 
     while True:
@@ -185,6 +186,11 @@ def main() -> None:
         fps_n += 1
         if now - fps_t >= 2:
             fps, fps_t, fps_n = fps_n / (now - fps_t), now, 0
+            try:
+                g = cv2.cvtColor(cv2.resize(frame, (480, int(frame.shape[0] * 480 / frame.shape[1]))), cv2.COLOR_BGR2GRAY)
+                sharpness = float(cv2.Laplacian(g, cv2.CV_64F).var())
+            except cv2.error:
+                sharpness = -1.0
             if uploader.dropped >= 30:      # 2초에 30장 넘게 버릴 때만(전송이 심하게 밀림) 알린다
                 log.info("전송이 캡처를 못 따라가 프레임 %d장을 건너뛰었습니다(최신 화면 우선)", uploader.dropped)
             uploader.dropped = 0
@@ -209,7 +215,7 @@ def main() -> None:
         occupied, persons = detector.update(frame)
         if occupied != last_occupied or now - last_status > 5:
             for c in my_cams:
-                post_status(c["id"], occupied, persons, fps)
+                post_status(c["id"], occupied, persons, fps, sharpness)
             if occupied != last_occupied:
                 log.info("occupied=%s persons=%d", occupied, persons)
             last_occupied, last_status = occupied, now

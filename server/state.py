@@ -10,6 +10,7 @@ class CameraStatus:
     persons: int = 0
     fps: float = 0.0
     updated_at: float = 0.0
+    sharpness: float = -1.0       # 라플라시안 분산(현장 프로그램이 잼). 40 미만이면 흐림 의심(윈도우 카메라 '배경 효과' 등)
 
     @property
     def online(self) -> bool:
@@ -35,9 +36,9 @@ class State:
         self.reactions: dict[int, list] = {}               # 반응(합장·촛불…)은 저장하지 않고 메모리에 최근 200개만
         self._rseq = 0
 
-    def set_camera(self, cam_id: int, occupied: bool, persons: int, fps: float) -> None:
+    def set_camera(self, cam_id: int, occupied: bool, persons: int, fps: float, sharpness: float = -1.0) -> None:
         with self._lock:
-            self.cameras[cam_id] = CameraStatus(occupied, persons, fps, time.time())
+            self.cameras[cam_id] = CameraStatus(occupied, persons, fps, time.time(), sharpness)
 
     def camera(self, cam_id: int) -> CameraStatus:
         with self._lock:

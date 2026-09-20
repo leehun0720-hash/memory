@@ -24,7 +24,8 @@ def overview():
     cams = db.rows("SELECT c.*, r.name AS room_name FROM cameras c JOIN rooms r ON r.id=c.room_id ORDER BY c.id")
     for c in cams:
         st = state.camera(c["id"])
-        c.update(online=st.online, occupied=st.occupied, persons=st.persons, fps=round(st.fps, 1))
+        c.update(online=st.online, occupied=st.occupied, persons=st.persons, fps=round(st.fps, 1), sharpness=round(st.sharpness, 1),
+                 blurry=st.online and 0 <= st.sharpness < 40)
         c["niche_count"] = db.one("SELECT COUNT(*) AS n FROM niches WHERE camera_id=?", (c["id"],))["n"]
     counts = {
         "contracts": db.one("SELECT COUNT(*) AS n FROM contracts")["n"],
