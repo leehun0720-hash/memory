@@ -614,5 +614,5 @@ def test_blur_outside_toggle_and_crop_clear(client):
     frame = np.full((720, 1280, 3), 200, dtype=np.uint8)
     rect = {"x": 0.4, "y": 0.2, "w": 0.18, "h": 0.26}
     clear, blurred = crop_niche(frame, rect, blur=False), crop_niche(frame, rect, blur=True)
-    assert clear.shape == blurred.shape
+    assert clear.shape[1] == 960 and blurred.shape[1] <= 720                     # 시연: 화면 전체(960) · 운용: 내 칸 잘라내기
     assert clear[5, 5].tolist() == [200, 200, 200] and blurred[5, 5][0] < 130   # 모서리(내 칸 밖): 선명 vs 어두움

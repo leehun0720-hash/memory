@@ -42,6 +42,12 @@ def crop_niche(frame: np.ndarray, rect: dict, margin: float = 0.35, max_width: i
     H, W = frame.shape[:2]
     x, y = int(rect["x"] * W), int(rect["y"] * H)
     w, h = max(8, int(rect["w"] * W)), max(8, int(rect["h"] * H))
+    if not blur:
+        # 시연 모드: 잘라내지 않고 화면 전체를 선명하게(작은 칸을 키우면 흐려 보인다). 내 칸은 테두리로만 표시.
+        fs = min(1.0, 960 / W)
+        out = cv2.resize(frame, (int(W * fs), int(H * fs)), interpolation=cv2.INTER_AREA) if fs < 1 else frame.copy()
+        cv2.rectangle(out, (int(x * fs), int(y * fs)), (int((x + w) * fs) - 1, int((y + h) * fs) - 1), (150, 190, 220), 2)
+        return out
     mx, my = int(w * margin), int(h * margin)
     x0, y0, x1, y1 = max(0, x - mx), max(0, y - my), min(W, x + w + mx), min(H, y + h + my)
     region = frame[y0:y1, x0:x1]
@@ -52,14 +58,11 @@ def crop_niche(frame: np.ndarray, rect: dict, margin: float = 0.35, max_width: i
     rh, rw = region.shape[:2]
     sx, sy = int((x - x0) * s), int((y - y0) * s)
     ex, ey = min(sx + max(1, int(w * s)), rw), min(sy + max(1, int(h * s)), rh)
-    if blur:
-        tiny = cv2.resize(region, (max(1, rw // 4), max(1, rh // 4)), interpolation=cv2.INTER_AREA)
-        tiny = cv2.GaussianBlur(tiny, (0, 0), sigmaX=3)
-        out = cv2.resize(tiny, (rw, rh), interpolation=cv2.INTER_LINEAR)
-        out = cv2.convertScaleAbs(out, alpha=0.55)
-        out[sy:ey, sx:ex] = region[sy:ey, sx:ex]
-    else:
-        out = region.copy()          # 시연 모드: 흐리지 않고 그대로, 내 칸 테두리만 표시
+    tiny = cv2.resize(region, (max(1, rw // 4), max(1, rh // 4)), interpolation=cv2.INTER_AREA)
+    tiny = cv2.GaussianBlur(tiny, (0, 0), sigmaX=3)
+    out = cv2.resize(tiny, (rw, rh), interpolation=cv2.INTER_LINEAR)
+    out = cv2.convertScaleAbs(out, alpha=0.55)
+    out[sy:ey, sx:ex] = region[sy:ey, sx:ex]
     cv2.rectangle(out, (sx, sy), (ex - 1, ey - 1), (150, 190, 220), 2)
     return out
 

@@ -47,16 +47,16 @@ async function overview() {
         <p class="muted" style="margin-top:8px">현장 프로그램이 꺼져 있으면 <span class="mono">python -m edge.agent</span> 로 실행하세요.</p></div>
       <div class="card"><h3>시연 모드 <span class="muted">(노트북 시연용 · 실제 운용 전에 반드시 운용 모드로)</span></h3>
         <div class="toolbar"><button class="small ${o.live_protect ? "" : "danger"}" id="liveProtect">참배객 감지: ${o.live_protect ? "켬 (운용)" : "끔 (시연)"}</button>
-          <button class="small ${o.blur_outside ? "" : "danger"}" id="blurToggle">옆 칸 흐림: ${o.blur_outside ? "켬 (운용)" : "끔 (시연)"}</button>
+          <button class="small ${o.blur_outside ? "" : "danger"}" id="blurToggle">옆 칸 가리기: ${o.blur_outside ? "켬 (운용)" : "끔 (시연·전체 화면 선명)"}</button>
           <button class="small secondary" id="demoAll">${o.live_protect || o.blur_outside ? "시연 모드로 (둘 다 끔)" : "운용 모드로 (둘 다 켬)"}</button></div>
-        <p class="muted" style="font-size:13px"><b>참배객 감지</b>: 현장에 사람이 잡히면 실시간 영상을 멈춥니다(노트북 앞에 앉은 사람도 잡혀 영상이 끊김). <b>옆 칸 흐림</b>: 내 칸 밖(옆 칸 이름·사진)을 흐리고 어둡게 합니다. 시연에서는 둘 다 꺼야 화면이 끊기지 않고 선명하게 나옵니다.</p></div>
+        <p class="muted" style="font-size:13px"><b>참배객 감지</b>: 현장에 사람이 잡히면 실시간 영상을 멈춥니다(노트북 앞에 앉은 사람도 잡혀 영상이 끊김). <b>옆 칸 가리기</b>: 운용에서는 내 칸만 잘라내 선명하게 두고 바깥(옆 칸 이름·사진)은 흐리고 어둡게 합니다. 끄면 잘라내지 않고 카메라 화면 전체를 선명하게 보냅니다(내 칸은 테두리만). 시연에서는 둘 다 끄세요.</p></div>
       <div class="card"><h3>AI 연결 점검 <span class="muted">(시연 전에 한 번 누르세요)</span></h3>
         <div class="toolbar"><button class="small" id="chkAll">지금 점검</button><span class="muted">Claude 키·크레딧, ElevenLabs 키·권한 3개를 한 번에 확인합니다.</span></div>
         <div id="chkOut" class="stack" style="font-size:14px"></div></div>`;
     $("#chkAll").onclick = runAllChecks;
     const setLive = async (protect, blur, msg) => { try { await api("/api/admin/settings/live", { method: "PUT", body: { protect, blur } }); toast(msg); render(); } catch (e) { toast(e.message); } };
     $("#liveProtect").onclick = () => setLive(!o.live_protect, o.blur_outside, o.live_protect ? "참배객 감지를 껐습니다(시연)." : "참배객 감지를 켰습니다(운용).");
-    $("#blurToggle").onclick = () => setLive(o.live_protect, !o.blur_outside, o.blur_outside ? "옆 칸 흐림을 껐습니다(시연). 현장 프로그램에 1초 안에 반영됩니다." : "옆 칸 흐림을 켰습니다(운용).");
+    $("#blurToggle").onclick = () => setLive(o.live_protect, !o.blur_outside, o.blur_outside ? "옆 칸 가리기를 껐습니다(시연·전체 화면 선명). 현장 프로그램에 1초 안에 반영됩니다." : "옆 칸 가리기를 켰습니다(운용).");
     $("#demoAll").onclick = () => { const demo = o.live_protect || o.blur_outside; setLive(!demo, !demo, demo ? "시연 모드: 참배객 감지·옆 칸 흐림을 모두 껐습니다." : "운용 모드: 참배객 감지·옆 칸 흐림을 모두 켰습니다."); };
     if (overview.lastCheck) $("#chkOut").innerHTML = overview.lastCheck;
   };

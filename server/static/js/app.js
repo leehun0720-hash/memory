@@ -158,7 +158,7 @@ async function renderVisit() {
   }
   function showSnapshot() {
     const img = new Image();
-    img.onload = () => { snap.innerHTML = ""; snap.classList.remove("live"); snap.classList.toggle("reveal", !firstShown); firstShown = true; snap.appendChild(img); snap.insertAdjacentHTML("beforeend", `<span class="badge">방금 찍은 사진</span><span class="tap-hint">눌러서 추모 공간 열기</span>`); };
+    img.onload = () => { if (img.naturalWidth) snap.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`; snap.innerHTML = ""; snap.classList.remove("live"); snap.classList.toggle("reveal", !firstShown); firstShown = true; snap.appendChild(img); snap.insertAdjacentHTML("beforeend", `<span class="badge">방금 찍은 사진</span><span class="tap-hint">눌러서 추모 공간 열기</span>`); };
     img.onerror = () => { if (!snap.querySelector("img")) snap.innerHTML = `<div class="placeholder">아직 사진이 없습니다.<br><small>현장 카메라가 켜지면 자동으로 나타납니다.</small></div>`; };
     img.src = withToken("/api/family/niche/snapshot.jpg") + "&_=" + Date.now();
   }
@@ -176,6 +176,7 @@ async function renderVisit() {
       viewer.classList.remove("open", "live"); viewer.classList.add("curtain");
       const img = new Image();
       img.onerror = () => endLive("실시간 영상이 끊겼습니다. 사진으로 보여 드립니다.");
+      img.onload = () => { if (img.naturalWidth) snap.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`; };
       snap.innerHTML = ""; snap.classList.remove("reveal"); snap.classList.add("live"); snap.appendChild(img); snap.insertAdjacentHTML("beforeend", `<span class="badge live">● 실시간</span>`);
       img.src = withToken(`/api/family/live/stream?sid=${r.session_id}`);
       chime();
