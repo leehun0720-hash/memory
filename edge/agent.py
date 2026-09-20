@@ -74,7 +74,7 @@ def jpeg(img: np.ndarray, quality: int = JPEG_Q) -> bytes:
 class Uploader(threading.Thread):
     """서버 전송을 캡처 루프와 분리한다. 보내는 동안 캡처가 멈추지 않고, 큐가 차면 오래된 프레임부터 버려 지연이 쌓이지 않는다."""
 
-    def __init__(self, maxsize: int = 6) -> None:
+    def __init__(self, maxsize: int = 64) -> None:
         super().__init__(daemon=True, name="uploader")
         self.q: queue.Queue = queue.Queue(maxsize=maxsize)
         self.s = requests.Session()
@@ -82,7 +82,11 @@ class Uploader(threading.Thread):
         self.dropped = 0
         self.sent = 0
 
-    def submit(self, path: str, data: bytes) -> None:
+    def submit(self, path: str, data: bytes, drop_if_full: bool = True) -> None:
+        """drop_if_full=False(사진)는 큐가 차도 기다려서 반드시 보낸다. 실시간 프레임만 오래된 것을 버린다."""
+        if not drop_if_full:
+            self.q.put((path, data))
+            return
         try:
             self.q.put_nowait((path, data))
         except queue.Full:
@@ -214,9 +218,9 @@ def main() -> None:
         # 시연 모드(live_ignore_occupied)에서는 사람이 앞에 있어도 사진을 갱신한다(노트북 앞에 앉은 사람 = 시연자).
         if (not occupied or cfg.get("live_ignore_occupied")) and now - last_snapshot >= cfg["snapshot_interval"]:
             for c in wall_cams:
-                uploader.submit(f"/api/edge/cameras/{c['id']}/frame", jpeg(frame, 80))
+                uploader.submit(f"/api/edge/cameras/{c['id']}/frame", jpeg(frame, 80), drop_if_full=False)
                 for n in c["niches"]:
-                    uploader.submit(f"/api/edge/niches/{n['id']}/snapshot", jpeg(crop_niche(frame, n, blur=cfg.get("blur_outside", True))))
+                    uploader.submit(f"/api/edge/niches/{n['id']}/snapshot", jpeg(crop_niche(frame, n, blur=cfg.get("blur_outside", True))), drop_if_full=False)
             last_snapshot = now
 
         # 실시간 보기(30초 세션이 열린 칸만) · 제례 중계
