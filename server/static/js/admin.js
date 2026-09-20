@@ -284,7 +284,8 @@ async function rituals() {
       ${rows.map((r) => `<tr><td>${fmt(r.scheduled_at)}</td><td>${kindName[r.kind] || r.kind}</td><td><b>${esc(r.title)}</b><div class="muted">${esc(r.note)}${r.contract_id ? ` · ${esc(r.holder_name)} 가족` : ""}</div></td>
         <td>${r.access === "applied" ? '<span class="tag busy">신청 가족만</span>' : '<span class="tag on">누구나</span>'}</td><td>${r.participant_count || 0}가족${r.current_order ? ` · 지금 ${r.current_order}번` : ""}</td>
         <td>${r.camera_id ? "현장 카메라" : ""}${r.stream_url ? ' <a href="' + esc(r.stream_url) + '" target="_blank">링크</a>' : ""}</td>
-        <td class="row" style="gap:4px"><button class="small" data-console="${r.id}" style="min-height:28px">진행 콘솔</button><button class="small ghost" data-edit="${r.id}" style="min-height:28px">편집</button><button class="small ghost" data-del="${r.id}" style="min-height:28px">삭제</button></td></tr>`).join("")}</table></div>`;
+        <td class="row" style="gap:4px"><button class="small" data-console="${r.id}" style="min-height:28px">진행 콘솔</button><button class="small secondary" data-now="${r.id}" style="min-height:28px" title="일시를 지금으로 옮겨 중계를 바로 엽니다">지금 시작</button><button class="small ghost" data-edit="${r.id}" style="min-height:28px">편집</button><button class="small ghost" data-del="${r.id}" style="min-height:28px">삭제</button></td></tr>`).join("")}</table></div>
+    <p class="muted" style="font-size:13px">중계 창은 일시 30분 전부터 3시간 뒤까지 열립니다. 시연이나 봉행이 늦어질 때는 <b>지금 시작</b>을 누르면 일시가 지금으로 바뀌어 유족 앱에 "▶ 라이브 보기"가 바로 나옵니다.</p>`;
   const form = (r) => {
     const m = modal(`<h2>${r ? "일정 편집" : "일정 추가"}</h2><div class="form-grid">
       <div class="field"><label>제목</label><input id="rTitle" value="${esc(r?.title || "")}"></div>
@@ -305,6 +306,7 @@ async function rituals() {
   page.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => form(rows.find((r) => r.id === +b.dataset.edit)));
   page.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => { if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "정말 삭제"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "삭제"; }, 4000); return; } await api(`/api/admin/rituals/${b.dataset.del}`, { method: "DELETE" }); rituals(); });
   page.querySelectorAll("[data-console]").forEach((b) => b.onclick = () => ritualConsole(+b.dataset.console));
+  page.querySelectorAll("[data-now]").forEach((b) => b.onclick = async () => { try { await api(`/api/admin/rituals/${b.dataset.now}/start-now`, { method: "POST" }); toast("일시를 지금으로 옮겼습니다. 유족 앱에 라이브 보기가 나옵니다."); rituals(); } catch (e) { toast(e.message); } });
 }
 
 // 진행 콘솔: 봉행 순서(참여 가족)·현재 차례·가족 메시지 답장·현장 화면 링크. 2초마다 새로 고침.
@@ -314,7 +316,7 @@ async function ritualConsole(rid) {
   const c = await api(`/api/admin/rituals/${rid}/console`);
   const r = c.ritual; const pStatus = { requested: "신청됨", accepted: "확정", rejected: "반려" };
   page.innerHTML = `<div class="toolbar"><button class="small ghost" id="back">← 일정 목록</button><h1 style="margin:0">${esc(r.title)}</h1><span class="muted">${fmt(r.scheduled_at)} · ${r.access === "applied" ? "신청 가족만" : "누구나"}</span>
-      <a class="btn small secondary" style="margin-left:auto" href="/screen?ritual=${rid}&key=${encodeURIComponent(KEY)}" target="_blank">현장 화면(TV) 열기</a></div>
+      <button class="small secondary" id="cStartNow" style="margin-left:auto">지금 시작(일시를 현재로)</button><a class="btn small secondary" href="/screen?ritual=${rid}&key=${encodeURIComponent(KEY)}" target="_blank">현장 화면(TV) 열기</a></div>
     <div class="kpi" style="margin:12px 0"><div class="card"><div class="muted">지금 보는 가족</div><div class="n" id="cViewers">0</div></div><div class="card"><div class="muted">참여 가족</div><div class="n">${c.participants.length}</div></div><div class="card"><div class="muted">현재 차례</div><div class="n" id="cNow" style="font-size:20px">-</div></div><div class="card"><div class="muted">반응</div><div class="n" id="cReact" style="font-size:20px">-</div></div></div>
     <div class="cal" style="grid-template-columns:1.2fr 1fr">
       <div class="card"><h3>봉행 순서 <span class="muted">(번호를 고쳐 저장하면 순서가 바뀝니다)</span></h3>
@@ -330,6 +332,7 @@ async function ritualConsole(rid) {
     </div>`;
   $("#back").onclick = rituals;
   const reload = () => ritualConsole(rid);
+  $("#cStartNow").onclick = async () => { try { await api(`/api/admin/rituals/${rid}/start-now`, { method: "POST" }); toast("일시를 지금으로 옮겼습니다."); reload(); } catch (e) { toast(e.message); } };
   page.querySelectorAll("[data-psave]").forEach((b) => b.onclick = async () => { const tr = b.closest("tr"); try { await api(`/api/admin/rituals/${rid}/participants/${b.dataset.psave}`, { method: "PUT", body: { order_no: +tr.querySelector(".pOrder").value, mourner_name: tr.querySelector(".pMourner").value, status: tr.querySelector(".pStatus").value } }); toast("저장했습니다."); reload(); } catch (e) { toast(e.message); } });
   page.querySelectorAll("[data-pdel]").forEach((b) => b.onclick = async () => { await api(`/api/admin/rituals/${rid}/participants/${b.dataset.pdel}`, { method: "DELETE" }); reload(); });
   page.querySelectorAll("[data-pnow]").forEach((b) => b.onclick = async () => { try { await api(`/api/admin/rituals/${rid}/current`, { method: "POST", body: { order_no: +b.dataset.pnow } }); poll(); } catch (e) { toast(e.message); } });

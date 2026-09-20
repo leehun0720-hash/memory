@@ -1,4 +1,5 @@
 import time
+from datetime import datetime
 """관리자 콘솔 API: 칸 좌표 · 계약·가족 · 고인 프로필·기억 카드·동의서 · 의례 일정 · 이용 현황."""
 import re
 import uuid
@@ -516,6 +517,16 @@ def ritual_next(rid: int):
     new = nxt if nxt is not None else orders[-1] + 1
     db.execute("UPDATE rituals SET current_order=? WHERE id=?", (new, rid))
     return {"current_order": new, "finished": nxt is None}
+
+
+@router.post("/rituals/{rid}/start-now")
+def ritual_start_now(rid: int):
+    """일시를 지금으로 옮긴다(봉행이 늦어지거나 시연할 때). 중계 창이 바로 열리고 순서는 시작 전으로."""
+    _ritual_or_404(rid)
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    db.execute("UPDATE rituals SET scheduled_at=?, current_order=0 WHERE id=?", (now, rid))
+    db.audit("admin", "ritual.start_now", f"ritual:{rid}")
+    return {"scheduled_at": now}
 
 
 class SiteMessageIn(BaseModel):
