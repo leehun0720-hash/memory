@@ -99,4 +99,8 @@ Windows 샌드박스의 임시 폴더 접근 제한 때문에 pytest는 권한 �
 - JavaScript 세 파일 문법 검사, Python compileall, Git diff 공백 검사 통과.
 - 390px 모바일에서 쉬운 화면과 초대 관리 화면의 가로 넘침 없음. 검증 종료 시 브라우저 오류 로그 없음. 임시 화면 크기를 해제하고 일반 모드 설정 화면으로 복귀했습니다.
 - 작업 브랜치: `codex/family-community` (기준: `main`의 `e6c6229`).
-- 구현 변경 커밋 및 원격 업로드 결과는 아래에 추가 기록합니다.
+- 구현 커밋: `a99f5bd` — Add family memories, calendar, Alimtalk reminders and handoff notes.
+- 원격 업로드 완료: `origin/codex/family-community`, GitHub `leehun0720-hash/memory`. main에는 이번 기능을 병합하지 않았습니다.
+- 브랜치 주소: https://github.com/leehun0720-hash/memory/tree/codex/family-community
+- 로컬 개발 서버를 최종 코드로 재시작했습니다. 접속 주소는 `http://127.0.0.1:8765/`입니다. 프로세스 ID나 임시 실행 세션은 재시작마다 달라지므로 고정값으로 의존하지 마세요.
+- 다음 작업의 외부 선행 조건: 카카오 채널/SENS/승인 템플릿 설정 후 실제 수신 검증. 현재 기본 발송 비활성 상태입니다.
