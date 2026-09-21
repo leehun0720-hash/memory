@@ -47,7 +47,7 @@ app.include_router(community.router)
 def _page(name: str) -> HTMLResponse:
     """정적 HTML을 내보내되 js/css 주소에 수정 시각을 붙여 브라우저 캐시가 옛 파일을 쓰지 않게 한다."""
     html = (STATIC / name).read_text(encoding="utf-8")
-    for rel in ("css/app.css", "css/family.css", "css/community.css", "js/community.js", "js/app.js", "js/admin.js", "js/screen.js"):
+    for rel in ("css/app.css", "css/family.css", "css/community.css", "css/warm.css", "js/community.js", "js/app.js", "js/admin.js", "js/screen.js"):
         f = STATIC / rel
         if f.exists():
             html = html.replace(f"/static/{rel}", f"/static/{rel}?v={int(f.stat().st_mtime)}")

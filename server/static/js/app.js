@@ -1,5 +1,5 @@
 // 유족 웹앱. 초대 링크(/?t=토큰)로 열리며 설치가 필요 없다.
-import {createCommunity} from './community.js?v=20260921';
+import {createCommunity} from './community.js?v=20260921-warm';
 const qs = new URLSearchParams(location.search);
 const TOKEN = qs.get("t") || localStorage.getItem("family_token");
 if (qs.get("t")) { localStorage.setItem("family_token", qs.get("t")); history.replaceState(null, "", location.pathname); }
@@ -49,13 +49,13 @@ function every(fn, ms) { const id = setInterval(fn, ms); state.timers.push(id); 
 
 // ---------------- 테마(전통·불교·천주교·기독교) ----------------
 const THEMES = [
-  ["classic", "전통", "전통 창살 · 단정한 명조"],
-  ["buddhist", "불교", "연꽃 · 부드러운 고운바탕"],
-  ["catholic", "천주교", "성당 아치 · 깊이 있는 명조"],
-  ["christian", "기독교", "십자가와 잎사귀 · 맑은 고딕"],
+  ["classic", "전통", "흰 국화 · 올리브빛"],
+  ["buddhist", "불교", "연꽃 · 호박빛"],
+  ["catholic", "천주교", "백합 · 청회빛"],
+  ["christian", "기독교", "십자가 · 세이지빛"],
 ];
-const THEME_FONTS = { classic: "Noto Serif KR · Noto Sans KR", buddhist: "고운바탕 · 고운돋움", catholic: "나눔명조 · 나눔고딕", christian: "고운돋움 · Noto Sans KR" };
-const THEME_META = { classic: "#f7f6f2", buddhist: "#f7f2e9", catholic: "#f0f1f7", christian: "#edf4f3" };
+const THEME_FONTS = { classic: "Noto Serif KR · Noto Sans KR", buddhist: "고운바탕 · Noto Sans KR", catholic: "나눔명조 · Noto Sans KR", christian: "고운돋움 · Noto Sans KR" };
+const THEME_META = { classic: "#f7f4ed", buddhist: "#faf3e8", catholic: "#f5f3ef", christian: "#f3f5ef" };
 function applyTheme(t) {
   if (!THEME_META[t]) t = "classic";
   document.documentElement.dataset.theme = t;
@@ -142,7 +142,7 @@ async function renderVisit() {
   const d = me.deceased[0];
   const liveLabel = `<svg viewBox="0 0 24 24" width="22" height="22" style="stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg> 실시간으로 뵙기 <small style="opacity:.7;font-weight:600;color:inherit">(${me.live_seconds}초)</small>`;
   view.innerHTML = `
-    <div class="page-heading"><span class="eyebrow">원격 참배</span><h1>언제나, 마음 가까이</h1><p class="muted">잠시 머물며 그리운 마음을 전하세요.</p></div>
+    <div class="welcome-garden"><div class="welcome-copy"><span class="eyebrow">마음이 머무는 곳</span><h1>그리운 마음에,<br>따뜻한 안부를.</h1><p>오늘도 당신의 기억 속에<br>소중한 분이 함께합니다.</p><span class="garden-signature">언제나, 마음 가까이</span></div></div>
     <div class="card tight">
       <div class="row between" style="margin-bottom:10px"><h2 style="margin:0">${esc(d ? d.name + " 님" : "내 가족")} <small class="muted" style="font-family:var(--font-sans)">봉안함 ${esc(me.niche.code)}</small></h2></div>
       <div class="viewer" id="viewer">
@@ -217,16 +217,17 @@ async function renderVisit() {
 async function renderMemorial() {
   let data; try { data = await api("/api/family/memorial"); } catch (e) { view.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
   const cards = data.deceased.map((d) => `
-    <div class="card hero">
-      ${d.has_photo ? `<img class="portrait big" src="${withToken(`/api/family/deceased/${d.id}/photo.jpg`)}" alt="">` : `<div class="portrait big" style="display:inline-block"></div>`}
-      <h2 style="margin-top:12px">${esc(d.name)} 님 <small class="muted" style="font-family:var(--font-sans)">${esc(d.honorific)}</small></h2>
-      <div class="dates">${esc(fmtD(d.birth_date))} ~ ${esc(fmtD(d.death_date))}</div>
-      <div class="orn"><i>✦</i></div>
+    <article class="card hero memorial-garden" data-memorial-theme="${esc(state.theme || d.theme || 'classic')}">
+      <div class="memorial-cover" aria-hidden="true"></div>
+      <div class="memorial-dedication">
+        <div class="portrait-arch">${d.has_photo ? `<img class="portrait big" src="${withToken(`/api/family/deceased/${d.id}/photo.jpg`)}" alt="${esc(d.name)} 님의 사진">` : `<div class="portrait big no-portrait"><span aria-hidden="true">♡</span><small>마음에 간직한 모습</small></div>`}</div>
+        <div class="dedication-copy"><span class="eyebrow">사랑하는 당신을 기억합니다</span><h2>${esc(d.name)} <small>님</small></h2><p class="memorial-relation">${esc(d.honorific)}</p><div class="dates">${esc(fmtD(d.birth_date))} — ${esc(fmtD(d.death_date))}</div><p class="dedication-message">함께한 날들의 온기를<br>오래도록 간직하겠습니다.</p></div>
+      </div><div class="memorial-records"><h3>함께 간직한 순간</h3>
       ${d.media.length ? `<div class="media-grid" style="margin-top:6px">${d.media.slice(0, 9).map((m) => m.kind === "video" || m.kind === "message_video"
         ? `<div><video src="${withToken(`/api/family/media/${m.id}`)}" controls playsinline></video><div class="cap">${esc(m.caption)}${m.ai_generated ? '<span class="ai-tag">AI 제작</span>' : ""}</div></div>`
         : m.kind === "voice" ? `<div><audio src="${withToken(`/api/family/media/${m.id}`)}" controls style="width:100%"></audio><div class="cap">${esc(m.caption)}</div></div>`
-        : `<div><img src="${withToken(`/api/family/media/${m.id}`)}" alt=""><div class="cap">${esc(m.caption)}</div></div>`).join("")}</div>` : `<p class="muted">등록된 사진·영상이 없습니다. 봉안당 사무실에서 등록해 드립니다.</p>`}
-    </div>`).join("");
+        : `<div><img src="${withToken(`/api/family/media/${m.id}`)}" alt=""><div class="cap">${esc(m.caption)}</div></div>`).join("")}</div>` : `<p class="muted">아직 사진과 영상이 없습니다. 가족 앨범에 소중한 순간을 남겨 주세요.</p>`}
+    </div></article>`).join("");
   const upcoming = data.upcoming.length ? data.upcoming.map((r) => `<div class="ritual"><span class="when">${esc(fmtDT(r.scheduled_at))}</span> ${esc(r.title)}</div>`).join("") : `<p class="muted">예정된 일정이 없습니다.</p>`;
   const guest = data.guestbook.length ? data.guestbook.map((g) => `<div class="guest"><span class="who">${esc(g.author)}</span><span class="when">${esc(fmtDT(g.created_at))}</span><div>${esc(g.message)}</div></div>`).join("") : `<p class="muted">첫 글을 남겨 주세요.</p>`;
   view.innerHTML = `${cards}
@@ -634,8 +635,9 @@ async function renderSettings() {
   const canManage = me.member.role === "manage";
   const cur = currentTheme();
   view.innerHTML = `
-    <div class="card"><h3>추모 공간 꾸미기</h3><p class="muted" style="font-size:14px;margin-top:0">테마를 고른 뒤 적용해 주세요. ${canManage ? "가족 모두의 화면에 함께 적용됩니다." : "이 기기에서만 바뀝니다."}</p>
-      <div class="theme-grid">${THEMES.map(([id, name, desc]) => `<button class="tile ${cur === id ? "active" : ""}" data-theme="${id}" aria-pressed="${cur === id}"><span class="sw">${id === "buddhist" ? "❁" : id === "classic" ? "✦" : "✝"}</span><span>${name}<small>${desc}</small></span></button>`).join("")}</div>
+    <div class="page-heading settings-heading"><span class="eyebrow">우리 가족만의 공간</span><h1>마음에 맞게, 편안하게</h1><p class="muted">소중한 분을 기억하는 방식을 함께 골라 보세요.</p></div>
+    <div class="card theme-settings"><h3>추모 공간 꾸미기</h3><p class="muted" style="font-size:14px;margin-top:0">테마를 고른 뒤 적용해 주세요. ${canManage ? "가족 모두의 화면에 함께 적용됩니다." : "이 기기에서만 바뀝니다."}</p>
+      <div class="theme-grid">${THEMES.map(([id, name, desc]) => `<button class="tile ${cur === id ? "active" : ""}" data-theme="${id}" aria-pressed="${cur === id}"><span class="theme-thumb" aria-hidden="true"></span><span class="sw">${id === "buddhist" ? "❁" : id === "classic" ? "✦" : "✝"}</span><span>${name}<small>${desc}</small></span></button>`).join("")}</div>
       <div class="theme-preview" id="themePreview" data-preview-theme="${cur}" aria-label="테마 미리보기"><span class="preview-symbol" aria-hidden="true"></span><span class="serif">소중한 기억이 머무는 공간</span><small id="themePreviewName">${THEMES.find(t => t[0] === cur)?.[1] || "전통"} 테마 미리보기</small><span class="preview-fonts" id="themePreviewFonts">${THEME_FONTS[cur] || THEME_FONTS.classic}</span></div>
       <p class="muted" id="themeStatus" role="status">현재 ${THEMES.find(t => t[0] === cur)?.[1] || "전통"} 테마가 적용되어 있습니다.</p>
       <button id="applyThemeBtn" disabled>적용 중인 테마</button>

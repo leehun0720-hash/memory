@@ -1,0 +1,71 @@
+/* Warm memorial design, September 2026. Only loaded by the family app. */
+html[data-theme], .theme-preview[data-preview-theme] { --font-sans: 'Noto Sans KR','Malgun Gothic',sans-serif; }
+html[data-theme=classic], .theme-preview[data-preview-theme=classic], [data-memorial-theme=classic] {
+  --bg:#f7f4ed; --bg-2:#eee9dc; --bg-3:#e4dfcf; --surface:#fffdf8; --surface-solid:#fffdf8;
+  --ink:#353d32; --muted:#6c7063; --accent:#526344; --line:#e4e2d5; --line-strong:#a8ad96; --theme-wash:#eeefdf;
+  --garden-image:url('/static/images/themes/classic-garden.png'); --font-serif:'Noto Serif KR','Batang',serif;
+}
+html[data-theme=buddhist], .theme-preview[data-preview-theme=buddhist], [data-memorial-theme=buddhist] {
+  --bg:#faf3e8; --bg-2:#f1e5d2; --bg-3:#e9d7ba; --surface:#fffdf7; --surface-solid:#fffdf7;
+  --ink:#493b2e; --muted:#78634e; --accent:#885b30; --line:#e9ddca; --line-strong:#baa183; --theme-wash:#f5e7d3;
+  --garden-image:url('/static/images/themes/buddhist-garden.png'); --font-serif:'Gowun Batang','Batang',serif;
+}
+html[data-theme=catholic], .theme-preview[data-preview-theme=catholic], [data-memorial-theme=catholic] {
+  --bg:#f5f3ef; --bg-2:#e9edf0; --bg-3:#dce3e8; --surface:#fffefa; --surface-solid:#fffefa;
+  --ink:#35434b; --muted:#65727b; --accent:#536b7b; --line:#dee3e5; --line-strong:#a5b5bd; --theme-wash:#e9eff1;
+  --garden-image:url('/static/images/themes/catholic-garden.png'); --font-serif:'Nanum Myeongjo','Batang',serif;
+}
+html[data-theme=christian], .theme-preview[data-preview-theme=christian], [data-memorial-theme=christian] {
+  --bg:#f3f5ef; --bg-2:#e8eee4; --bg-3:#dce5d7; --surface:#fffffa; --surface-solid:#fffffa;
+  --ink:#34463d; --muted:#637469; --accent:#496858; --line:#dce5d8; --line-strong:#9ab19f; --theme-wash:#e9f0e5;
+  --garden-image:url('/static/images/themes/christian-garden.png'); --font-serif:'Gowun Dodum','Malgun Gothic',sans-serif;
+}
+body { font-family:var(--font-sans); font-size:17px; color:var(--ink); background:var(--bg); line-height:1.85; }
+body::before { opacity:.075; background-size:190px auto; }
+main { max-width:920px; padding:30px 28px 48px; }
+h1,h2,.serif { font-family:var(--font-serif); font-weight:600; }
+h1 { font-size:clamp(28px,4vw,38px); line-height:1.5; letter-spacing:-1px; }
+h2 { font-size:26px; line-height:1.6; } h3{font-size:19px;font-weight:600}
+.muted { color:var(--muted); } .eyebrow{font-size:13px;letter-spacing:1.4px}
+header.top { background:var(--surface); min-height:88px; border-color:var(--line); }
+header.top .brand{font-family:var(--font-serif);font-size:21px}.brand small{letter-spacing:.6px;font-size:12px}.brand-mark{border-color:var(--line-strong);background:var(--theme-wash);border-radius:50% 50% 12px 12px}
+.family-utilities{max-width:920px;padding:14px 28px 0}.family-utilities button{border:0;background:transparent;color:var(--muted);min-height:44px;font-size:14px}
+.card {border:1px solid var(--line);border-radius:22px;padding:30px;background:var(--surface);box-shadow:0 5px 24px #42372504;margin-bottom:24px}
+button,.btn {border-radius:14px;font-size:17px;min-height:54px;padding:13px 20px;font-family:var(--font-sans);font-weight:500;line-height:1.6}
+button.secondary,.btn.secondary{background:var(--surface);border-color:var(--line-strong)}button.ghost,.btn.ghost{color:var(--accent)}
+button.small,.btn.small{font-size:15px;min-height:44px}input,textarea,select{font-family:var(--font-sans);font-size:17px;min-height:50px;border-radius:12px;line-height:1.65}textarea{padding:16px}
+nav.tabs{width:min(calc(100% - 28px),800px);bottom:12px;border:1px solid var(--line);border-radius:24px;padding:6px;box-shadow:0 8px 35px #393e3210;background:var(--surface)}
+nav.tabs button{border-radius:18px!important;min-height:66px;font-size:14px;gap:4px}nav.tabs button.active{background:var(--theme-wash)}nav.tabs button.active::after{display:none}
+.welcome-garden {min-height:350px;border-radius:26px;background:var(--garden-image) center/cover no-repeat,var(--theme-wash);position:relative;isolation:isolate;overflow:hidden;margin-bottom:24px;border:1px solid var(--line)}
+.welcome-garden::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,var(--surface) 0%,color-mix(in srgb,var(--surface) 88%,transparent) 30%,transparent 72%);z-index:-1}
+.welcome-copy{padding:38px 40px;max-width:70%}.welcome-copy h1{margin:12px 0 18px}.welcome-copy p{font-size:17px;color:var(--muted)}.garden-signature{font-family:var(--font-serif);font-size:15px;display:block;margin-top:24px;color:var(--accent)}
+.section-shortcuts {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 0 24px}.section-shortcuts>button{width:100%;background:var(--surface);border-color:var(--line)}
+#view[data-page=memorial] .memorial-garden{padding:0;background:var(--surface);text-align:left}
+#view[data-page=memorial] .memorial-garden::before,#view[data-page=memorial] .memorial-garden::after{display:none}
+.memorial-cover{height:230px;background:var(--garden-image) center 52%/cover no-repeat,var(--theme-wash)}
+.memorial-dedication{display:grid;grid-template-columns:210px 1fr;gap:38px;padding:0 44px 34px;position:relative;align-items:center}
+.portrait-arch{margin-top:-70px;padding:7px;background:var(--surface);border:1px solid var(--line-strong);border-radius:120px 120px 18px 18px;box-shadow:0 12px 24px #42372512;align-self:start}
+.portrait-arch .portrait.big{width:100%;height:260px;max-width:none;border:0;border-radius:110px 110px 12px 12px;object-fit:cover;object-position:center 25%;display:block;box-shadow:none}
+.no-portrait{display:flex!important;flex-direction:column;align-items:center;justify-content:center;background:var(--theme-wash);color:var(--accent)}.no-portrait>span{font-size:48px}.no-portrait small{font-size:13px}
+.dedication-copy{padding-top:26px}.dedication-copy h2{font-size:38px;margin:10px 0 0;letter-spacing:1px}.dedication-copy h2 small{font-size:18px;font-weight:400}.memorial-relation{margin:0 0 10px;color:var(--muted);font-size:15px}.dates{font-family:var(--font-sans);font-size:14px;color:var(--muted);letter-spacing:.5px}.dedication-message{font-family:var(--font-serif);font-size:19px;line-height:1.9;margin-top:22px;color:var(--accent)}
+.memorial-records{padding:26px 36px 32px;border-top:1px solid var(--line)}.memorial-records .media-grid{gap:14px}.memorial-records img,.memorial-records video{border-radius:14px}.memorial-records h3{margin-bottom:18px}
+.theme-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.theme-grid .tile{position:relative;display:flex;flex-wrap:wrap;align-content:start;justify-content:flex-start;padding:0 0 18px;gap:10px;overflow:hidden;text-align:left;border:1px solid var(--line);border-radius:18px;color:var(--ink);background:var(--surface)}
+.theme-thumb{display:block;width:100%;height:120px;background-position:center;background-size:cover;margin-bottom:4px}
+.tile[data-theme=classic] .theme-thumb{background-image:url('/static/images/themes/classic-garden.png')}.tile[data-theme=buddhist] .theme-thumb{background-image:url('/static/images/themes/buddhist-garden.png')}.tile[data-theme=catholic] .theme-thumb{background-image:url('/static/images/themes/catholic-garden.png')}.tile[data-theme=christian] .theme-thumb{background-image:url('/static/images/themes/christian-garden.png')}
+.theme-grid .tile .sw{margin-left:16px;width:32px;height:32px;flex-shrink:0}.theme-grid .tile>span:last-child{flex:1;min-width:0;padding-right:12px;font-weight:600;font-size:17px}.theme-grid .tile small{font-family:var(--font-sans);font-size:13px;line-height:1.7;font-weight:400;margin-top:4px;color:var(--muted)}.theme-grid .tile.active{box-shadow:0 0 0 2px var(--accent);border-color:var(--accent)}
+.theme-preview{min-height:240px;align-content:center;justify-items:start;text-align:left;padding:30px;gap:8px;background:linear-gradient(90deg,var(--surface) 0%,color-mix(in srgb,var(--surface) 94%,transparent) 36%,transparent 90%),var(--garden-image) center/cover;border-radius:18px}
+.theme-preview::before,.theme-preview::after{display:none}.theme-preview .preview-symbol{width:40px;height:48px;font-size:20px;margin-bottom:8px}.theme-preview>.serif{font-size:23px;max-width:68%;line-height:1.7}.theme-preview small,.preview-fonts{background:color-mix(in srgb,var(--surface) 88%,transparent);border-radius:4px;padding:1px 5px}.preview-fonts{font-size:12px}
+.page-heading{padding:6px 0 12px}.page-heading p{font-size:17px}.memory-grid{gap:22px}.memory-item{padding:0;border-radius:20px}.memory-copy{padding:26px}.empty-state{padding:46px 28px;background:linear-gradient(145deg,var(--surface),var(--theme-wash))}.empty-state h2{font-size:24px}
+.comfort-card{border-top:0;background:linear-gradient(180deg,transparent 40px,var(--surface) 205px),var(--garden-image) center top/100% auto no-repeat,var(--surface);padding-top:220px}.remembrance-steps{font-size:18px;line-height:1.8}.approved-prayer{font-family:var(--font-serif);font-size:20px;line-height:2}
+.bubble.me{background:var(--theme-wash)}.bubble.them{background:var(--surface);border-color:var(--line)}.modal{background:var(--surface);border-radius:24px;padding:28px}.community-form .field{font-size:15px}.community-form .check{font-size:16px}.settings-actions button{font-size:16px;text-align:left;justify-content:flex-start}
+@media(max-width:600px){
+  main{padding:22px 18px 38px}header.top{padding:16px 18px;min-height:80px}header.top .brand{font-size:18px}.brand small{font-size:10px}.family-utilities{padding:7px 18px 0}.card{padding:24px 20px;border-radius:20px}h2{font-size:23px}
+  .welcome-garden{min-height:330px;background-position:60% center}.welcome-copy{padding:30px 23px;max-width:90%}.welcome-copy h1{font-size:30px}.welcome-copy p{font-size:16px}.welcome-garden::before{background:linear-gradient(90deg,var(--surface),color-mix(in srgb,var(--surface) 82%,transparent) 45%,transparent)}
+  .section-shortcuts{gap:10px}.section-shortcuts button{font-size:15px;padding:12px 9px}.memorial-cover{height:170px}.memorial-dedication{display:flex;flex-direction:column;gap:0;padding:0 23px 30px;text-align:center}.portrait-arch{width:165px;margin-top:-60px;align-self:center}.portrait-arch .portrait.big{height:205px}.dedication-copy{padding-top:24px}.dedication-copy h2{font-size:32px}.dedication-copy .eyebrow{font-size:12px}.dedication-message{font-size:18px;margin-bottom:0}.memorial-records{padding:24px 20px}
+  .theme-grid{gap:12px}.theme-thumb{height:90px}.theme-grid .tile .sw{display:none}.theme-grid .tile>span:last-child{padding:0 12px;font-size:16px}.theme-grid .tile small{font-size:12px}.theme-preview{padding:24px 20px;min-height:230px}.theme-preview>.serif{font-size:20px;max-width:78%}.theme-preview small{font-size:12px}
+  .comfort-card{padding-top:145px}.remembrance-steps{font-size:18px}.modal{padding:24px 20px}.settings-actions{gap:12px}nav.tabs{bottom:max(8px,env(safe-area-inset-bottom));width:calc(100% - 20px)}nav.tabs button{font-size:12px;min-height:62px;padding:8px 4px}.dates{font-size:13px}
+}
+html[data-easy=true]{--font-serif:system-ui,'Malgun Gothic',sans-serif;--font-sans:system-ui,'Malgun Gothic',sans-serif}
+html[data-easy=true] .welcome-garden,html[data-easy=true] .comfort-card,html[data-easy=true] .theme-preview{background:var(--surface)}html[data-easy=true] .comfort-card{padding-top:28px}html[data-easy=true] .memorial-cover{height:100px;background:var(--theme-wash)}html[data-easy=true] .theme-thumb{display:none}html[data-easy=true] .theme-grid .tile{padding-top:18px}html[data-easy=true] .memorial-garden{--font-serif:system-ui,'Malgun Gothic',sans-serif}
+
+html[data-easy=true] .theme-preview{--font-serif:system-ui,"Malgun Gothic",sans-serif;--font-sans:system-ui,"Malgun Gothic",sans-serif}
