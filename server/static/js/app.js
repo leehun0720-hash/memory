@@ -22,12 +22,24 @@ const withToken = (url) => url + (url.includes("?") ? "&" : "?") + "t=" + encode
 let toastT;
 function toast(msg, ms = 2600) {
   let el = $(".toast"); if (!el) { el = document.createElement("div"); el.className = "toast"; document.body.appendChild(el); }
-  el.textContent = msg; el.classList.remove("hidden"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.add("hidden"), ms);
+  el.setAttribute("role", "status"); el.textContent = msg; el.classList.remove("hidden"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.add("hidden"), ms);
 }
 function modal(html) {
-  const bg = document.createElement("div"); bg.className = "modal-bg"; bg.innerHTML = `<div class="modal">${html}</div>`;
-  bg.addEventListener("click", (e) => { if (e.target === bg) bg.remove(); });
-  document.body.appendChild(bg); return bg;
+  const previous = document.activeElement;
+  const bg = document.createElement("div"); bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="상세 안내" tabindex="-1"><button class="small ghost modal-close" type="button" aria-label="팝업 닫기">닫기 ×</button>${html}</div>`;
+  const close = () => { bg.remove(); if (previous?.isConnected) previous.focus(); };
+  bg.querySelector(".modal-close").onclick = close;
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); close(); }
+    if (e.key !== "Tab") return;
+    const items = [...bg.querySelectorAll('button, a[href], input, select, textarea, [tabindex="0"]')].filter(el => !el.disabled && el.getClientRects().length);
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+  document.body.appendChild(bg); bg.querySelector(".modal-close").focus(); return bg;
 }
 
 const state = { me: null, tab: "visit", timers: [] };
@@ -36,20 +48,21 @@ function every(fn, ms) { const id = setInterval(fn, ms); state.timers.push(id); 
 
 // ---------------- 테마(전통·불교·천주교·기독교) ----------------
 const THEMES = [
-  ["classic", "전통", "먹빛과 금, 한지의 결"],
-  ["buddhist", "불교", "연꽃과 등불의 붉은 빛"],
-  ["catholic", "천주교", "성당 창의 푸른 빛"],
-  ["christian", "기독교", "새벽 빛과 십자가"],
+  ["classic", "전통", "전통 창살 · 단정한 명조"],
+  ["buddhist", "불교", "연꽃 · 부드러운 고운바탕"],
+  ["catholic", "천주교", "성당 아치 · 깊이 있는 명조"],
+  ["christian", "기독교", "십자가와 잎사귀 · 맑은 고딕"],
 ];
-const THEME_META = { classic: "#0f1216", buddhist: "#15090d", catholic: "#0b0e1e", christian: "#0a171c" };
+const THEME_FONTS = { classic: "Noto Serif KR · Noto Sans KR", buddhist: "고운바탕 · 고운돋움", catholic: "나눔명조 · 나눔고딕", christian: "고운돋움 · Noto Sans KR" };
+const THEME_META = { classic: "#f7f6f2", buddhist: "#f7f2e9", catholic: "#f0f1f7", christian: "#edf4f3" };
 function applyTheme(t) {
   if (!THEME_META[t]) t = "classic";
   document.documentElement.dataset.theme = t;
   const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.content = THEME_META[t];
   state.theme = t;
 }
-function currentTheme() { return localStorage.getItem("theme_local") || state.me?.deceased?.[0]?.theme || "classic"; }
-function motionReduced() { return localStorage.getItem("motion") === "reduce"; }
+function currentTheme() { return (state.me?.member.role === "manage" ? null : localStorage.getItem("theme_local")) || state.me?.deceased?.[0]?.theme || "classic"; }
+function motionReduced() { return localStorage.getItem("motion") === "reduce" || window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
 function applyMotion() { document.documentElement.dataset.motion = motionReduced() ? "reduce" : ""; }
 
 // ---------------- 종소리(범종 느낌, 외부 파일 없이 합성) ----------------
@@ -91,7 +104,11 @@ async function boot() {
 }
 function go(tab) {
   clearTimers(); stopSpeech(); state.tab = tab; history.replaceState(null, "", location.pathname + (tab === "visit" ? "" : "#" + tab));
-  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll("#tabs button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.tab === tab);
+    if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  });
+  view.dataset.page = tab;
   ({ visit: renderVisit, memorial: renderMemorial, chat: renderChat, ritual: renderRitual, settings: renderSettings })[tab]();
   window.scrollTo(0, 0);
 }
@@ -102,16 +119,15 @@ async function renderLauncher() {
   try { const r = await fetch("/api/launcher"); if (!r.ok) return false; L = await r.json(); } catch { return false; }
   const roleName = { view: "보기", chat: "보기·대화", manage: "계약자(관리)" };
   view.innerHTML = `<div class="launch">
-    <div class="card hero"><div class="orn"><i>✦ ✦ ✦</i></div><h1>${esc(L.facility || "봉안당")} · 시연 시작</h1>
-      <p class="muted">이 화면은 서버를 켠 컴퓨터에서 초대 링크 없이 열었을 때만 보입니다. 아래에서 열고 싶은 화면을 누르세요.</p></div>
-    <div class="card"><h3>관리자</h3><a class="btn" href="${esc(L.admin_url)}" target="_blank">관리자 콘솔 열기 (새 창)</a>
-      <p class="muted" style="font-size:14px;margin-top:10px">시연 전에 <b>현황 → AI 연결 점검</b>에서 Claude·ElevenLabs·D-ID가 모두 ✓인지 확인하세요.</p></div>
-    <div class="card"><h3>유족 앱 · 시연 계정</h3>
+    <div class="launch-intro"><span class="eyebrow">기억과 마음이 머무는 곳</span><h1>그리운 마음을,<br>가까이 전합니다.</h1>
+      <p class="muted">${esc(L.facility || "봉안당")}의 추모 공간입니다.<br>가족 계정을 선택해 소중한 분을 만나 보세요.</p></div>
+    <div class="card"><div class="row between"><h3>가족 추모 공간</h3><span class="pill">시연 계정</span></div>
       ${L.members.map((m) => `<div class="who-row"><div><b>${esc(m.name)}</b> <span class="muted">${esc(m.relation)} · ${roleName[m.role] || m.role}</span>
         <div class="muted" style="font-size:13px">${esc(m.deceased_names || "고인 미등록")} · 봉안함 ${esc(m.niche_code || "-")} · ${m.plan === "premium" ? "프리미엄" : "기본"}</div></div>
         <div class="row" style="gap:6px"><a class="btn" href="${esc(m.url)}">열기</a><a class="btn secondary" href="${esc(m.url)}" target="_blank">새 창</a></div></div>`).join("") || '<p class="muted">시연 계정이 없습니다. 관리자 콘솔에서 계약·가족을 만들거나 python -m server.seed 를 실행하세요.</p>'}
     </div>
-    <div class="card"><h3>다음부터 여는 법</h3><p class="muted" style="font-size:14px">바탕화면의 <b>봉안당 시연 시작</b> 바로가기(또는 프로젝트 폴더의 <b>시작.bat</b>)를 두 번 누르면 서버와 웹캠 프로그램이 켜지고 이 화면이 열립니다.</p></div>
+    <div class="card"><div class="row between"><div><h3>봉안당 관리</h3><p class="muted">가족·일정·서비스 설정을 관리합니다.</p></div><a class="btn small secondary" href="${esc(L.admin_url)}" target="_blank" rel="noopener">관리자 콘솔 ↗</a></div></div>
+    <details class="launch-help"><summary>시작 화면 이용 안내</summary><p>이 화면은 서버를 실행한 컴퓨터에서만 보입니다. 가족에게는 초대 링크를 보내 주세요.</p><p>다음에 이용할 때는 바탕화면의 <b>봉안당 시연 시작</b> 또는 <b>시작.bat</b>을 열어 주세요.</p></details>
   </div>`;
   return true;
 }
@@ -123,6 +139,7 @@ async function renderVisit() {
   const d = me.deceased[0];
   const liveLabel = `<svg viewBox="0 0 24 24" width="22" height="22" style="stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg> 실시간으로 뵙기 <small style="opacity:.7;font-weight:600;color:inherit">(${me.live_seconds}초)</small>`;
   view.innerHTML = `
+    <div class="page-heading"><span class="eyebrow">원격 참배</span><h1>언제나, 마음 가까이</h1><p class="muted">잠시 머물며 그리운 마음을 전하세요.</p></div>
     <div class="card tight">
       <div class="row between" style="margin-bottom:10px"><h2 style="margin:0">${esc(d ? d.name + " 님" : "내 가족")} <small class="muted" style="font-family:var(--font-sans)">봉안함 ${esc(me.niche.code)}</small></h2></div>
       <div class="viewer" id="viewer">
@@ -131,16 +148,16 @@ async function renderVisit() {
         <div class="candle l"></div><div class="candle r"></div><div class="smoke"></div>
         <div class="title-card">${esc(d ? d.name + " 님을 뵙습니다" : "가족을 뵙습니다")}</div>
       </div>
-      <div class="status-line"><span id="camStatus"><span class="dot"></span>확인 중</span><span class="row" style="gap:8px"><span id="snapAt"></span><button class="chime-toggle ${chimeEnabled() ? "on" : ""}" id="chimeBtn">🔔 종소리 ${chimeEnabled() ? "켬" : "끔"}</button></span></div>
+      <div class="status-line"><span id="camStatus"><span class="dot"></span>확인 중</span><span class="row" style="gap:8px"><span id="snapAt"></span><button class="chime-toggle ${chimeEnabled() ? "on" : ""}" id="chimeBtn">종소리 ${chimeEnabled() ? "켬" : "끔"}</button></span></div>
     </div>
-    <div class="stack">
+    <div class="visit-actions">
       <button id="liveBtn">${liveLabel}</button>
       <button class="secondary" id="toMemorial">추모 공간 열기</button>
     </div>
-    <p class="muted center" style="margin-top:12px;font-size:14px">사진은 10초마다 새로 찍힙니다. 현장에 다른 참배객이 계시면 실시간 영상은 잠시 멈추고 사진으로 보여 드립니다.</p>`;
+    <details class="visit-help"><summary>참배 화면 이용 안내</summary><p>사진은 10초마다 새로 찍힙니다. 현장에 다른 참배객이 계시면 실시간 영상은 잠시 멈추고 사진으로 보여 드립니다.</p></details>`;
   $("#toMemorial").onclick = () => go("memorial");
   $("#snap").onclick = () => { if (!live.on) go("memorial"); };   // 화면 속 봉안함을 누르면 추모 공간
-  $("#chimeBtn").onclick = () => { localStorage.setItem("chime", chimeEnabled() ? "0" : "1"); const on = chimeEnabled(); $("#chimeBtn").classList.toggle("on", on); $("#chimeBtn").textContent = `🔔 종소리 ${on ? "켬" : "끔"}`; if (on) chime(); };
+  $("#chimeBtn").onclick = () => { localStorage.setItem("chime", chimeEnabled() ? "0" : "1"); const on = chimeEnabled(); $("#chimeBtn").classList.toggle("on", on); $("#chimeBtn").textContent = `종소리 ${on ? "켬" : "끔"}`; if (on) chime(); };
   const live = { on: false, timer: null };
   let firstShown = false;
 
@@ -614,28 +631,64 @@ async function renderSettings() {
   const canManage = me.member.role === "manage";
   const cur = currentTheme();
   view.innerHTML = `
-    <div class="card"><h3>추모 공간 분위기</h3><p class="muted" style="font-size:14px;margin-top:0">${canManage ? "가족 모두의 화면에 함께 적용됩니다." : "이 기기에서만 바뀝니다. 가족 전체는 계약자가 정합니다."}</p>
-      <div class="theme-grid">${THEMES.map(([id, name, desc]) => `<button class="tile ${cur === id ? "active" : ""}" data-theme="${id}"><span class="sw">${id === "buddhist" ? "❁" : id === "classic" ? "✦" : "✝"}</span><span>${name}<small>${desc}</small></span></button>`).join("")}</div>
-      <div class="row between" style="margin-top:12px"><span class="muted" style="font-size:14px">등장·막·촛불 같은 움직이는 연출</span><button class="small ${motionReduced() ? "ghost" : "secondary"}" id="motionBtn">${motionReduced() ? "연출 줄임 (누르면 켬)" : "연출 켬 (누르면 줄임)"}</button></div></div>
+    <div class="card"><h3>추모 공간 꾸미기</h3><p class="muted" style="font-size:14px;margin-top:0">테마를 고른 뒤 적용해 주세요. ${canManage ? "가족 모두의 화면에 함께 적용됩니다." : "이 기기에서만 바뀝니다."}</p>
+      <div class="theme-grid">${THEMES.map(([id, name, desc]) => `<button class="tile ${cur === id ? "active" : ""}" data-theme="${id}" aria-pressed="${cur === id}"><span class="sw">${id === "buddhist" ? "❁" : id === "classic" ? "✦" : "✝"}</span><span>${name}<small>${desc}</small></span></button>`).join("")}</div>
+      <div class="theme-preview" id="themePreview" data-preview-theme="${cur}" aria-label="테마 미리보기"><span class="preview-symbol" aria-hidden="true"></span><span class="serif">소중한 기억이 머무는 공간</span><small id="themePreviewName">${THEMES.find(t => t[0] === cur)?.[1] || "전통"} 테마 미리보기</small><span class="preview-fonts" id="themePreviewFonts">${THEME_FONTS[cur] || THEME_FONTS.classic}</span></div>
+      <p class="muted" id="themeStatus" role="status">현재 ${THEMES.find(t => t[0] === cur)?.[1] || "전통"} 테마가 적용되어 있습니다.</p>
+      <button id="applyThemeBtn" disabled>적용 중인 테마</button>
+      <div class="row between" style="margin-top:12px"><span class="muted" style="font-size:14px">화면 전환 움직임</span><button class="small ${motionReduced() ? "ghost" : "secondary"}" id="motionBtn" ${window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 'disabled aria-label="기기 설정에 따라 움직임을 줄였습니다"' : ""}>${window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "기기 설정으로 줄임" : motionReduced() ? "연출 줄임 (누르면 켬)" : "연출 켬 (누르면 줄임)"}</button></div></div>
     <div class="card"><h2>가족</h2>
       ${members.map((m) => `<div class="list-item"><div><b>${esc(m.name)}</b> <span class="muted">${esc(m.relation)}</span>${m.is_minor ? '<span class="pill">미성년</span>' : ""}</div><span class="pill">${roleName[m.role]}</span></div>`).join("")}
       ${canManage ? `<button class="secondary" style="margin-top:12px" id="inviteBtn">가족 초대 링크 만들기</button>` : `<p class="muted" style="margin-top:8px">가족 초대는 계약자(${esc(me.contract.holder_name)})가 할 수 있습니다.</p>`}
     </div>
-    <div class="card"><h3>지난 대화 요약</h3>${history.length ? history.map((h) => `<div class="guest"><span class="who">${esc(h.deceased_name)} 님</span><span class="when">${esc(fmtDT(h.started_at))} · ${h.turns}회</span><div class="muted">${esc(h.summary || "(요약 없음)")}</div></div>`).join("") : `<p class="muted">아직 대화 기록이 없습니다. 대화 원문은 저장하지 않고 요약만 남깁니다.</p>`}</div>
+    <details class="card history-card"><summary>지난 대화 요약 <small>${history.length}건</small></summary>${history.length ? history.map((h) => `<div class="guest"><span class="who">${esc(h.deceased_name)} 님</span><span class="when">${esc(fmtDT(h.started_at))} · ${h.turns}회</span><div class="muted">${esc(h.summary || "(요약 없음)")}</div></div>`).join("") : `<p class="muted">아직 대화 기록이 없습니다. 대화 원문은 저장하지 않고 요약만 남깁니다.</p>`}</details>
     <div class="card" id="voiceCard"><h3>목소리 등록</h3><div id="voiceBody"><p class="muted">불러오는 중…</p></div></div>
     <div class="card" id="faceCard"><h3>얼굴 등록 <span class="muted">(실시간 아바타)</span></h3><div id="faceBody"><p class="muted">불러오는 중…</p></div></div>
     ${canManage && me.deceased.some((d) => d.ai_enabled) ? `<div class="card"><h3>대화 기능 작별</h3><p class="muted">대화 기능은 가족이 원하면 언제든 닫을 수 있습니다. 닫을 때 등록한 기억 카드와 음성 자료를 돌려받거나 삭제합니다.</p><button class="ghost" id="farewellBtn">작별 절차 시작</button></div>` : ""}
     <div class="card"><h3>내 정보</h3><p>${esc(me.member.name)} · ${esc(me.member.relation)} · ${roleName[me.member.role]}</p><p class="muted">계약자 ${esc(me.contract.holder_name)} · 봉안함 ${esc(me.niche?.code || "-")} · ${me.contract.plan === "premium" ? "프리미엄" : "기본"}</p>
       <button class="ghost small" id="logout">이 기기에서 나가기</button></div>`;
   $("#motionBtn").onclick = () => { localStorage.setItem("motion", motionReduced() ? "" : "reduce"); applyMotion(); renderSettings(); };
-  view.querySelectorAll(".tile").forEach((t) => t.onclick = async () => {
-    const id = t.dataset.theme; applyTheme(id);
-    view.querySelectorAll(".tile").forEach((x) => x.classList.toggle("active", x === t));
-    if (canManage && me.deceased[0]) {
-      try { await api("/api/family/theme", { method: "POST", body: { deceased_id: me.deceased[0].id, theme: id } }); localStorage.removeItem("theme_local"); me.deceased[0].theme = id; toast("가족 모두의 화면에 적용했습니다."); }
-      catch (e) { localStorage.setItem("theme_local", id); toast(e.message); }
-    } else { localStorage.setItem("theme_local", id); }
+  let selectedTheme = cur, savedTheme = cur, savingTheme = false;
+  const themeTiles = [...view.querySelectorAll(".tile")];
+  const applyButton = $("#applyThemeBtn"), themeStatus = $("#themeStatus"), preview = $("#themePreview");
+  const themeName = (id) => THEMES.find(t => t[0] === id)?.[1] || "전통";
+  themeTiles.forEach((tile) => tile.onclick = () => {
+    if (savingTheme) return;
+    selectedTheme = tile.dataset.theme;
+    themeTiles.forEach((item) => {
+      item.classList.toggle("active", item === tile);
+      item.setAttribute("aria-pressed", String(item === tile));
+    });
+    preview.dataset.previewTheme = selectedTheme;
+    $("#themePreviewFonts").textContent = THEME_FONTS[selectedTheme];
+    $("#themePreviewName").textContent = `${themeName(selectedTheme)} 테마 미리보기`;
+    applyButton.disabled = selectedTheme === savedTheme;
+    applyButton.textContent = selectedTheme === savedTheme ? "적용 중인 테마" : `${themeName(selectedTheme)} 테마 적용하기`;
+    themeStatus.textContent = selectedTheme === savedTheme ? `현재 ${themeName(savedTheme)} 테마가 적용되어 있습니다.` : "미리보기입니다. 적용하기를 누르면 저장됩니다.";
   });
+  applyButton.onclick = async () => {
+    if (savingTheme || selectedTheme === savedTheme) return;
+    savingTheme = true; applyButton.disabled = true;
+    themeTiles.forEach(tile => tile.disabled = true);
+    applyButton.textContent = "적용하는 중…";
+    try {
+      if (canManage) {
+        if (!me.deceased[0]) throw new Error("고인 등록 후 테마를 적용할 수 있습니다.");
+        await api("/api/family/theme", { method: "POST", body: { deceased_id: me.deceased[0].id, theme: selectedTheme } });
+        me.deceased[0].theme = selectedTheme;
+        localStorage.removeItem("theme_local");
+      } else { localStorage.setItem("theme_local", selectedTheme); }
+      savedTheme = selectedTheme; applyTheme(savedTheme);
+      themeStatus.textContent = `${themeName(savedTheme)} 테마를 ${canManage ? "가족의 추모 공간에" : "이 기기에"} 적용했습니다.`;
+      applyButton.textContent = "적용 완료";
+      toast(themeStatus.textContent);
+    } catch (e) {
+      themeStatus.textContent = `테마를 적용하지 못했습니다. ${e.message}`;
+      applyButton.disabled = false; applyButton.textContent = "다시 적용하기";
+    } finally {
+      savingTheme = false; themeTiles.forEach(tile => tile.disabled = false);
+    }
+  };
   $("#logout").onclick = () => { localStorage.removeItem("family_token"); location.href = "/"; };
   renderVoiceCard(); renderFaceCard();
   $("#inviteBtn") && ($("#inviteBtn").onclick = () => {
