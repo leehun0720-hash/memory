@@ -19,6 +19,50 @@ router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(re
 
 # ---------- 현황 ----------
 
+@router.get('/tasks')
+def today_tasks():
+    from ..community import local_now
+    from datetime import timedelta
+    now = local_now()
+    today = now.date().isoformat()
+    stale = []
+    for niche in db.rows('SELECT id,code,last_snapshot_at FROM niches'):
+        if not niche['last_snapshot_at'] or datetime.fromisoformat(niche['last_snapshot_at']) < now-timedelta(hours=24):
+            stale.append(niche)
+    return {
+        'date':today,
+        'rituals':db.rows('SELECT id,title,scheduled_at FROM rituals WHERE substr(scheduled_at,1,10)=? ORDER BY scheduled_at',(today,)),
+        'offerings':db.rows("SELECT o.id,o.kind,o.note,c.holder_name FROM offerings o JOIN contracts c ON c.id=o.contract_id WHERE o.status='requested' ORDER BY o.id"),
+        'memories':db.rows("SELECT mm.id,mm.title,d.name AS deceased_name,c.holder_name FROM memories mm JOIN deceased d ON d.id=mm.deceased_id JOIN contracts c ON c.id=d.contract_id WHERE mm.status='pending'"),
+        'offline':[{'id':c['id'],'name':c['name']} for c in db.rows('SELECT id,name FROM cameras') if not state.camera(c['id']).online],
+        'stale':stale,
+    }
+
+
+@router.get('/notifications')
+def notification_status():
+    from ..notifications import provider_status
+    rows = db.rows('''SELECT n.id,n.title,n.body,n.created_at,n.delivery_status,n.delivery_error,f.name,
+                     p.phone FROM notifications n JOIN family_members f ON f.id=n.member_id
+                     LEFT JOIN notification_preferences p ON p.member_id=f.id ORDER BY n.id DESC LIMIT 100''')
+    for row in rows:
+        phone = row.pop('phone') or ''
+        row['phone_masked'] = phone[:3]+'-****-'+phone[-4:] if phone else ''
+    return {'provider':provider_status(),'messages':rows}
+
+
+@router.post('/notifications/{nid}/retry')
+def retry_notification(nid:int):
+    from ..community import local_now
+    row = db.one('SELECT * FROM notifications WHERE id=?',(nid,))
+    if not row or row['delivery_status']!='failed':
+        raise HTTPException(409,'확실히 실패한 발송만 다시 요청할 수 있습니다.')
+    if datetime.fromisoformat(row['created_at']).date()!=local_now().date():
+        raise HTTPException(409,'발송 날짜가 지난 알림은 재발송하지 않습니다.')
+    db.execute("UPDATE notifications SET delivery_status='pending',provider_id='',delivery_error='' WHERE id=? AND delivery_status='failed'",(nid,))
+    db.audit('admin','notification.retry',f'notification:{nid}')
+    return {'ok':True}
+
 @router.get("/overview")
 def overview():
     cams = db.rows("SELECT c.*, r.name AS room_name FROM cameras c JOIN rooms r ON r.id=c.room_id ORDER BY c.id")

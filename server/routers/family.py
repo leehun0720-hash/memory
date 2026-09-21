@@ -384,6 +384,7 @@ class InviteIn(BaseModel):
     relation: str = Field(default="", max_length=20)
     role: str = Field(default="view", pattern="^(view|chat)$")
     is_minor: bool = False
+    days: int = Field(default=30, ge=1, le=365)
 
 
 @router.get("/members")
@@ -395,12 +396,15 @@ def members(m: dict = Depends(require_member)):
 def invite(body: InviteIn, request: Request, m: dict = Depends(require_member)):
     require_role(m, "manage")
     tok = db.token(16)
+    from ..community import local_now
+    from datetime import timedelta
+    expiry = (local_now() + timedelta(days=body.days)).isoformat()
     mid = db.execute(
-        "INSERT INTO family_members(contract_id, name, relation, role, invite_token, is_minor, created_at) VALUES (?,?,?,?,?,?,?)",
-        (m["contract_id"], body.name, body.relation, body.role, tok, int(body.is_minor), db.now()))
+        "INSERT INTO family_members(contract_id, name, relation, role, invite_token, is_minor, created_at, invite_expires_at) VALUES (?,?,?,?,?,?,?,?)",
+        (m["contract_id"], body.name, body.relation, body.role, tok, int(body.is_minor), db.now(), expiry))
     db.audit(f"member:{m['id']}", "family.invite", f"member:{mid}")
     base = str(request.base_url).rstrip("/")
-    return {"id": mid, "link": f"{base}/?t={tok}"}
+    return {"id": mid, "link": f"{base}/?t={tok}", "expires_at": expiry}
 
 
 class FarewellIn(BaseModel):

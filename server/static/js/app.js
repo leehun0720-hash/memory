@@ -1,4 +1,5 @@
 // 유족 웹앱. 초대 링크(/?t=토큰)로 열리며 설치가 필요 없다.
+import {createCommunity} from './community.js?v=20260921';
 const qs = new URLSearchParams(location.search);
 const TOKEN = qs.get("t") || localStorage.getItem("family_token");
 if (qs.get("t")) { localStorage.setItem("family_token", qs.get("t")); history.replaceState(null, "", location.pathname); }
@@ -98,9 +99,10 @@ async function boot() {
   catch (e) { view.innerHTML = `<div class="card"><h2>접속할 수 없습니다</h2><p class="muted">${esc(e.message)}</p></div>`; $("#tabs").classList.add("hidden"); return; }
   applyTheme(currentTheme());
   $("#who").textContent = `${state.me.member.name} 님`;
+  community.init();
   $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) go(b.dataset.tab); });
   const want = location.hash.slice(1);   // /?t=…#ritual 처럼 탭을 지정해 열 수 있다
-  go(["visit", "memorial", "chat", "ritual", "settings"].includes(want) ? want : "visit");
+  go(["visit", "memorial", "chat", "ritual", "settings", ...Object.keys(community.pages)].includes(want) ? want : localStorage.getItem('memorial_easy')==='true'?'easy':'visit');
 }
 function go(tab) {
   clearTimers(); stopSpeech(); state.tab = tab; history.replaceState(null, "", location.pathname + (tab === "visit" ? "" : "#" + tab));
@@ -109,7 +111,8 @@ function go(tab) {
     if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
   view.dataset.page = tab;
-  ({ visit: renderVisit, memorial: renderMemorial, chat: renderChat, ritual: renderRitual, settings: renderSettings })[tab]();
+  const render = ({ visit: renderVisit, memorial: renderMemorial, chat: renderChat, ritual: renderRitual, settings: renderSettings, ...community.pages })[tab];
+  Promise.resolve(render()).then(() => {if(state.tab===tab)community.mount(tab);}).catch(e=>toast(e.message));
   window.scrollTo(0, 0);
 }
 
@@ -233,7 +236,7 @@ async function renderMemorial() {
       <button id="gbSend">글 남기기</button>
       <div style="margin-top:12px">${guest}</div></div>`;
   $("#toRitual").onclick = () => go("ritual");
-  $("#gbSend").onclick = async () => { const t = $("#gbMsg").value.trim(); if (!t) return; try { await api("/api/family/guestbook", { method: "POST", body: { message: t } }); toast("남겼습니다."); renderMemorial(); } catch (e) { toast(e.message); } };
+  $("#gbSend").onclick = async () => { const t = $("#gbMsg").value.trim(); if (!t) return; try { await api("/api/family/guestbook", { method: "POST", body: { message: t } }); toast("남겼습니다."); go("memorial"); } catch (e) { toast(e.message); } };
 }
 
 // ---------------- 3. 기념일 대화 ----------------
@@ -555,7 +558,7 @@ async function renderRitual() {
       <div class="field"><label>전할 말(선택)</label><input id="jNote" placeholder="예: 가족 6명이 함께 봅니다"></div>
       <button id="jGo">참여 신청</button>`);
     $("#jGo", m).onclick = async () => {
-      try { await api(`/api/family/rituals/${r.id}/join`, { method: "POST", body: { deceased_id: +$("#jDec", m).value, mourner_name: $("#jMourner", m).value, note: $("#jNote", m).value } }); m.remove(); toast("참여를 신청했습니다. 사찰에서 순서를 정해 알려 드립니다.", 4000); renderRitual(); }
+      try { await api(`/api/family/rituals/${r.id}/join`, { method: "POST", body: { deceased_id: +$("#jDec", m).value, mourner_name: $("#jMourner", m).value, note: $("#jNote", m).value } }); m.remove(); toast("참여를 신청했습니다. 사찰에서 순서를 정해 알려 드립니다.", 4000); go("ritual"); }
       catch (e) { toast(e.message, 4000); }
     };
   });
@@ -567,7 +570,7 @@ async function renderRitual() {
       <div class="field"><label>전할 말(선택)</label><input id="ofNote" placeholder="예: 어머니 기일에 흰 국화로 부탁드립니다"></div>
       <button id="ofSend">신청하기</button>`);
     $("#ofSend", m).onclick = async () => {
-      try { await api("/api/family/offerings", { method: "POST", body: { kind: $("#ofKind", m).value, ritual_id: $("#ofRitual", m).value ? +$("#ofRitual", m).value : null, amount: +$("#ofAmount", m).value || 0, note: $("#ofNote", m).value } }); m.remove(); toast("신청했습니다. 사찰에서 확인 후 연락드립니다."); renderRitual(); }
+      try { await api("/api/family/offerings", { method: "POST", body: { kind: $("#ofKind", m).value, ritual_id: $("#ofRitual", m).value ? +$("#ofRitual", m).value : null, amount: +$("#ofAmount", m).value || 0, note: $("#ofNote", m).value } }); m.remove(); toast("신청했습니다. 사찰에서 확인 후 연락드립니다."); go("ritual"); }
       catch (e) { toast(e.message); }
     };
   };
@@ -612,7 +615,7 @@ function openRitualLive(r) {
     if (!d.live && !ended) { ended = true; el.insertAdjacentHTML("beforeend", `<div class="live-ended">중계가 끝났습니다</div>`); }
   }
   poll(); const t = setInterval(poll, 2000);
-  const close = () => { clearInterval(t); video.src = ""; el.remove(); document.body.classList.remove("noscroll"); renderRitual(); };
+  const close = () => { clearInterval(t); video.src = ""; el.remove(); document.body.classList.remove("noscroll"); go("ritual"); };
   $("#lvClose", el).onclick = close;
   $("#lvOrder", el).onclick = () => $("#lvDrawer", el).classList.remove("hidden");
   $("#lvDrawerClose", el).onclick = () => $("#lvDrawer", el).classList.add("hidden");
@@ -647,7 +650,7 @@ async function renderSettings() {
     ${canManage && me.deceased.some((d) => d.ai_enabled) ? `<div class="card"><h3>대화 기능 작별</h3><p class="muted">대화 기능은 가족이 원하면 언제든 닫을 수 있습니다. 닫을 때 등록한 기억 카드와 음성 자료를 돌려받거나 삭제합니다.</p><button class="ghost" id="farewellBtn">작별 절차 시작</button></div>` : ""}
     <div class="card"><h3>내 정보</h3><p>${esc(me.member.name)} · ${esc(me.member.relation)} · ${roleName[me.member.role]}</p><p class="muted">계약자 ${esc(me.contract.holder_name)} · 봉안함 ${esc(me.niche?.code || "-")} · ${me.contract.plan === "premium" ? "프리미엄" : "기본"}</p>
       <button class="ghost small" id="logout">이 기기에서 나가기</button></div>`;
-  $("#motionBtn").onclick = () => { localStorage.setItem("motion", motionReduced() ? "" : "reduce"); applyMotion(); renderSettings(); };
+  $("#motionBtn").onclick = () => { localStorage.setItem("motion", motionReduced() ? "" : "reduce"); applyMotion(); go("settings"); };
   let selectedTheme = cur, savedTheme = cur, savingTheme = false;
   const themeTiles = [...view.querySelectorAll(".tile")];
   const applyButton = $("#applyThemeBtn"), themeStatus = $("#themeStatus"), preview = $("#themePreview");
@@ -696,14 +699,16 @@ async function renderSettings() {
       <div class="field"><label>이름</label><input id="ivName"></div>
       <div class="field"><label>관계</label><input id="ivRel" placeholder="예: 둘째 아들"></div>
       <div class="field"><label>권한</label><select id="ivRole"><option value="view">보기만</option><option value="chat">보기·대화</option></select></div>
+      <div class="field"><label for="ivDays">링크 유효기간 (일)</label><input id="ivDays" type="number" min="1" max="365" value="30"></div>
       <div class="check"><input type="checkbox" id="ivMinor"><label for="ivMinor" style="margin:0;color:var(--ink)">미성년자 (보호자 동반 필요)</label></div>
       <button id="ivGo">링크 만들기</button><div id="ivOut" style="margin-top:12px"></div>`);
     $("#ivGo", m).onclick = async () => {
+      $("#ivGo", m).disabled = true;
       try {
-        const r = await api("/api/family/invite", { method: "POST", body: { name: $("#ivName", m).value, relation: $("#ivRel", m).value, role: $("#ivRole", m).value, is_minor: $("#ivMinor", m).checked } });
-        $("#ivOut", m).innerHTML = `<div class="link-box">${esc(r.link)}</div><button class="small" style="margin-top:8px" id="ivCopy">복사</button>`;
+        const r = await api("/api/family/invite", { method: "POST", body: { name: $("#ivName", m).value, relation: $("#ivRel", m).value, role: $("#ivRole", m).value, is_minor: $("#ivMinor", m).checked, days:+$("#ivDays",m).value } });
+        $("#ivOut", m).innerHTML = `<p class="muted">${esc(fmtD(r.expires_at))}까지 접속할 수 있습니다.</p><div class="link-box">${esc(r.link)}</div><button class="small" style="margin-top:8px" id="ivCopy">복사</button>`;
         $("#ivCopy", m).onclick = () => { navigator.clipboard?.writeText(r.link); toast("복사했습니다. 카카오톡에 붙여 넣어 보내세요."); };
-      } catch (e) { toast(e.message); }
+      } catch (e) { toast(e.message); $("#ivGo", m).disabled = false; }
     };
   });
   $("#farewellBtn") && ($("#farewellBtn").onclick = () => {
@@ -719,7 +724,7 @@ async function renderSettings() {
         m.remove(); state.me = await api("/api/family/me");
         if (r.exported) modal(`<h2>돌려받은 자료</h2><p class="muted">아래 내용을 보관해 주세요. 서버에서는 지워졌습니다.</p><pre style="white-space:pre-wrap;font-size:14px">${esc(r.exported.memory_card || "(기억 카드 없음)")}</pre>`);
         else toast("작별 절차를 마쳤습니다.");
-        renderSettings();
+        go("settings");
       } catch (e) { toast(e.message); }
     };
   });
@@ -856,4 +861,5 @@ async function renderFaceCard() {
 }
 
 if ("speechSynthesis" in window) window.speechSynthesis.onvoiceschanged = () => {};
+const community = createCommunity({api, $, esc, modal, toast, withToken, state, go, view, every});
 boot();

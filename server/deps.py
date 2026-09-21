@@ -1,4 +1,6 @@
 """인증 의존성. MVP: 관리자 키 · 현장 키 · 가족 초대 토큰."""
+from datetime import datetime, timezone
+
 from fastapi import Header, HTTPException, Query
 
 from . import config, db
@@ -27,8 +29,10 @@ def require_member(x_family_token: str | None = Header(default=None), t: str | N
            LEFT JOIN niches n ON n.id = c.niche_id WHERE m.invite_token = ?""",
         (tok,),
     )
-    if not m:
+    if not m or m.get("revoked_at"):
         raise HTTPException(401, "초대 링크가 유효하지 않습니다.")
+    if m.get("invite_expires_at") and datetime.fromisoformat(m["invite_expires_at"]) <= datetime.now(timezone.utc):
+        raise HTTPException(401, "초대 링크가 만료되었습니다. 계약자에게 새 링크를 요청해 주세요.")
     db.execute("UPDATE family_members SET last_seen_at=? WHERE id=?", (db.now(), m["id"]))
     return m
 

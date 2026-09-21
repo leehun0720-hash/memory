@@ -24,12 +24,25 @@ async function boot() {
   try { await api("/api/admin/overview"); } catch (e) { sessionStorage.removeItem("admin_key"); page.innerHTML = `<div class="card">인증 실패: ${esc(e.message)} <button class="small" onclick="location.reload()">다시</button></div>`; return; }
   document.querySelectorAll("aside button").forEach((b) => b.onclick = () => go(b.dataset.page));
   const want = location.hash.slice(1);   // /admin?key=…#rituals 처럼 페이지를 지정해 열 수 있다
-  go(["overview", "calib", "contracts", "deceased", "rituals", "usage", "aisettings"].includes(want) ? want : "overview");
+  go(["overview", "tasks", "calib", "contracts", "deceased", "rituals", "usage", "aisettings"].includes(want) ? want : "overview");
 }
 function go(p) {
   timers.forEach(clearInterval); timers = [];
   document.querySelectorAll("aside button").forEach((b) => b.classList.toggle("active", b.dataset.page === p));
-  ({ overview, calib, contracts, deceased, rituals, usage, aisettings })[p]();
+  ({ overview, tasks, calib, contracts, deceased, rituals, usage, aisettings })[p]();
+}
+
+async function tasks() {
+  page.innerHTML='<h1>오늘 할 일</h1><p role="status">불러오는 중…</p>';
+  try {
+    const [t,n]=await Promise.all([api('/api/admin/tasks'),api('/api/admin/notifications')]);
+    const list=(rows,format)=>rows.length?rows.map(r=>`<div class="list-item">${format(r)}</div>`).join(''):'<p class="muted">확인할 항목이 없습니다.</p>';
+    const statuses={in_app:'앱 안 알림',pending:'발송 대기',blocked:'설정 대기',sending:'접수 중',submitted:'접수됨 · 수신 확인 중',delivered:'수신 성공',failed:'실패',unknown:'결과 확인 필요',cancelled:'취소',expired:'발송 기한 만료'};
+    page.innerHTML=`<h1>오늘 할 일</h1><p class="muted">${esc(t.date)} · 한국 시간</p><button class="small secondary" id="refreshTasks">새로고침</button><div class="card"><h2>오늘의 의례</h2>${list(t.rituals,r=>`${esc(fmt(r.scheduled_at))} · ${esc(r.title)}`)}<button class="small ghost" data-task-page="rituals">의례 일정 관리</button></div><div class="card"><h2>공양·헌화 접수 ${t.offerings.length}건</h2>${list(t.offerings,r=>`${esc(r.holder_name)} · ${esc({offering:'공양',flower:'헌화',prayer:'기도'}[r.kind]||r.kind)} · ${esc(r.note)}`)}<button class="small ghost" data-task-page="usage">접수 처리</button></div><div class="card"><h2>가족 앨범 승인 대기 ${t.memories.length}건</h2><p class="muted">공개와 AI 활용 동의는 해당 가족의 계약자가 추모 공간에서 결정합니다.</p>${list(t.memories,r=>`${esc(r.deceased_name)} 님 · ${esc(r.title)} · 계약자 ${esc(r.holder_name)}`)}</div><div class="card"><h2>촬영 상태 확인</h2><h3>연결이 끊긴 카메라</h3>${list(t.offline,r=>esc(r.name))}<h3>24시간 이상 갱신되지 않은 봉안함 사진</h3>${list(t.stale,r=>`${esc(r.code)} · ${esc(fmt(r.last_snapshot_at)||'촬영 기록 없음')}`)}<button class="small ghost" data-task-page="calib">카메라 관리</button></div><div class="card"><h2>카카오 알림톡</h2><p>${n.provider.ready?'발송 연결 준비 완료':'발송 설정 대기'} · ${esc(n.provider.provider)}</p><p class="muted">${esc(n.provider.note)}</p>${n.provider.missing.length?`<p class="mono">미설정: ${n.provider.missing.map(esc).join(', ')}</p>`:''}${!n.provider.enabled?'<p class="muted">KAKAO_SEND_ENABLED=1 설정 후 서버를 재시작하면 동의한 가족에게 발송합니다.</p>':''}<p class="muted">설정 방법은 docs/ALIMTALK.md를 참고하세요. 통신 결과가 불명확한 발송은 공급자 이력을 먼저 확인합니다.</p>${list(n.messages,r=>`<div><b>${esc(r.name)}</b> ${esc(r.phone_masked)}<p>${esc(r.body)}</p><span class="tag">${statuses[r.delivery_status]||esc(r.delivery_status)}</span> <span class="muted">${esc(r.delivery_error)}</span>${r.delivery_status==='failed'?`<button class="small secondary" data-retry="${r.id}">실패 건 재발송</button>`:''}</div>`)}</div>`;
+    $('#refreshTasks').onclick=tasks;
+    page.querySelectorAll('[data-task-page]').forEach(b=>b.onclick=()=>go(b.dataset.taskPage));
+    page.querySelectorAll('[data-retry]').forEach(b=>b.onclick=async()=>{if(!confirm('확실히 실패한 이 알림을 다시 발송 대기열에 넣을까요?'))return;b.disabled=true;try{await api(`/api/admin/notifications/${b.dataset.retry}/retry`,{method:'POST'});await tasks();}catch(e){toast(e.message);b.disabled=false;}});
+  } catch(e){page.innerHTML=`<div class="card">${esc(e.message)}</div>`;}
 }
 
 // ---------------- 현황 ----------------

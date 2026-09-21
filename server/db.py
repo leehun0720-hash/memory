@@ -103,6 +103,50 @@ CREATE TABLE IF NOT EXISTS ritual_messages (
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS memories (
+ id INTEGER PRIMARY KEY, deceased_id INTEGER NOT NULL REFERENCES deceased(id),
+ member_id INTEGER NOT NULL REFERENCES family_members(id), title TEXT NOT NULL,
+ story TEXT DEFAULT '', occurred_on TEXT DEFAULT '', path TEXT DEFAULT '', kind TEXT DEFAULT 'story',
+ visibility TEXT NOT NULL DEFAULT 'family', status TEXT NOT NULL DEFAULT 'pending',
+ ai_use INTEGER NOT NULL DEFAULT 0, review_note TEXT DEFAULT '', created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS family_events (
+ id INTEGER PRIMARY KEY, contract_id INTEGER NOT NULL REFERENCES contracts(id),
+ member_id INTEGER NOT NULL REFERENCES family_members(id), deceased_id INTEGER REFERENCES deceased(id),
+ title TEXT NOT NULL, kind TEXT NOT NULL, calendar TEXT DEFAULT 'solar',
+ year INTEGER NOT NULL, month INTEGER NOT NULL, day INTEGER NOT NULL,
+ hour INTEGER DEFAULT 9, minute INTEGER DEFAULT 0, recurring INTEGER DEFAULT 1,
+ leap INTEGER DEFAULT 0, leap_policy TEXT DEFAULT 'regular', missing_day TEXT DEFAULT 'last',
+ note TEXT DEFAULT '', cancelled INTEGER DEFAULT 0, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS event_attendance (
+ event_id INTEGER NOT NULL REFERENCES family_events(id), member_id INTEGER NOT NULL REFERENCES family_members(id),
+ response TEXT DEFAULT 'yes', last_seen_at TEXT, PRIMARY KEY(event_id,member_id)
+);
+CREATE TABLE IF NOT EXISTS notification_preferences (
+ member_id INTEGER PRIMARY KEY REFERENCES family_members(id), enabled INTEGER DEFAULT 1,
+ offsets TEXT DEFAULT '[7,1,0]', paused_until TEXT DEFAULT '', kinds TEXT DEFAULT '["anniversary","birthday","holiday","meeting"]',
+ phone TEXT DEFAULT '', kakao INTEGER DEFAULT 0, consent_at TEXT
+);
+CREATE TABLE IF NOT EXISTS notifications (
+ id INTEGER PRIMARY KEY, member_id INTEGER NOT NULL REFERENCES family_members(id),
+ event_id INTEGER NOT NULL REFERENCES family_events(id), occurrence TEXT NOT NULL, days_before INTEGER NOT NULL,
+ title TEXT NOT NULL, body TEXT NOT NULL, read_at TEXT, created_at TEXT NOT NULL,
+ delivery_status TEXT DEFAULT 'in_app', provider_id TEXT DEFAULT '', delivery_error TEXT DEFAULT '',
+ UNIQUE(member_id,event_id,occurrence,days_before)
+);
+CREATE TABLE IF NOT EXISTS tributes (
+ id INTEGER PRIMARY KEY, deceased_id INTEGER NOT NULL REFERENCES deceased(id),
+ member_id INTEGER NOT NULL REFERENCES family_members(id), kind TEXT NOT NULL,
+ message TEXT DEFAULT '', created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS memorial_guides (
+ deceased_id INTEGER PRIMARY KEY REFERENCES deceased(id), tradition TEXT DEFAULT 'classic',
+ text TEXT DEFAULT '', updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS memories_deceased ON memories(deceased_id,status);
+CREATE INDEX IF NOT EXISTS events_contract ON family_events(contract_id,cancelled);
+CREATE INDEX IF NOT EXISTS notifications_member ON notifications(member_id,delivery_status);
 CREATE TABLE IF NOT EXISTS audit_logs (
   id INTEGER PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT DEFAULT '', detail TEXT DEFAULT '',
   created_at TEXT NOT NULL
@@ -134,6 +178,8 @@ def connect() -> sqlite3.Connection:
 
 # 기존 DB에 새 컬럼을 더한다(컬럼명, 정의). 파일럿에서 정식 마이그레이션 도구로 교체.
 _MIGRATIONS = [
+    ("family_members", "revoked_at", "TEXT"),
+    ("family_members", "invite_expires_at", "TEXT"),
     ("deceased", "voice_id", "TEXT DEFAULT ''"),          # 복제 음성 ID(공급자 측)
     ("deceased", "voice_provider", "TEXT DEFAULT ''"),    # elevenlabs | supertone
     ("deceased", "face_id", "TEXT DEFAULT ''"),           # 실시간 아바타 얼굴 ID(공급자 측)

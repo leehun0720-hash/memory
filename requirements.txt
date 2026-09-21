@@ -6,3 +6,6 @@ python-dotenv>=1.0
 requests>=2.32
 anthropic>=1.0
 pillow>=10
+
+korean-lunar-calendar>=0.4,<0.5
+reportlab>=4,<5
