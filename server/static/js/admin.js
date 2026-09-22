@@ -323,7 +323,7 @@ async function rituals() {
   page.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => form(rows.find((r) => r.id === +b.dataset.edit)));
   page.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => { if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "정말 삭제"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "삭제"; }, 4000); return; } await api(`/api/admin/rituals/${b.dataset.del}`, { method: "DELETE" }); rituals(); });
   page.querySelectorAll("[data-console]").forEach((b) => b.onclick = () => ritualConsole(+b.dataset.console));
-  page.querySelectorAll("[data-now]").forEach((b) => b.onclick = async () => { try { await api(`/api/admin/rituals/${b.dataset.now}/start-now`, { method: "POST" }); toast("일시를 지금으로 옮겼습니다. 유족 앱에 라이브 보기가 나옵니다."); rituals(); } catch (e) { toast(e.message); } });
+  page.querySelectorAll("[data-now]").forEach((b) => b.onclick = async () => { try { const r = await api(`/api/admin/rituals/${b.dataset.now}/start-now`, { method: "POST" }); toast(r.camera_assigned ? `일시를 지금으로 옮기고 카메라 '${r.camera_assigned}'를 붙였습니다. 유족 앱에 라이브 보기가 나옵니다.` : "일시를 지금으로 옮겼습니다. 유족 앱에 라이브 보기가 나옵니다."); rituals(); } catch (e) { toast(e.message); } });
 }
 
 // 진행 콘솔: 봉행 순서(참여 가족)·현재 차례·가족 메시지 답장·현장 화면 링크. 2초마다 새로 고침.

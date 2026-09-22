@@ -8,6 +8,15 @@ from .. import config, db
 from ..deps import require_edge
 from ..state import state
 
+def _demo_mode() -> bool:
+    """시연 모드(참배객 감지 끔). 이때는 카메라가 있는 일정의 중계 창을 날짜와 상관없이 항상 연다."""
+    return db.get_setting("live_ignore_occupied") == "1"
+
+
+def _live_open(r: dict) -> bool:
+    return _in_window(r["scheduled_at"]) or (r.get("camera_id") is not None and _demo_mode())
+
+
 def _in_window(scheduled_at: str, before_min: int = 30, after_h: int = 3) -> bool:
     """봉행 30분 전부터 3시간 뒤까지 중계 창을 연다."""
     try:
@@ -35,7 +44,7 @@ def edge_config():
     for c in cams:
         c["niches"] = db.rows("SELECT id, code, x, y, w, h FROM niches WHERE camera_id=? ORDER BY id", (c["id"],))
     live = db.rows("SELECT DISTINCT niche_id FROM live_sessions WHERE expires_at > ?", (db.now(),))
-    ritual_live = [r["camera_id"] for r in db.rows("SELECT camera_id, scheduled_at FROM rituals WHERE camera_id IS NOT NULL") if _in_window(r["scheduled_at"])]
+    ritual_live = [r["camera_id"] for r in db.rows("SELECT camera_id, scheduled_at FROM rituals WHERE camera_id IS NOT NULL") if _live_open(r)]
     return {
         "cameras": cams,
         "live_niche_ids": [r["niche_id"] for r in live],

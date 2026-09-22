@@ -69,3 +69,51 @@ html[data-easy=true]{--font-serif:system-ui,'Malgun Gothic',sans-serif;--font-sa
 html[data-easy=true] .welcome-garden,html[data-easy=true] .comfort-card,html[data-easy=true] .theme-preview{background:var(--surface)}html[data-easy=true] .comfort-card{padding-top:28px}html[data-easy=true] .memorial-cover{height:100px;background:var(--theme-wash)}html[data-easy=true] .theme-thumb{display:none}html[data-easy=true] .theme-grid .tile{padding-top:18px}html[data-easy=true] .memorial-garden{--font-serif:system-ui,'Malgun Gothic',sans-serif}
 
 html[data-easy=true] .theme-preview{--font-serif:system-ui,"Malgun Gothic",sans-serif;--font-sans:system-ui,"Malgun Gothic",sans-serif}
+
+/* Chat must remain reachable on short screens and above the floating menu. */
+#view[data-page="chat"] {
+  --chat-menu-clearance: calc(100px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--chat-menu-clearance) + 24px);
+}
+#view[data-page="chat"] .chat-wrap { height: auto; min-height: 0; }
+#view[data-page="chat"] .shrine { padding: 8px 0; }
+#view[data-page="chat"] .shrine-frame {
+  height: clamp(140px, 25dvh, 280px);
+  max-width: 100%;
+  border-radius: 18px;
+}
+#view[data-page="chat"] .shrine-inner { border-radius: 12px; }
+#view[data-page="chat"] .shrine-inner img,
+#view[data-page="chat"] .shrine-inner video {
+  object-fit: contain;
+  object-position: center;
+  transform: none;
+}
+#view[data-page="chat"] .shrine-caption { margin-top: 8px; }
+#view[data-page="chat"] .voice-tag { overflow-wrap: anywhere; }
+#view[data-page="chat"] .chat-log {
+  flex: none;
+  height: clamp(140px, 24dvh, 280px);
+  min-height: 140px;
+  overscroll-behavior: contain;
+}
+#view[data-page="chat"] .chat-input {
+  position: relative;
+  flex-shrink: 0;
+  padding: 10px 0;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+@media (min-width: 760px) {
+  #view[data-page="chat"] .chat-wrap { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr); column-gap: 28px; align-items: start; }
+  #view[data-page="chat"] .chat-wrap > * { grid-column: 2; }
+  #view[data-page="chat"] .chat-wrap > .shrine { grid-column: 1; grid-row: 1 / span 20; }
+  #view[data-page="chat"] .chat-log { height: clamp(160px, 32dvh, 340px); }
+}
+#view[data-page="chat"] .chat-input input { min-width: 0; width: 0; }
+#view[data-page="chat"] .chat-input button { flex-shrink: 0; }
+@media (max-width: 600px) {
+  #view[data-page="chat"] .shrine-frame { height: clamp(120px, 22dvh, 220px); }
+  #view[data-page="chat"] .chat-input { gap: 6px; }
+  #view[data-page="chat"] .chat-input button { padding-left: 12px; padding-right: 12px; }
+}

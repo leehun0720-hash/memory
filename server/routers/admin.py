@@ -571,11 +571,16 @@ def ritual_next(rid: int):
 @router.post("/rituals/{rid}/start-now")
 def ritual_start_now(rid: int):
     """일시를 지금으로 옮긴다(봉행이 늦어지거나 시연할 때). 중계 창이 바로 열리고 순서는 시작 전으로."""
-    _ritual_or_404(rid)
+    r = _ritual_or_404(rid)
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    db.execute("UPDATE rituals SET scheduled_at=?, current_order=0 WHERE id=?", (now, rid))
-    db.audit("admin", "ritual.start_now", f"ritual:{rid}")
-    return {"scheduled_at": now}
+    cam_id, assigned = r["camera_id"], None
+    if cam_id is None:   # 카메라가 없으면 제례 공간 카메라(없으면 아무 카메라)를 붙여 바로 중계되게
+        cam = db.one("SELECT id, name FROM cameras ORDER BY CASE WHEN kind='ritual' THEN 0 ELSE 1 END, id LIMIT 1")
+        if cam:
+            cam_id, assigned = cam["id"], cam["name"]
+    db.execute("UPDATE rituals SET scheduled_at=?, current_order=0, camera_id=? WHERE id=?", (now, cam_id, rid))
+    db.audit("admin", "ritual.start_now", f"ritual:{rid}", f"camera:{cam_id}")
+    return {"scheduled_at": now, "camera_id": cam_id, "camera_assigned": assigned}
 
 
 class SiteMessageIn(BaseModel):

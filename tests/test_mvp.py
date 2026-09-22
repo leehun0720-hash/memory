@@ -626,3 +626,21 @@ def test_camera_sharpness_warning(client):
     client.post(f"/api/edge/cameras/{cam['id']}/status", headers=EDGE, data={"occupied": "false", "persons": 0, "fps": 10, "sharpness": 180})
     c = next(x for x in client.get("/api/admin/overview", headers=ADMIN).json()["cameras"] if x["id"] == cam["id"])
     assert c["blurry"] is False
+
+
+def test_start_now_assigns_camera_and_demo_mode_keeps_live(client):
+    tok = {"X-Family-Token": holder_token("이미영")}
+    rid = client.post("/api/admin/rituals", headers=ADMIN, json={"title": "카메라 없는 기일 제사", "kind": "memorial", "access": "open", "scheduled_at": "2020-01-01T10:00:00+09:00"}).json()["id"]
+    r = client.post(f"/api/admin/rituals/{rid}/start-now", headers=ADMIN).json()
+    assert r["camera_id"] and r["camera_assigned"]
+    mine = next(x for x in client.get("/api/family/rituals", headers=tok).json() if x["id"] == rid)
+    assert mine["is_live_window"] and not mine["is_past"] and mine["camera_id"] == r["camera_id"]
+    # 오래된 일정이라도 시연 모드면 카메라 일정은 중계 창이 열려 있다
+    client.put(f"/api/admin/rituals/{rid}", headers=ADMIN, json={"title": "카메라 없는 기일 제사", "kind": "memorial", "scheduled_at": "2020-01-01T10:00:00+09:00", "camera_id": r["camera_id"]})
+    mine = next(x for x in client.get("/api/family/rituals", headers=tok).json() if x["id"] == rid)
+    assert mine["is_past"] and not mine["is_live_window"]
+    client.put("/api/admin/settings/live", headers=ADMIN, json={"protect": False})
+    mine = next(x for x in client.get("/api/family/rituals", headers=tok).json() if x["id"] == rid)
+    assert mine["is_live_window"] and not mine["is_past"]
+    assert r["camera_id"] in client.get("/api/edge/config", headers=EDGE).json()["ritual_live_camera_ids"]
+    client.put("/api/admin/settings/live", headers=ADMIN, json={"protect": True})

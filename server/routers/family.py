@@ -10,7 +10,7 @@ from .. import config, db, face, voice
 from ..ai.avatar import SimliAvatar  # 기본 얼굴 목록
 from ..deps import require_member, require_role
 from ..state import state
-from .edge import _in_window
+from .edge import _in_window, _live_open, _demo_mode
 
 router = APIRouter(prefix="/api/family", tags=["family"])
 
@@ -214,6 +214,8 @@ def rituals(m: dict = Depends(require_member)):
         except ValueError:
             r["is_live_window"] = False
             r["is_past"] = False
+        if r["camera_id"] is not None and _demo_mode():      # 시연 모드: 카메라 일정은 언제나 중계 중
+            r["is_live_window"], r["is_past"] = True, False
         r["has_camera"] = r["camera_id"] is not None and state.camera(r["camera_id"]).online
         r["access"] = r.get("access") or "open"
         r["current_order"] = r.get("current_order") or 0
@@ -276,7 +278,7 @@ def _live_payload(r: dict, parts: list[dict], since: int, rseq: int) -> dict:
         msgs = db.rows("SELECT * FROM ritual_messages WHERE ritual_id=? AND id>? ORDER BY id LIMIT 50", (r["id"], since))
     else:
         msgs = list(reversed(db.rows("SELECT * FROM ritual_messages WHERE ritual_id=? ORDER BY id DESC LIMIT 20", (r["id"],))))
-    return {"title": r["title"], "access": r.get("access") or "open", "live": _in_window(r["scheduled_at"]),
+    return {"title": r["title"], "access": r.get("access") or "open", "live": _live_open(r),
             "has_camera": r["camera_id"] is not None and state.camera(r["camera_id"]).online,
             "viewer_count": state.viewer_count(r["id"]), "current_order": cur_no, "current": cur, "order": parts,
             "messages": msgs, "reactions": state.reactions_since(r["id"], rseq) if rseq >= 0 else [], "rseq": state.reaction_seq(r["id"])}   # rseq<0: 첫 호출(지난 반응 건너뜀)
