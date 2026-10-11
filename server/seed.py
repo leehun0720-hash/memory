@@ -30,12 +30,18 @@ MEMORY_CARD_2 = """호칭: 아들아 / 우리 며느리
 
 
 def _portrait(path, initials: str, color: tuple[int, int, int]) -> None:
-    img = Image.new("RGB", (600, 600), (245, 241, 233))
+    """시연용 '사진 자리' 그림 (2026-10-11 브랜드 개편).
+
+    실제 인물처럼 보이지 않도록 한지색 바탕에 금색 원 테두리와 옅은 먹선 윤곽만 그린다.
+    initials·color 는 예전 호출 형태를 유지하려고 남겨 둔 값이며 그림에는 쓰지 않는다(영문 글자 표시 없음).
+    """
+    paper, gold, line = (245, 241, 232), (201, 166, 107), (150, 146, 132)
+    img = Image.new("RGB", (600, 600), paper)
     d = ImageDraw.Draw(img)
-    d.ellipse((120, 80, 480, 440), fill=color)
-    d.ellipse((220, 160, 380, 320), fill=(245, 241, 233))
-    d.rectangle((0, 470, 600, 600), fill=color)
-    d.text((240, 510), initials, fill=(245, 241, 233))
+    d.ellipse((40, 40, 560, 560), outline=gold, width=4)
+    d.ellipse((60, 60, 540, 540), outline=gold, width=1)
+    d.ellipse((230, 150, 370, 290), outline=line, width=4)          # 머리 윤곽
+    d.arc((150, 320, 450, 620), start=180, end=360, fill=line, width=4)  # 어깨 윤곽
     path.parent.mkdir(parents=True, exist_ok=True)
     img.save(path, quality=90)
 
@@ -56,7 +62,7 @@ def run(reset: bool = False, quiet: bool = False) -> None:
         return
 
     now = datetime.now().astimezone()
-    fid = db.execute("INSERT INTO facilities(name, address) VALUES (?,?)", ("여수 지장대사 봉안당", "전라남도 여수시"))
+    fid = db.execute("INSERT INTO facilities(name, address) VALUES (?,?)", ("여수 지장대사 윤회당", "전라남도 여수시"))
     rid = db.execute("INSERT INTO rooms(facility_id, name) VALUES (?,?)", (fid, "안치실 1"))
     ritual_room = db.execute("INSERT INTO rooms(facility_id, name) VALUES (?,?)", (fid, "제례 공간"))
     cam = db.execute("INSERT INTO cameras(room_id, name, kind, device_index, width, height) VALUES (?,?,?,?,?,?)",

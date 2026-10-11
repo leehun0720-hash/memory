@@ -6,9 +6,9 @@
   lottie/candle-light.json      불교 외 테마(전통·천주교·기독교)의 첫 화면 Lottie. 종교 상징이 없는 선화:
                                 도면 원이 그려진 뒤 촛불이 켜지고, 불꽃이 천천히 흔들린다 (반복 8초).
   images/brand/candle-light.svg 위 그림의 마지막 장면(정적 대체 그림, Lottie를 못 불러오거나 움직임을 줄였을 때)
-  images/brand/lotus-static.svg 불교 테마 연화문(lottie/lotus-bloom.json)의 정적 대체 그림
+  images/brand/lotus-static.svg 불교 테마 연화문(lottie/lotus-family.json)의 정적 대체 그림
 
-불교 테마 Lottie(lottie/lotus-bloom.json)는 기억과 돌봄 플랫폼(runiq-memory-suite)에서 같은 도형으로 만든 파일을
+불교 테마 Lottie(lottie/lotus-family.json, 도면 표기 없는 가족용)는 기억과 돌봄 플랫폼(runiq-memory-suite)에서 같은 도형으로 만든 파일을
 그대로 복사해 씁니다. 두 Lottie 모두 30fps, 0~90프레임 그리기 → 90~330프레임 반복 구조라 같은 재생 코드(js/brand.js)를 씁니다.
 표준 라이브러리만 씁니다. 같은 입력이면 항상 같은 파일이 나옵니다.
 """
