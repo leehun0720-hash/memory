@@ -17,7 +17,7 @@ from ..community import approved_ai_memories
 
 router = APIRouter(prefix="/api/family/chat", tags=["chat"])
 
-AI_NOTICE = "이 대화의 목소리와 답변은 가족이 남긴 기억으로 만든 AI가 생성한 것입니다. 실제 고인이 아닙니다."
+AI_NOTICE = "이 대화의 목소리와 답변은 가족이 남긴 기억으로 만든 인공지능이 생성한 것입니다. 실제 고인이 아닙니다."
 
 _lock = threading.Lock()
 _sessions: dict[str, dict] = {}   # session_id → {persona, history, started, safety_events}
@@ -57,11 +57,11 @@ def start(body: StartIn, m: dict = Depends(require_member)):
     if not d:
         raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
     if not d["ai_enabled"]:
-        raise HTTPException(403, "이 분의 대화 기능은 열려 있지 않습니다. 관리자에게 문의해 주세요.")
+        raise HTTPException(403, "이 분과의 대화 기능은 아직 열려 있지 않습니다. 시설 담당자에게 문의해 주세요.")
     if not db.one("SELECT id FROM consents WHERE deceased_id=? AND kind='ai_chat' AND revoked_at IS NULL", (d["id"],)):
-        raise HTTPException(403, "유효한 가족 동의서가 없어 대화를 열 수 없습니다.")
+        raise HTTPException(403, "유효한 가족 동의서가 없어 대화를 열 수 없습니다. 시설 담당자에게 동의서 등록을 요청해 주세요.")
     if not body.acknowledged_ai:
-        raise HTTPException(400, "AI 고지를 확인해 주세요.")
+        raise HTTPException(400, "인공지능 안내를 읽고 확인란에 표시해 주세요.")
     if m["is_minor"] and not body.guardian_present:
         raise HTTPException(403, "미성년자는 보호자와 함께 이용해 주세요.")
 
@@ -106,7 +106,7 @@ def turn(body: TurnIn, m: dict = Depends(require_member)):
     with _lock:
         s = _sessions.get(body.session_id)
     if not s or s["member_id"] != m["id"]:
-        raise HTTPException(404, "대화 세션이 없습니다. 다시 시작해 주세요.")
+        raise HTTPException(404, "대화가 이미 끝났거나 찾을 수 없습니다. 대화를 다시 시작해 주세요.")
     d = db.one('SELECT * FROM deceased WHERE id=? AND contract_id=?', (s['deceased_id'],m['contract_id']))
     if not d or not d['ai_enabled'] or not db.one("SELECT id FROM consents WHERE deceased_id=? AND kind='ai_chat' AND revoked_at IS NULL",(d['id'],)):
         raise HTTPException(403, '대화 동의가 철회되었거나 대화 기능이 닫혔습니다.')

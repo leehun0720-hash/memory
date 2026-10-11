@@ -864,7 +864,7 @@ def ai_settings_test():
     except anthropic.BadRequestError as ex:
         from ..ai.llm_anthropic import is_credit_error
         if is_credit_error(ex):
-            raise HTTPException(402, "키는 정상이지만 Anthropic 계정에 크레딧이 없습니다. console.anthropic.com → Plans & Billing에서 충전하세요. 충전 전까지 대화는 자동으로 Mock으로 답합니다.")
+            raise HTTPException(402, "키는 정상이지만 Anthropic 계정에 크레딧이 없습니다. console.anthropic.com → Plans & Billing에서 충전하세요. 충전 전까지 대화는 자동으로 규칙 기반 시연 대화로 답합니다.")
         raise HTTPException(400, f"요청 오류: {ex.message}")
     except anthropic.APIStatusError as ex:
         raise HTTPException(502, f"API 오류 {ex.status_code}: {ex.message}")

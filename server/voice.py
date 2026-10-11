@@ -77,7 +77,7 @@ def register(deceased_id: int, actor: str) -> dict:
     if not db.one("SELECT id FROM consents WHERE deceased_id=? AND kind IN ('voice','lifetime_record') AND revoked_at IS NULL", (deceased_id,)):
         raise HTTPException(403, "음성 사용(또는 생전 기록) 동의서가 없어 등록할 수 없습니다.")
     if not provider_ready():
-        raise HTTPException(400, "봉안당에서 아직 음성 복제 기능을 켜지 않았습니다(관리자 콘솔 → AI 설정 → ElevenLabs 키).")
+        raise HTTPException(400, "시설에서 아직 목소리 등록 기능을 켜지 않았습니다(관리자 콘솔 → 인공지능 설정 → ElevenLabs 키).")
     samples = db.rows("SELECT path FROM media WHERE deceased_id=? AND kind='voice' ORDER BY id DESC LIMIT 5", (deceased_id,))
     files = []
     for smp in samples:

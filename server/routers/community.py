@@ -104,7 +104,7 @@ class ReviewIn(BaseModel):
 def review_memory(mid:int,body:ReviewIn,m:dict=Depends(require_member)):
     require_role(m,'manage'); row=memory_for(mid,m)
     if body.ai_use and (body.status!='approved' or row['visibility']!='family' or not row['story'].strip()):
-        raise HTTPException(422,'가족 공개로 승인된 이야기만 AI 기억으로 사용할 수 있습니다.')
+        raise HTTPException(422,'가족 공개로 승인된 이야기만 인공지능 대화의 기억으로 쓸 수 있습니다.')
     db.execute('UPDATE memories SET status=?,ai_use=?,review_note=? WHERE id=?',(body.status,int(body.ai_use),body.note,mid))
     db.audit(f"member:{m['id']}",'memory.review',f'memory:{mid}',body.status)
     return {'ok':True}

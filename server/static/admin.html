@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>관리자 콘솔 · 봉안함 원격 참배</title>
+<title>추모 운영 · 관리자 콘솔</title>
 <link rel="stylesheet" href="/static/css/app.css">
 <style>
   /* 관리자 콘솔은 밝은 사무용 화면을 유지한다(유족 앱의 어두운 테마 토큰을 되돌림). */
@@ -47,22 +47,23 @@
   .tag { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 12px; background: #eee; color: #555; }
   .tag.on { background: #dff3e6; color: #1e7a45; } .tag.off { background: #fbe9e6; color: var(--danger); } .tag.busy { background: #fff1d6; color: #9a6a10; }
 </style>
+<link rel="stylesheet" href="/static/css/brand-admin.css?v=20261011">
 </head>
 <body>
 <div class="layout">
-  <aside>
-    <div class="brand">관리자 콘솔<br><small style="color:#999;font-weight:500">여수 지장대사 봉안당</small></div>
+  <aside aria-label="관리 메뉴">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>추모 운영<small>지장대사 윤회당 · 관리자 콘솔</small></span></div>
     <button data-page="overview">현황</button>
     <button data-page="tasks">오늘 할 일·알림톡</button>
-    <button data-page="calib">칸 좌표 등록</button>
+    <button data-page="calib">봉안 자리 좌표 등록</button>
     <button data-page="contracts">계약·가족</button>
     <button data-page="deceased">고인·기억 카드·동의서</button>
     <button data-page="rituals">의례 일정·중계</button>
     <button data-page="usage">공양 접수·이용 현황</button>
-    <button data-page="aisettings">AI 설정 (API 키)</button>
-    <div style="margin-top:20px;font-size:12px;color:#888">유족 앱: <a href="/" style="color:#cfc8ba">/</a></div>
+    <button data-page="aisettings">인공지능 설정 (연결 키)</button>
+    <a class="aside-link" href="/" target="_blank" rel="noopener">가족 추모 공간 열기 (새 창)</a>
   </aside>
-  <section class="page" id="page"></section>
+  <main class="page" id="page" tabindex="-1"><p role="status">관리자 콘솔을 여는 중입니다…</p></main>
 </div>
 <script type="module" src="/static/js/admin.js"></script>
 </body>

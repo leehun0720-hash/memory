@@ -1,0 +1,271 @@
+/* 기억과 돌봄 · 가족 추모 공간 테마 층 (2026-10-11). 가족 화면(index.html)에서 마지막에 불러온다.
+   BRAND-GUIDE.md: 먹·한지 바탕, 명조 제목(굵기 400), 먹색 알약형 주요 버튼, 위쪽 진한 선의 패널, 먹색 머리말 + 아래 띠, 먹색 바닥.
+   종교별 테마는 틀(바탕·글꼴·선·모양)을 모두 같게 두고 상징(--mark, 머리말 띠)과 강조색(--accent)만 바꾼다.
+   불교만 연꽃·단청을 쓰고, 천주교·기독교는 기존 상징을 절제된 선으로, 일반(classic)은 종교 상징 없이 선과 여백만 쓴다.
+   이전 층(app.css · family.css · community.css · warm.css)은 그대로 두고 색과 모양만 덮는다. */
+
+/* ── 공통 틀 */
+html[data-theme], .theme-preview[data-preview-theme], [data-memorial-theme] {
+  --ink-deep: #121410; --ink-line: #3a3d34; --ivory: #f2ebdd; --ivory-muted: #c9c2b1; --gold-line: #c9a66b;
+  --bg: #f5f1e8; --bg-2: #efe9dc; --bg-3: #e7e0d1; --surface: #fbf8f2; --surface-2: #efe9dc; --surface-solid: #fbf8f2;
+  --ink: #22241f; --muted: #585a50; --line: #dcd5c6; --line-strong: #b9b2a3; --theme-wash: #efe9dc;
+  --accent-ink: #f2ebdd; --btn-a: #121410; --btn-b: #121410; --danger: #9a3124; --ok: #2f6a45;
+  --warn-bg: #efe9dc; --ai-bg: #ebe7dd; --ai-ink: #22241f;
+  --font-serif: "Noto Serif KR", "Batang", serif;
+  --font-sans: "Noto Sans KR", "Malgun Gothic", sans-serif;
+  --radius: 4px; --tap: 52px;
+}
+/* 상징과 강조색만 테마별로 (한지 위 대비 6:1 이상) */
+html[data-theme="classic"], .theme-preview[data-preview-theme="classic"], [data-memorial-theme="classic"] {
+  --accent: #4b5636; --gold-2: #4b5636; --glow: 75, 86, 54; --mark: url("/static/images/brand/mark-classic.svg"); --theme-wash: #ecebde;
+}
+html[data-theme="buddhist"], .theme-preview[data-preview-theme="buddhist"], [data-memorial-theme="buddhist"] {
+  --accent: #8f3b2b; --gold-2: #8f3b2b; --glow: 143, 59, 43; --mark: url("/static/images/brand/mark-lotus.svg"); --theme-wash: #f1e4d8;
+}
+html[data-theme="catholic"], .theme-preview[data-preview-theme="catholic"], [data-memorial-theme="catholic"] {
+  --accent: #3d4f6b; --gold-2: #3d4f6b; --glow: 61, 79, 107; --mark: url("/static/images/brand/mark-catholic.svg"); --theme-wash: #e6e7e6;
+}
+html[data-theme="christian"], .theme-preview[data-preview-theme="christian"], [data-memorial-theme="christian"] {
+  --accent: #2f5a55; --gold-2: #2f5a55; --glow: 47, 90, 85; --mark: url("/static/images/brand/mark-christian.svg"); --theme-wash: #e3e9e2;
+}
+
+html { background: var(--bg); scroll-padding-top: 120px; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: 17px; line-height: 1.75; word-break: keep-all; overflow-x: clip; }
+body::before, body::after { display: none !important; }
+h1, h2, .serif, .dedication-copy h2 { font-family: var(--font-serif); font-weight: 400; letter-spacing: -.01em; color: var(--ink); }
+h1 { font-size: clamp(28px, 4vw, 38px); line-height: 1.45; }
+h2 { font-size: clamp(22px, 2.6vw, 26px); line-height: 1.5; }
+h3 { font-family: var(--font-sans); font-size: 18px; font-weight: 600; color: var(--ink); letter-spacing: 0; }
+p, li { word-break: keep-all; }
+.muted, small { color: var(--muted); font-size: 16px; }
+small.muted, .meta { font-size: 15px; }
+a { color: var(--accent); }
+.text-link { color: var(--accent); text-decoration: underline; text-underline-offset: 4px; display: inline-flex; align-items: center; min-height: 48px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+button:focus-visible, a:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.orn { display: none !important; }
+
+/* ── 작은 제목(눈썹 글): 강조색, 자간 0.2em, 앞에 테마 상징 */
+.eyebrow { display: flex; align-items: center; gap: 10px; font-family: var(--font-sans); font-size: 14px; font-weight: 500; letter-spacing: .2em; color: var(--accent); margin: 0 0 10px; }
+.eyebrow::before { content: ""; flex: none; width: 30px; height: 20px; background: currentColor; -webkit-mask: var(--mark) center / contain no-repeat; mask: var(--mark) center / contain no-repeat; }
+
+/* ── 머리말: 먹색 + 아래 띠 (불교는 단청, 나머지는 금색 두 줄) */
+header.top { position: sticky; top: 0; z-index: 20; background: var(--ink-deep); color: var(--ivory); border: 0; min-height: 84px; padding: 16px max(20px, calc((100vw - 880px) / 2)) 28px; backdrop-filter: none; }
+header.top::after { content: ""; position: absolute; left: max(20px, calc((100vw - 880px) / 2)); right: max(20px, calc((100vw - 880px) / 2)); bottom: 8px; height: 6px; pointer-events: none;
+  background: linear-gradient(var(--gold-line), var(--gold-line)) top / 100% 1px no-repeat, linear-gradient(var(--gold-line), var(--gold-line)) bottom / 100% 1px no-repeat; opacity: .55; }
+html[data-theme="buddhist"] header.top::after { height: 16px; bottom: 4px; background: url("/static/images/brand/dancheong-ink.svg") center / 107px 16px repeat-x; opacity: .85; }
+header.top .brand { color: var(--ivory); font-family: var(--font-serif); font-weight: 400; font-size: 21px; letter-spacing: .12em; gap: 12px; }
+header.top .brand small { color: var(--gold-line); font-family: var(--font-sans); font-size: 12px; font-weight: 500; letter-spacing: .14em; margin-top: 4px; }
+.brand-mark { width: 34px; height: 24px; border: 0; border-radius: 0; background: var(--gold-line); -webkit-mask: var(--mark) center / contain no-repeat; mask: var(--mark) center / contain no-repeat; }
+header.top .who { color: var(--ivory-muted); font-size: 15px; }
+
+/* ── 화면 도구(쉬운 화면·알림) */
+.family-utilities { max-width: 880px; padding: 12px 20px 0; gap: 8px; }
+.family-utilities button, .family-utilities .btn { min-height: 48px; font-size: 16px; color: var(--ink); border: 1px solid var(--line-strong) !important; border-radius: 999px; padding: 0 18px; background: transparent; }
+
+main { max-width: 880px; padding: 24px 20px 40px; }
+
+/* ── 버튼: 주요 = 먹색 알약, 보조 = 테두리만 */
+button, .btn { min-height: 52px; border-radius: 999px; background: var(--ink-deep); color: var(--ivory); border: 1px solid var(--ink-deep); box-shadow: none; font-family: var(--font-sans); font-size: 17px; font-weight: 500; padding: 0 24px; text-decoration: none; filter: none; }
+button:not(:disabled):hover, .btn:hover { background: #2a2d26; filter: none; }
+button.secondary, .btn.secondary, button.ghost, .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line-strong); font-weight: 500; }
+button.secondary:not(:disabled):hover, .btn.secondary:hover, button.ghost:not(:disabled):hover, .btn.ghost:hover { background: var(--bg-2); }
+button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+button.small, .btn.small { min-height: 48px; font-size: 16px; padding: 0 18px; border-radius: 999px; }
+button:disabled { opacity: .6; cursor: progress; }
+.btn-note { font-size: 15px; font-weight: 400; opacity: .8; color: inherit; margin-left: 4px; }
+summary { min-height: 48px; padding: 12px 0; display: list-item; }
+
+/* ── 입력 */
+input, textarea, select { background-color: #fffdf8; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--ink); font-size: 17px; min-height: 52px; font-family: var(--font-sans); }
+input[type=checkbox], input[type=radio] { min-height: 0; }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(var(--glow), .15); }
+label, .field { color: var(--ink); font-size: 16px; }
+.check { font-size: 17px; }
+.check input { width: 26px; height: 26px; }
+
+/* ── 카드·패널: 면 색 + 1px 선, 위쪽만 진한 선, 모서리 4px, 그림자 없음 */
+.card, .modal, .memory-item, .theme-grid .tile, .empty-state { background: var(--surface); border: 1px solid var(--line); border-top: 1px solid var(--ink); border-radius: 4px; box-shadow: none; backdrop-filter: none; }
+.card { padding: 28px; margin-bottom: 22px; }
+.card.hero { background: var(--surface); }
+.empty-state { background: var(--surface); text-align: left; }
+.empty-state h2 { font-size: 22px; }
+.page-heading { border-bottom: 1px solid var(--line); padding: 4px 0 20px; margin-bottom: 24px; }
+.page-heading h1 { margin: 0; }
+.page-heading p { font-size: 17px; margin: 10px 0 0; }
+.notice, .script, .link-box { background: var(--bg-2); border: 0; border-left: 3px solid var(--accent); border-radius: 0; color: var(--ink); font-size: 16px; padding: 14px 16px; }
+.notice.ai { background: var(--bg-2); color: var(--ink); font-weight: 500; border-left-color: var(--ink); }
+.notice.danger, .bubble.danger { color: var(--danger); background: #f6e6e1; border-left-color: var(--danger); }
+.script b { color: var(--ink); }
+.link-box { font-family: ui-monospace, Consolas, monospace; font-size: 15px; }
+.pill { font-size: 14px; padding: 2px 10px; border-radius: 999px; background: transparent; color: var(--ink); border: 1px solid var(--line-strong); }
+.pill.live { background: #8f2f24; border-color: #8f2f24; color: #fff; }
+.pill.ok { background: #e3eee5; color: var(--ok); border-color: #bcd3c2; }
+.ai-tag { background: var(--bg-2); color: var(--ink); border: 1px solid var(--line-strong); font-size: 13px; border-radius: 999px; padding: 0 8px; }
+.guest .who { color: var(--ink); font-size: 16px; } .guest .when { font-size: 15px; }
+.ritual .when { color: var(--accent); font-family: var(--font-serif); font-weight: 400; font-size: 18px; }
+.ritual-title { font-size: 18px; margin: 6px 0 2px; }
+.ritual .row, .community-actions { gap: 10px; }
+.list-item { padding: 14px 0; gap: 12px; }
+.media-grid .cap { font-size: 15px; }
+.modal { border-radius: 4px; padding: 28px; }
+.modal-bg { background: rgba(18, 20, 16, .55); backdrop-filter: none; }
+.modal-close { min-height: 48px; }
+.modal-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 18px; }
+.modal-actions > button { width: auto; flex: 1 1 140px; }
+.toast { background: var(--ink-deep); color: var(--ivory); border: 0; border-radius: 4px; font-size: 16px; padding: 14px 20px; box-shadow: none; bottom: calc(110px + env(safe-area-inset-bottom)); }
+.seg { border: 1px solid var(--line-strong); border-radius: 4px; }
+.seg button { border-radius: 0; background: transparent; color: var(--muted); border: 0; min-height: 56px; font-size: 16px; }
+.seg button.active { background: var(--ink-deep); color: var(--ivory); }
+.seg button small { color: inherit; font-size: 14px; }
+.bubble.me { background: var(--bg-2); } .bubble.them { background: var(--surface); border-color: var(--line); }
+.chat-foot { font-size: 14px; margin: 8px 0 0; }
+.mic { background: var(--ink-deep); color: var(--ivory); }
+.rec-btn { font-size: 17px; }
+.history-card summary { font-size: 18px; }
+.visit-help, .launch-help { font-size: 16px; }
+.visit-help summary, .launch-help summary { min-height: 48px; }
+
+/* ── 첫 화면(대문): 먹색 판 + 연화문/촛불 Lottie */
+.memorial-hero, .welcome-garden.memorial-hero { position: relative; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); align-items: center; gap: 24px;
+  min-height: 0; margin: 0 0 24px; padding: 34px 36px; background: var(--ink-deep); color: var(--ivory); border: 0; border-radius: 4px; overflow: hidden; isolation: auto; }
+.welcome-garden.memorial-hero::before { display: none; }
+.memorial-hero-copy { position: relative; z-index: 1; }
+.memorial-hero .eyebrow { color: var(--gold-line); }
+.memorial-hero h1 { color: var(--ivory); margin: 14px 0 16px; font-size: clamp(30px, 4vw, 40px); }
+.memorial-hero p { color: var(--ivory-muted); font-size: 17px; margin: 0 0 12px; max-width: 30em; }
+.memorial-hero button.secondary { color: var(--ivory); border-color: #6a6c60; margin-top: 8px; }
+.memorial-hero button.secondary:hover { background: #22251f; }
+.memorial-hero :focus-visible { outline-color: var(--gold-line); }
+.hero-art { position: relative; width: 100%; max-width: 320px; aspect-ratio: 1; justify-self: center; }
+.art-stage .art-still, .art-stage .art-live { position: absolute; inset: 0; width: 100%; height: 100%; }
+.art-stage.is-live .art-still { display: none; }
+.art-stage .art-live svg { display: block; }
+.art-pause { position: absolute; right: 0; bottom: 0; z-index: 2; min-height: 48px; padding: 0 14px; font-size: 14px; background: rgba(18, 20, 16, .7); color: var(--ivory-muted); border: 1px solid #5a5c50; }
+.art-pause:hover { color: var(--ivory); }
+.launch .launch-intro { padding: 34px 36px; }
+.launch .launch-intro p { max-width: 30em; }
+.launch .who-row { border-top: 1px solid var(--line); padding: 18px 0; gap: 16px; }
+.launch .who-row .btn { min-height: 48px; border-radius: 999px; }
+.launch .card h2 { margin: 0; }
+.launch-help.card { padding-top: 16px; padding-bottom: 16px; }
+
+/* ── 원격 참배 */
+.visit-card h2 { font-size: 26px; }
+.niche-code { font-family: var(--font-sans); font-size: 16px; margin-left: 6px; }
+.viewer { background: var(--bg-3); border: 1px solid var(--line-strong); border-radius: 4px; }
+.snapshot { border-radius: 2px; background: var(--bg-2); }
+.snapshot .placeholder { color: var(--muted); font-size: 17px; padding: 0 18px; }
+.snapshot .placeholder small { font-size: 15px; }
+.snapshot .badge, .snapshot .tap-hint { background: rgba(18, 20, 16, .78); color: var(--ivory); border: 0; border-radius: 999px; font-size: 14px; }
+.snapshot .badge.live { background: #8f2f24; }
+.status-line { font-size: 15px; color: var(--muted); flex-wrap: wrap; gap: 8px; }
+.chime-toggle, .chime-toggle.on { min-height: 48px; font-size: 15px; border: 1px solid var(--line-strong); border-radius: 999px; background: transparent; color: var(--ink); padding: 0 16px; }
+.dot.on { background: var(--ok); } .dot.busy { background: #a86b12; }
+.visit-actions { gap: 12px; margin-bottom: 8px; }
+.visit-actions > button { min-height: 60px; font-size: 18px; }
+.section-shortcuts { margin: 12px 0 24px; }
+.section-shortcuts > button, .section-shortcuts button { background: transparent; border-color: var(--line-strong); font-size: 16px; }
+#themeStatus { font-size: 16px; }
+.history-card summary { min-height: 48px; }
+
+/* ── 추모 공간 */
+#view[data-page=memorial] .memorial-garden { padding: 0; overflow: hidden; }
+.memorial-cover { height: 200px; background: var(--garden-image) center 52% / cover no-repeat, var(--bg-2); border-bottom: 1px solid var(--line); filter: saturate(.85); }
+.portrait-arch { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 120px 120px 4px 4px; box-shadow: none; }
+.no-portrait { background: var(--bg-2); color: var(--accent); }
+.no-portrait small { font-size: 15px; }
+.dedication-copy h2 { font-size: 38px; }
+.dedication-copy h2 small { font-family: var(--font-sans); font-size: 18px; }
+.memorial-relation { font-size: 17px; }
+.dates { font-size: 16px; color: var(--muted); }
+.dedication-message { color: var(--ink); font-size: 19px; }
+.memorial-records { border-top: 1px solid var(--line); }
+#view[data-page="memorial"] .card.hero::before, #view[data-page="memorial"] .card.hero::after { display: none; }
+
+/* ── 설정: 테마 고르기 */
+.theme-grid .tile { color: var(--ink); padding: 0 0 16px; min-height: 0; }
+.theme-grid .tile.active { border-color: var(--accent); border-top-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.theme-thumb { filter: saturate(.85); border-bottom: 1px solid var(--line); }
+.tile .sw, .theme-grid .tile .sw { display: block; width: 36px; height: 24px; border: 0; border-radius: 0; background: var(--tile-accent, var(--accent)); -webkit-mask: var(--tile-mark) center / contain no-repeat; mask: var(--tile-mark) center / contain no-repeat; }
+.tile[data-theme="classic"] { --tile-mark: url("/static/images/brand/mark-classic.svg"); --tile-accent: #4b5636; }
+.tile[data-theme="buddhist"] { --tile-mark: url("/static/images/brand/mark-lotus.svg"); --tile-accent: #8f3b2b; }
+.tile[data-theme="catholic"] { --tile-mark: url("/static/images/brand/mark-catholic.svg"); --tile-accent: #3d4f6b; }
+.tile[data-theme="christian"] { --tile-mark: url("/static/images/brand/mark-christian.svg"); --tile-accent: #2f5a55; }
+.tile[data-theme] .sw { background: var(--tile-accent); }
+.theme-grid .tile small { font-size: 15px; }
+.theme-preview { border: 1px solid var(--line); border-top: 1px solid var(--ink); border-radius: 4px; color: var(--ink); min-height: 220px;
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface) 52%, color-mix(in srgb, var(--surface) 70%, transparent) 72%, transparent 100%), var(--garden-image) right center / cover no-repeat, var(--surface); }
+.theme-preview::before, .theme-preview::after { display: none; }
+.preview-symbol { width: 48px; height: 36px; border: 0; border-radius: 0; background: var(--accent); -webkit-mask: var(--mark) center / contain no-repeat; mask: var(--mark) center / contain no-repeat; margin-bottom: 4px; }
+.preview-symbol::before { content: none; }
+.theme-preview > .serif { color: var(--ink); max-width: 60%; }
+.theme-preview small, .preview-fonts { background: transparent; color: var(--accent); font-size: 15px; padding: 0; }
+.motion-row { flex-wrap: wrap; gap: 10px; }
+.settings-actions button { min-height: 56px; }
+
+/* ── 가족 기록 · 마음 전하기 */
+.memory-copy .eyebrow { font-size: 14px; letter-spacing: .05em; }
+.memory-copy .eyebrow::before { display: none; }
+.comfort-card { background: var(--surface); padding-top: 28px; }
+.comfort-card .eyebrow { justify-content: center; }
+.remembrance-steps { color: var(--ink); }
+.approved-prayer { color: var(--ink); }
+.community-form .check { font-size: 16px; }
+.community-form fieldset { border-radius: 4px; border-color: var(--line); }
+.easy-choices button { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-top: 1px solid var(--ink); border-radius: 4px; }
+
+/* ── 아래 메뉴 */
+nav.tabs { background: var(--surface); border: 1px solid var(--line); border-top: 1px solid var(--ink); border-radius: 4px; box-shadow: 0 -6px 24px rgba(18, 20, 16, .06); padding: 4px; bottom: max(8px, env(safe-area-inset-bottom)); width: min(calc(100% - 20px), 760px); }
+nav.tabs button { background: transparent; color: var(--muted); border: 0; border-radius: 2px !important; min-height: 64px; font-size: 15px; font-weight: 500; }
+nav.tabs button:not(:disabled):hover { background: var(--bg-2); }
+nav.tabs button.active { background: var(--bg-2); color: var(--ink); font-weight: 700; }
+nav.tabs button.active::after { display: block; left: 30%; right: 30%; top: auto; bottom: 4px; height: 2px; background: var(--accent); }
+nav.tabs button svg { width: 26px; height: 26px; }
+
+/* ── 바닥 (먹색) */
+.ink-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 20px; padding: 22px max(20px, calc((100vw - 880px) / 2)); background: var(--ink-deep); color: var(--ivory-muted); font-size: 14px; letter-spacing: .04em; }
+html[data-easy="true"] .ink-foot { display: none; }
+
+/* ── 생중계 화면(먹색 위 영상) */
+.live-top { z-index: 3; }
+.live-badge-red { background: #8f2f24; box-shadow: none; font-size: 14px; border-radius: 999px; padding: 4px 12px; letter-spacing: .05em; }
+.live-viewers { font-size: 14px; padding: 4px 12px; }
+.live-close { width: auto; min-width: 64px; min-height: 48px; padding: 0 16px; border-radius: 999px; font-size: 16px; }
+.live-send { min-height: 48px; }
+.live-react button { width: 52px; min-width: 52px; min-height: 52px; }
+.live-react .live-orderbtn { min-height: 52px; font-size: 16px; color: var(--ivory); }
+.live-ended { font-size: 22px; padding: 0 24px; text-align: center; color: var(--ivory); }
+
+/* ── 좁은 화면 */
+@media (max-width: 720px) {
+  .memorial-hero, .welcome-garden.memorial-hero, .launch .launch-intro { grid-template-columns: 1fr; padding: 26px 22px 24px; gap: 4px; }
+  .hero-art { max-width: 210px; order: -1; margin-bottom: 4px; }
+  .art-pause { right: -8px; }
+}
+@media (max-width: 600px) {
+  header.top { min-height: 76px; padding: 14px 16px 22px; }
+  header.top::after { left: 16px; right: 16px; }
+  header.top .brand { font-size: 18px; letter-spacing: .08em; }
+  header.top .brand small { font-size: 12px; letter-spacing: .06em; }
+  .brand-mark { width: 26px; height: 20px; }
+  header.top .who { font-size: 14px; }
+  main { padding: 18px 14px 34px; }
+  .family-utilities { padding: 10px 14px 0; }
+  .card, .card.tight { padding: 22px 18px; }
+  .memorial-hero h1 { font-size: 30px; }
+  .visit-card h2 { font-size: 23px; }
+  .niche-code { display: block; margin: 2px 0 0; }
+  .dedication-copy h2 { font-size: 32px; }
+  .theme-preview { background: var(--surface); }
+  .theme-preview > .serif { max-width: 100%; }
+  nav.tabs button { font-size: 14px; min-height: 62px; padding: 6px 2px; }
+  .ink-foot { padding: 18px 16px; font-size: 13px; }
+  .launch .who-row .row { width: 100%; }
+  .theme-grid .tile .sw { display: none; }
+  .theme-grid .tile > span:last-child { padding: 0 12px; }
+}
+
+/* ── 쉬운 화면: 시스템 글꼴과 큰 글자는 그대로 */
+html[data-easy=true], html[data-easy=true] .theme-preview { --font-serif: system-ui, "Malgun Gothic", sans-serif; --font-sans: system-ui, "Malgun Gothic", sans-serif; }
+@media (prefers-reduced-motion: reduce) { .art-pause { display: none; } }

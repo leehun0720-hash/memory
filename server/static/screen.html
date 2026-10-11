@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>현장 화면 · 제사 생중계</title>
+<title>현장 화면 · 원격 추도식</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="/static/css/app.css">
@@ -33,17 +33,19 @@
   .scr-foot .cnt { display: flex; gap: 10px; font-size: 16px; color: var(--ink); }
   @media (max-width: 900px) { .scr { grid-template-columns: 1fr; grid-template-rows: 45vh 55vh; } .scr-side { border-left: none; border-top: 1px solid var(--line); } }
 </style>
+<link rel="stylesheet" href="/static/css/brand-screen.css?v=20261011">
 </head>
 <body>
 <div class="scr">
-  <div class="scr-video"><img id="video" alt="">
-    <div class="top"><span class="live-badge-red">● LIVE</span><span class="t" id="title">제사 생중계</span><span class="live-viewers" id="viewers">👁 0</span></div>
+  <div class="scr-video"><img id="video" alt="제례 공간 현장 영상">
+    <div class="scr-wait" id="videoWait" role="status">현장 영상을 기다리는 중입니다…<small>제례 공간 카메라와 현장 프로그램이 켜지면 자동으로 나타납니다.</small></div>
+    <div class="top"><span class="live-badge-red">생중계</span><span class="t" id="title">원격 추도식</span><span class="live-viewers" id="viewers">함께 참배하는 가족을 확인하는 중입니다</span></div>
     <div class="fx" id="fx"></div></div>
   <div class="scr-side">
-    <div class="scr-now" id="now"><div class="k">봉행 순서</div><div class="name">준비 중</div></div>
+    <div class="scr-now" id="now"><div class="k">봉행 순서</div><div class="name">준비하고 있습니다</div></div>
     <div class="scr-order" id="order"></div>
-    <div class="scr-msgs" id="msgs"></div>
-    <div class="scr-foot"><span class="cnt" id="counts"></span><span style="flex:1"></span><button class="small ghost" id="ttsBtn">가족 메시지 읽어 주기: 끔</button></div>
+    <div class="scr-msgs" id="msgs" aria-live="polite"></div>
+    <div class="scr-foot"><span class="cnt" id="counts"></span><span style="flex:1"></span><button class="small ghost" id="ttsBtn" aria-pressed="false">가족 메시지 읽어 주기 · 꺼짐</button></div>
   </div>
 </div>
 <script type="module" src="/static/js/screen.js"></script>

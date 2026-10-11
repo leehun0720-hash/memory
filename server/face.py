@@ -18,7 +18,7 @@ def register(deceased_id: int, actor: str) -> dict:
     if not db.one("SELECT id FROM consents WHERE deceased_id=? AND kind IN ('likeness','lifetime_record') AND revoked_at IS NULL", (deceased_id,)):
         raise HTTPException(403, "초상 사용(또는 생전 기록) 동의서가 없어 얼굴을 등록할 수 없습니다.")
     if not provider_ready():
-        raise HTTPException(400, "봉안당에서 아직 실시간 아바타 기능을 켜지 않았습니다(관리자 콘솔 → AI 설정 → Simli 키).")
+        raise HTTPException(400, "시설에서 아직 실시간 아바타 기능을 켜지 않았습니다(관리자 콘솔 → 인공지능 설정 → Simli 키).")
     if not d["photo_path"]:
         raise HTTPException(400, "대표 사진이 없습니다. 정면 얼굴 사진을 먼저 등록해 주세요.")
     fp = config.MEDIA_DIR / d["photo_path"]
@@ -55,7 +55,7 @@ def set_preset(deceased_id: int, face_id: str, actor: str) -> dict:
     if not d:
         raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
     if not provider_ready():
-        raise HTTPException(400, "봉안당에서 아직 실시간 아바타 기능을 켜지 않았습니다.")
+        raise HTTPException(400, "시설에서 아직 실시간 아바타 기능을 켜지 않았습니다.")
     if d["face_id"] and d["face_id"] not in SimliAvatar.PRESET_IDS:
         delete(deceased_id, actor)   # 맞춤 얼굴이 있었다면 공급자 쪽도 정리
     db.execute("UPDATE deceased SET face_id=?, face_provider='simli' WHERE id=?", (face_id, deceased_id))

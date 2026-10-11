@@ -22,7 +22,7 @@ def require_edge(x_edge_key: str | None = Header(default=None)) -> str:
 def require_member(x_family_token: str | None = Header(default=None), t: str | None = Query(default=None)) -> dict:
     tok = x_family_token or t
     if not tok:
-        raise HTTPException(401, "초대 링크로 접속해 주세요.")
+        raise HTTPException(401, "초대 링크로 들어와 주세요. 링크가 없으면 계약하신 가족이나 시설 담당자에게 요청해 주세요.")
     m = db.one(
         """SELECT m.*, c.niche_id, c.holder_name, c.plan, n.code AS niche_code, n.camera_id
            FROM family_members m JOIN contracts c ON c.id = m.contract_id
@@ -30,9 +30,9 @@ def require_member(x_family_token: str | None = Header(default=None), t: str | N
         (tok,),
     )
     if not m or m.get("revoked_at"):
-        raise HTTPException(401, "초대 링크가 유효하지 않습니다.")
+        raise HTTPException(401, "이 초대 링크로는 들어올 수 없습니다. 계약하신 가족에게 새 초대 링크를 요청해 주세요.")
     if m.get("invite_expires_at") and datetime.fromisoformat(m["invite_expires_at"]) <= datetime.now(timezone.utc):
-        raise HTTPException(401, "초대 링크가 만료되었습니다. 계약자에게 새 링크를 요청해 주세요.")
+        raise HTTPException(401, "초대 링크의 사용 기간이 지났습니다. 계약하신 가족에게 새 링크를 요청해 주세요.")
     db.execute("UPDATE family_members SET last_seen_at=? WHERE id=?", (db.now(), m["id"]))
     return m
 
@@ -40,4 +40,4 @@ def require_member(x_family_token: str | None = Header(default=None), t: str | N
 def require_role(member: dict, *roles: str) -> None:
     order = {"view": 0, "chat": 1, "manage": 2}
     if order.get(member["role"], 0) < min(order[r] for r in roles):
-        raise HTTPException(403, "권한이 없습니다. 계약자에게 요청해 주세요.")
+        raise HTTPException(403, "이 기능은 계약하신 가족의 허락이 필요합니다. 계약자에게 요청해 주세요.")

@@ -1,0 +1,39 @@
+/* 현장 화면(제례 공간 TV) 테마 층 (2026-10-11). 먹색 바탕, 금색 선, 명조 이름, 상아 글.
+   여러 가족(종교)이 함께 보는 화면이므로 종교 상징 없이 선과 여백만 쓴다. 멀리서도 읽히도록 글자를 키운다. */
+:root, html[data-theme] {
+  --bg: #121410; --bg-2: #1b1e19; --surface: #1b1e19; --line: #3a3d34; --line-strong: #5a5c50;
+  --ink: #f2ebdd; --muted: #c9c2b1; --accent: #c9a66b; --gold: #c9a66b; --gold-2: #f2ebdd; --glow: 201, 166, 107;
+  --font-serif: "Noto Serif KR", "Batang", serif; --font-sans: "Noto Sans KR", "Malgun Gothic", sans-serif;
+}
+html, body { background: #121410; color: #f2ebdd; }
+body::before, body::after { display: none !important; }
+.scr-video { background: #0c0d0a; }
+.scr-video .top { background: linear-gradient(180deg, rgba(12, 13, 10, .85), transparent); padding: 22px 26px; }
+.scr-video .top .t { font-family: var(--font-serif); font-weight: 400; color: #f2ebdd; font-size: 30px; letter-spacing: .02em; }
+.live-badge-red { background: #8f2f24; box-shadow: none; font-size: 16px; font-weight: 600; border-radius: 999px; padding: 4px 14px; letter-spacing: .08em; }
+.live-viewers { font-size: 17px; color: #c9c2b1; background: rgba(18, 20, 16, .6); border: 1px solid #3a3d34; border-radius: 999px; padding: 4px 14px; }
+.scr-wait { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 0 10%;
+  font-family: var(--font-serif); font-size: 26px; color: #f2ebdd;
+  background: radial-gradient(closest-side, rgba(201, 166, 107, .12), transparent 70%), #0c0d0a; }
+.scr-wait::before { content: ""; width: 140px; height: 140px; border: 1px solid #c9a66b; border-radius: 50%; box-shadow: 0 0 0 14px rgba(201, 166, 107, .06), 0 0 0 15px rgba(242, 235, 221, .14); margin-bottom: 18px; }
+.scr-wait small { font-family: var(--font-sans); font-size: 18px; color: #c9c2b1; }
+.scr-wait[hidden] { display: none; }
+.scr-side { background: #121410; border-left: 1px solid #3a3d34; padding: 26px 28px; }
+.scr-now { background: #1b1e19; border: 1px solid #3a3d34; border-top: 1px solid #c9a66b; border-radius: 4px; padding: 22px 20px; }
+.scr-now .k { color: #c9a66b; font-size: 17px; letter-spacing: .2em; font-weight: 500; }
+.scr-now .name { font-family: var(--font-serif); font-weight: 400; color: #f2ebdd; font-size: 44px; }
+.scr-now .dates { font-size: 20px; color: #c9c2b1; }
+.scr-now .mourner { font-size: 22px; color: #f2ebdd; }
+.scr-order .live-order-row { font-size: 19px; border-radius: 4px; }
+.scr-order .live-order-row.now { background: #22251f; box-shadow: inset 3px 0 0 #c9a66b; }
+.scr-order .muted { color: #c9c2b1; font-size: 17px !important; }
+.scr-msgs .live-msg { font-size: 21px; background: #1b1e19; border: 1px solid #3a3d34; border-radius: 4px; color: #f2ebdd; }
+.scr-msgs .live-msg b { color: #c9a66b; margin-right: 8px; }
+.scr-msgs .live-msg.notice { background: #efe9dc; color: #121410; border-color: #c9a66b; }
+.scr-msgs .live-msg.notice b { color: #8f3b2b; }
+.scr-foot { font-size: 17px; color: #c9c2b1; border-top: 1px solid #3a3d34; padding-top: 14px; }
+.scr-foot .cnt { color: #f2ebdd; font-size: 19px; }
+.scr-foot button { min-height: 48px; font-size: 16px; padding: 0 18px; border-radius: 999px; background: transparent; color: #f2ebdd; border: 1px solid #5a5c50; box-shadow: none; }
+.scr-foot button[aria-pressed="true"] { background: #f2ebdd; color: #121410; }
+button:focus-visible { outline: 3px solid #c9a66b; outline-offset: 3px; }
+@media (max-width: 900px) { .scr-side { border-left: 0; border-top: 1px solid #3a3d34; } .scr-video .top .t { font-size: 22px; } .scr-now .name { font-size: 34px; } }

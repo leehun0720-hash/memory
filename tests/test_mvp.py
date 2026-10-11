@@ -142,7 +142,7 @@ def test_chat_flow_and_summary(client):
     did = db.one("SELECT id FROM deceased WHERE name='김옥순'")["id"]
     assert client.post("/api/family/chat/start", headers=tok, json={"deceased_id": did}).status_code == 400  # 고지 미확인
     s = client.post("/api/family/chat/start", headers=tok, json={"deceased_id": did, "acknowledged_ai": True, "occasion": "기일"}).json()
-    assert s["greeting"] and "AI" in s["notice"]
+    assert s["greeting"] and "인공지능" in s["notice"]
     t = client.post("/api/family/chat/turn", headers=tok, json={"session_id": s["session_id"], "text": "엄마 보고 싶어요"}).json()
     assert t["reply"] and t["safety"] is None and not t["ended"]
     t = client.post("/api/family/chat/turn", headers=tok, json={"session_id": s["session_id"], "text": "유산은 어떻게 해요"}).json()

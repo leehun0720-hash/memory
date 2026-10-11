@@ -20,17 +20,23 @@ const toast = (m) => { let el = $(".toast"); if (!el) { el = document.createElem
 const modal = (html) => { const bg = document.createElement("div"); bg.className = "modal-bg"; bg.style.alignItems = "center"; bg.innerHTML = `<div class="modal" style="border-radius:16px;max-width:720px">${html}</div>`; bg.addEventListener("click", (e) => e.target === bg && bg.remove()); document.body.appendChild(bg); return bg; };
 
 async function boot() {
-  if (!KEY) { KEY = prompt("관리자 키를 입력하세요") || ""; sessionStorage.setItem("admin_key", KEY); }
-  try { await api("/api/admin/overview"); } catch (e) { sessionStorage.removeItem("admin_key"); page.innerHTML = `<div class="card">인증 실패: ${esc(e.message)} <button class="small" onclick="location.reload()">다시</button></div>`; return; }
+  if (!KEY) { KEY = prompt("관리자 키를 입력해 주세요") || ""; sessionStorage.setItem("admin_key", KEY); }
+  try { await api("/api/admin/overview"); } catch (e) { sessionStorage.removeItem("admin_key"); page.innerHTML = `<div class="card" role="alert"><h1>관리자 콘솔을 열지 못했습니다</h1><p>${esc(e.message)}</p><p class="muted">관리자 키를 확인한 뒤 다시 입력해 주세요. 키는 서버 설정(.env의 ADMIN_KEY)에 있습니다.</p><button class="small" onclick="location.reload()">다시 입력하기</button></div>`; return; }
   document.querySelectorAll("aside button").forEach((b) => b.onclick = () => go(b.dataset.page));
   const want = location.hash.slice(1);   // /admin?key=…#rituals 처럼 페이지를 지정해 열 수 있다
   go(["overview", "tasks", "calib", "contracts", "deceased", "rituals", "usage", "aisettings"].includes(want) ? want : "overview");
 }
 function go(p) {
   timers.forEach(clearInterval); timers = [];
-  document.querySelectorAll("aside button").forEach((b) => b.classList.toggle("active", b.dataset.page === p));
-  ({ overview, tasks, calib, contracts, deceased, rituals, usage, aisettings })[p]();
+  document.querySelectorAll("aside button").forEach((b) => { b.classList.toggle("active", b.dataset.page === p); if (b.dataset.page === p) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+  page.innerHTML = '<p class="muted" role="status">화면을 불러오는 중입니다…</p>';
+  Promise.resolve(({ overview, tasks, calib, contracts, deceased, rituals, usage, aisettings })[p]()).catch((e) => {
+    page.innerHTML = `<div class="card" role="alert"><h2>화면을 불러오지 못했습니다</h2><p>${esc(e.message)}</p><p class="muted">서버 연결을 확인한 뒤 다시 불러와 주세요.</p><button class="small secondary" id="pageRetry">다시 불러오기</button></div>`;
+    $("#pageRetry").onclick = () => go(p);
+  });
 }
+// 되돌릴 수 없는 일: 결과를 먼저 말하고 확인한다.
+const sure = (what) => confirm(`${what} 되돌릴 수 없습니다. 계속할까요?`);
 
 async function tasks() {
   page.innerHTML='<h1>오늘 할 일</h1><p role="status">불러오는 중…</p>';
@@ -38,7 +44,7 @@ async function tasks() {
     const [t,n]=await Promise.all([api('/api/admin/tasks'),api('/api/admin/notifications')]);
     const list=(rows,format)=>rows.length?rows.map(r=>`<div class="list-item">${format(r)}</div>`).join(''):'<p class="muted">확인할 항목이 없습니다.</p>';
     const statuses={in_app:'앱 안 알림',pending:'발송 대기',blocked:'설정 대기',sending:'접수 중',submitted:'접수됨 · 수신 확인 중',delivered:'수신 성공',failed:'실패',unknown:'결과 확인 필요',cancelled:'취소',expired:'발송 기한 만료'};
-    page.innerHTML=`<h1>오늘 할 일</h1><p class="muted">${esc(t.date)} · 한국 시간</p><button class="small secondary" id="refreshTasks">새로고침</button><div class="card"><h2>오늘의 의례</h2>${list(t.rituals,r=>`${esc(fmt(r.scheduled_at))} · ${esc(r.title)}`)}<button class="small ghost" data-task-page="rituals">의례 일정 관리</button></div><div class="card"><h2>공양·헌화 접수 ${t.offerings.length}건</h2>${list(t.offerings,r=>`${esc(r.holder_name)} · ${esc({offering:'공양',flower:'헌화',prayer:'기도'}[r.kind]||r.kind)} · ${esc(r.note)}`)}<button class="small ghost" data-task-page="usage">접수 처리</button></div><div class="card"><h2>가족 앨범 승인 대기 ${t.memories.length}건</h2><p class="muted">공개와 AI 활용 동의는 해당 가족의 계약자가 추모 공간에서 결정합니다.</p>${list(t.memories,r=>`${esc(r.deceased_name)} 님 · ${esc(r.title)} · 계약자 ${esc(r.holder_name)}`)}</div><div class="card"><h2>촬영 상태 확인</h2><h3>연결이 끊긴 카메라</h3>${list(t.offline,r=>esc(r.name))}<h3>24시간 이상 갱신되지 않은 봉안함 사진</h3>${list(t.stale,r=>`${esc(r.code)} · ${esc(fmt(r.last_snapshot_at)||'촬영 기록 없음')}`)}<button class="small ghost" data-task-page="calib">카메라 관리</button></div><div class="card"><h2>카카오 알림톡</h2><p>${n.provider.ready?'발송 연결 준비 완료':'발송 설정 대기'} · ${esc(n.provider.provider)}</p><p class="muted">${esc(n.provider.note)}</p>${n.provider.missing.length?`<p class="mono">미설정: ${n.provider.missing.map(esc).join(', ')}</p>`:''}${!n.provider.enabled?'<p class="muted">KAKAO_SEND_ENABLED=1 설정 후 서버를 재시작하면 동의한 가족에게 발송합니다.</p>':''}<p class="muted">설정 방법은 docs/ALIMTALK.md를 참고하세요. 통신 결과가 불명확한 발송은 공급자 이력을 먼저 확인합니다.</p>${list(n.messages,r=>`<div><b>${esc(r.name)}</b> ${esc(r.phone_masked)}<p>${esc(r.body)}</p><span class="tag">${statuses[r.delivery_status]||esc(r.delivery_status)}</span> <span class="muted">${esc(r.delivery_error)}</span>${r.delivery_status==='failed'?`<button class="small secondary" data-retry="${r.id}">실패 건 재발송</button>`:''}</div>`)}</div>`;
+    page.innerHTML=`<h1>오늘 할 일</h1><p class="muted">${esc(t.date)} · 한국 시간</p><button class="small secondary" id="refreshTasks">새로고침</button><div class="card"><h2>오늘의 의례</h2>${list(t.rituals,r=>`${esc(fmt(r.scheduled_at))} · ${esc(r.title)}`)}<button class="small ghost" data-task-page="rituals">의례 일정 관리</button></div><div class="card"><h2>공양·헌화 접수 ${t.offerings.length}건</h2>${list(t.offerings,r=>`${esc(r.holder_name)} · ${esc({offering:'공양',flower:'헌화',prayer:'기도'}[r.kind]||r.kind)} · ${esc(r.note)}`)}<button class="small ghost" data-task-page="usage">접수 처리</button></div><div class="card"><h2>가족 앨범 승인 대기 ${t.memories.length}건</h2><p class="muted">공개와 인공지능 활용 동의는 해당 가족의 계약자가 추모 공간에서 결정합니다.</p>${list(t.memories,r=>`${esc(r.deceased_name)} 님 · ${esc(r.title)} · 계약자 ${esc(r.holder_name)}`)}</div><div class="card"><h2>촬영 상태 확인</h2><h3>연결이 끊긴 카메라</h3>${list(t.offline,r=>esc(r.name))}<h3>24시간 이상 갱신되지 않은 봉안함 사진</h3>${list(t.stale,r=>`${esc(r.code)} · ${esc(fmt(r.last_snapshot_at)||'촬영 기록 없음')}`)}<button class="small ghost" data-task-page="calib">카메라 관리</button></div><div class="card"><h2>카카오 알림톡</h2><p>${n.provider.ready?'발송 연결 준비 완료':'발송 설정 대기'} · ${esc(n.provider.provider)}</p><p class="muted">${esc(n.provider.note)}</p>${n.provider.missing.length?`<p class="mono">미설정: ${n.provider.missing.map(esc).join(', ')}</p>`:''}${!n.provider.enabled?'<p class="muted">KAKAO_SEND_ENABLED=1 설정 후 서버를 재시작하면 동의한 가족에게 발송합니다.</p>':''}<p class="muted">설정 방법은 docs/ALIMTALK.md를 참고하세요. 통신 결과가 불명확한 발송은 공급자 이력을 먼저 확인합니다.</p>${list(n.messages,r=>`<div><b>${esc(r.name)}</b> ${esc(r.phone_masked)}<p>${esc(r.body)}</p><span class="tag">${statuses[r.delivery_status]||esc(r.delivery_status)}</span> <span class="muted">${esc(r.delivery_error)}</span>${r.delivery_status==='failed'?`<button class="small secondary" data-retry="${r.id}">실패 건 재발송</button>`:''}</div>`)}</div>`;
     $('#refreshTasks').onclick=tasks;
     page.querySelectorAll('[data-task-page]').forEach(b=>b.onclick=()=>go(b.dataset.taskPage));
     page.querySelectorAll('[data-retry]').forEach(b=>b.onclick=async()=>{if(!confirm('확실히 실패한 이 알림을 다시 발송 대기열에 넣을까요?'))return;b.disabled=true;try{await api(`/api/admin/notifications/${b.dataset.retry}/retry`,{method:'POST'});await tasks();}catch(e){toast(e.message);b.disabled=false;}});
@@ -54,23 +60,23 @@ async function overview() {
       <div class="kpi" style="margin:14px 0">
         ${[["계약", c.contracts], ["가족 계정", c.members], ["고인 등록", c.deceased], ["대화 기능 열림", c.ai_enabled], ["대화 세션", c.chat_sessions], ["공양 접수 대기", c.offerings_pending], ["오늘 실시간 보기", c.live_today]].map(([k, v]) => `<div class="card"><div class="muted">${k}</div><div class="n">${v}</div></div>`).join("")}
       </div>
-      <div class="card"><h3>카메라</h3><table><tr><th>이름</th><th>종류</th><th>장치</th><th>칸 수</th><th>상태</th><th>참배객</th><th>fps</th><th>마지막 신호</th></tr>
+      <div class="card"><h3>카메라</h3><table><tr><th>이름</th><th>종류</th><th>장치</th><th>봉안 자리 수</th><th>상태</th><th>참배객</th><th>초당 장면</th><th>마지막 신호</th></tr>
         ${o.cameras.map((cm) => `<tr><td>${esc(cm.name)}<div class="muted">${esc(cm.room_name)}</div></td><td>${cm.kind === "wall" ? "벽면" : "제례"}</td><td>#${cm.device_index}</td><td>${cm.niche_count}</td>
           <td>${cm.online ? '<span class="tag on">연결됨</span>' : '<span class="tag off">끊김</span>'}</td><td>${cm.occupied ? `<span class="tag busy">사람 ${cm.persons}명 · 송출 중단</span>` : '<span class="tag">없음</span>'}</td><td>${cm.fps}${cm.blurry ? `<div class="tag off" title="윈도우 설정 → Bluetooth 및 장치 → 카메라 → 이 카메라 → Windows 스튜디오 효과 → 배경 효과 끄기">영상 흐림 의심 (선명도 ${cm.sharpness}) → 윈도우 카메라 배경 효과 끄기</div>` : (cm.sharpness >= 0 ? `<div class="muted" style="font-size:11px">선명도 ${cm.sharpness}</div>` : "")}</td><td class="muted">${fmt(cm.last_seen_at)}</td></tr>`).join("")}</table>
         <p class="muted" style="margin-top:8px">현장 프로그램이 꺼져 있으면 <span class="mono">python -m edge.agent</span> 로 실행하세요.</p></div>
       <div class="card"><h3>시연 모드 <span class="muted">(노트북 시연용 · 실제 운용 전에 반드시 운용 모드로)</span></h3>
         <div class="toolbar"><button class="small ${o.live_protect ? "" : "danger"}" id="liveProtect">참배객 감지: ${o.live_protect ? "켬 (운용)" : "끔 (시연)"}</button>
-          <button class="small ${o.blur_outside ? "" : "danger"}" id="blurToggle">옆 칸 가리기: ${o.blur_outside ? "켬 (운용)" : "끔 (시연·전체 화면 선명)"}</button>
+          <button class="small ${o.blur_outside ? "" : "danger"}" id="blurToggle">옆 자리 가리기: ${o.blur_outside ? "켬 (운용)" : "끔 (시연·전체 화면 선명)"}</button>
           <button class="small secondary" id="demoAll">${o.live_protect || o.blur_outside ? "시연 모드로 (둘 다 끔)" : "운용 모드로 (둘 다 켬)"}</button></div>
-        <p class="muted" style="font-size:13px"><b>참배객 감지</b>: 현장에 사람이 잡히면 실시간 영상을 멈춥니다(노트북 앞에 앉은 사람도 잡혀 영상이 끊김). <b>옆 칸 가리기</b>: 운용에서는 내 칸만 잘라내 선명하게 두고 바깥(옆 칸 이름·사진)은 흐리고 어둡게 합니다. 끄면 잘라내지 않고 카메라 화면 전체를 선명하게 보냅니다(내 칸은 테두리만). 시연에서는 둘 다 끄세요.</p></div>
-      <div class="card"><h3>AI 연결 점검 <span class="muted">(시연 전에 한 번 누르세요)</span></h3>
+        <p class="muted" style="font-size:13px"><b>참배객 감지</b>: 현장에 사람이 잡히면 실시간 영상을 멈춥니다(노트북 앞에 앉은 사람도 잡혀 영상이 끊김). <b>옆 자리 가리기</b>: 운용에서는 내 자리만 잘라내 선명하게 두고 바깥(옆 자리 이름·사진)은 흐리고 어둡게 합니다. 끄면 잘라내지 않고 카메라 화면 전체를 선명하게 보냅니다(내 자리는 테두리만). 시연에서는 둘 다 끄세요.</p></div>
+      <div class="card"><h3>인공지능 연결 점검 <span class="muted">(시연 전에 한 번 누르세요)</span></h3>
         <div class="toolbar"><button class="small" id="chkAll">지금 점검</button><span class="muted">Claude 키·크레딧, ElevenLabs 키·권한 3개를 한 번에 확인합니다.</span></div>
         <div id="chkOut" class="stack" style="font-size:14px"></div></div>`;
     $("#chkAll").onclick = runAllChecks;
     const setLive = async (protect, blur, msg) => { try { await api("/api/admin/settings/live", { method: "PUT", body: { protect, blur } }); toast(msg); render(); } catch (e) { toast(e.message); } };
     $("#liveProtect").onclick = () => setLive(!o.live_protect, o.blur_outside, o.live_protect ? "참배객 감지를 껐습니다(시연)." : "참배객 감지를 켰습니다(운용).");
-    $("#blurToggle").onclick = () => setLive(o.live_protect, !o.blur_outside, o.blur_outside ? "옆 칸 가리기를 껐습니다(시연·전체 화면 선명). 현장 프로그램에 1초 안에 반영됩니다." : "옆 칸 가리기를 켰습니다(운용).");
-    $("#demoAll").onclick = () => { const demo = o.live_protect || o.blur_outside; setLive(!demo, !demo, demo ? "시연 모드: 참배객 감지·옆 칸 흐림을 모두 껐습니다." : "운용 모드: 참배객 감지·옆 칸 흐림을 모두 켰습니다."); };
+    $("#blurToggle").onclick = () => setLive(o.live_protect, !o.blur_outside, o.blur_outside ? "옆 자리 가리기를 껐습니다(시연·전체 화면 선명). 현장 프로그램에 1초 안에 반영됩니다." : "옆 자리 가리기를 켰습니다(운용).");
+    $("#demoAll").onclick = () => { const demo = o.live_protect || o.blur_outside; setLive(!demo, !demo, demo ? "시연 모드: 참배객 감지·옆 자리 흐림을 모두 껐습니다." : "운용 모드: 참배객 감지·옆 자리 흐림을 모두 켰습니다."); };
     if (overview.lastCheck) $("#chkOut").innerHTML = overview.lastCheck;
   };
   await render(); every(render, 5000);
@@ -80,10 +86,10 @@ async function runAllChecks() {
   const line = (ok, label, msg) => `<div style="color:${ok ? "#1e7a45" : "var(--danger)"}"><b>${ok ? "✓" : "✗"} ${label}</b> — ${esc(msg)}</div>`;
   let html = "";
   try { const r = await api("/api/admin/settings/ai/test", { method: "POST" }); html += line(true, "Claude 대화", `${r.model} 응답 확인`); }
-  catch (e) { html += line(false, "Claude 대화", e.message + " → AI 설정에서 키/크레딧 확인"); }
+  catch (e) { html += line(false, "Claude 대화", e.message + " → 인공지능 설정에서 키/크레딧 확인"); }
   try { const r = await api("/api/admin/settings/tts/test", { method: "POST" }); const c = r.checks || {};
     const mk = (k) => c[k] === "ok" ? "✓" : c[k] === "quota" ? "✗(키 크레딧 한도 0)" : "✗";
-    html += line(!!r.all_ok, "ElevenLabs 복제 음성", `텍스트 음성 변환 ${mk("text_to_speech")} · 음성 ${mk("voices_read")} · 사용자 ${mk("user_read")}${r.note ? " · " + r.note : ""}${!r.all_ok && c.text_to_speech !== "quota" ? " → 가장 쉬운 해결: ElevenLabs에서 '키 제한'을 끈 새 키를 만들어 AI 설정에 저장" : ""}`); }
+    html += line(!!r.all_ok, "ElevenLabs 복제 음성", `텍스트 음성 변환 ${mk("text_to_speech")} · 음성 ${mk("voices_read")} · 사용자 ${mk("user_read")}${r.note ? " · " + r.note : ""}${!r.all_ok && c.text_to_speech !== "quota" ? " → 가장 쉬운 해결: ElevenLabs에서 '키 제한'을 끈 새 키를 만들어 인공지능 설정에 저장" : ""}`); }
   catch (e) { html += line(false, "ElevenLabs 복제 음성", e.message + (e.message.includes("없습니다") ? "" : " → 가장 쉬운 해결: '키 제한'을 끈 새 키")); }
   try { const r = await api("/api/admin/settings/did/test", { method: "POST" }); html += line(true, "D-ID 실시간 아바타(실제 사진)", `연결 성공${r.note ? " · " + r.note : ""}`); }
   catch (e) { html += line(false, "D-ID 실시간 아바타(실제 사진)", e.message.includes("없습니다") ? "키 없음(선택 기능)" : e.message); }
@@ -93,11 +99,11 @@ async function runAllChecks() {
   overview.lastCheck = html; out.innerHTML = html;
 }
 
-// ---------------- 칸 좌표 등록 ----------------
+// ---------------- 봉안 자리 좌표 등록 ----------------
 async function calib() {
   const cams = (await api("/api/admin/cameras")).filter((c) => c.kind === "wall");
   const rooms = await api("/api/admin/rooms");
-  page.innerHTML = `<h1>칸 좌표 등록</h1><p class="muted">카메라 화면 위에 봉안함 칸을 사각형으로 그리고 번호를 붙입니다. 카메라가 고정이라 한 번만 등록하면 됩니다. 드래그로 칸 하나를 그리거나, 큰 영역을 그린 뒤 '격자로 나누기'를 쓰세요.</p>
+  page.innerHTML = `<h1>봉안 자리 좌표 등록</h1><p class="muted">카메라 화면 위에 봉안함 자리를 사각형으로 그리고 번호를 붙입니다. 카메라가 고정이라 한 번만 등록하면 됩니다. 끌어서 봉안 자리 하나를 그리거나, 큰 영역을 그린 뒤 '격자로 나누기'를 쓰세요.</p>
     <div class="toolbar">
       <select id="camSel">${cams.map((c) => `<option value="${c.id}">${esc(c.name)} (#${c.device_index})</option>`).join("")}</select>
       <button class="small secondary" id="addCam">카메라 추가</button>
@@ -114,7 +120,7 @@ async function calib() {
           <button class="small ghost" id="undoBtn">마지막 취소</button>
           <button class="small ghost" id="clearBtn">모두 지우기</button>
         </div></div>
-      <div class="card" style="margin:0"><h3>칸 목록 <span id="cnt"></span></h3><div id="list" style="max-height:520px;overflow:auto"></div><button id="save" style="margin-top:10px">저장</button></div>
+      <div class="card" style="margin:0"><h3>봉안 자리 목록 <span id="cnt"></span></h3><div id="list" style="max-height:520px;overflow:auto"></div><button id="save" style="margin-top:10px">저장</button></div>
     </div>`;
   const canvas = $("#cal"), ctx = canvas.getContext("2d");
   let img = new Image(), niches = [], drag = null, camId = +$("#camSel").value;
@@ -123,7 +129,7 @@ async function calib() {
   function loadFrame() {
     const im = new Image();
     im.onload = () => { img = im; canvas.width = im.naturalWidth; canvas.height = im.naturalHeight; $("#frameInfo").textContent = `${im.naturalWidth}×${im.naturalHeight}`; draw(); };
-    im.onerror = () => { $("#frameInfo").textContent = "카메라 화면 없음 — 현장 프로그램을 실행하세요"; if (!img.naturalWidth) { canvas.width = 1280; canvas.height = 720; draw(); } };
+    im.onerror = () => { $("#frameInfo").textContent = "카메라 화면이 아직 없습니다. 현장 프로그램을 실행해 주세요."; if (!img.naturalWidth) { canvas.width = 1280; canvas.height = 720; draw(); } };
     im.src = `/api/admin/cameras/${camId}/frame.jpg?key=${encodeURIComponent(KEY)}&_=${Date.now()}`;
   }
   function draw() {
@@ -136,9 +142,9 @@ async function calib() {
   }
   function list() {
     $("#cnt").textContent = `(${niches.length})`;
-    $("#list").innerHTML = niches.map((n, i) => `<div class="niche-row"><input value="${esc(n.code)}" data-i="${i}"><span class="muted">${(n.x * 100).toFixed(0)},${(n.y * 100).toFixed(0)} · ${(n.w * 100).toFixed(0)}×${(n.h * 100).toFixed(0)}%</span>${n.contract ? `<span class="tag on">${esc(n.contract.holder_name)}</span>` : ""}<button class="small ghost" data-del="${i}" style="margin-left:auto;min-height:28px;padding:0 8px">✕</button></div>`).join("") || `<p class="muted">아직 칸이 없습니다. 화면에서 드래그하세요.</p>`;
+    $("#list").innerHTML = niches.map((n, i) => `<div class="niche-row"><input value="${esc(n.code)}" data-i="${i}"><span class="muted">${(n.x * 100).toFixed(0)},${(n.y * 100).toFixed(0)} · ${(n.w * 100).toFixed(0)}×${(n.h * 100).toFixed(0)}%</span>${n.contract ? `<span class="tag on">${esc(n.contract.holder_name)}</span>` : ""}<button class="small ghost" data-del="${i}" style="margin-left:auto" aria-label="${esc(n.code)} 자리 지우기">지우기</button></div>`).join("") || `<p class="muted">아직 등록한 봉안 자리가 없습니다. 왼쪽 카메라 화면에서 끌어서 자리를 그려 주세요.</p>`;
     $("#list").querySelectorAll("input").forEach((inp) => inp.oninput = () => { niches[+inp.dataset.i].code = inp.value; draw(); });
-    $("#list").querySelectorAll("[data-del]").forEach((b) => b.onclick = () => { const n = niches[+b.dataset.del]; if (n.contract && !confirm("계약이 연결된 칸입니다. 삭제하면 저장 시 거부됩니다. 계속할까요?")) return; niches.splice(+b.dataset.del, 1); list(); draw(); });
+    $("#list").querySelectorAll("[data-del]").forEach((b) => b.onclick = () => { const n = niches[+b.dataset.del]; if (n.contract && !confirm("계약이 연결된 봉안 자리입니다. 삭제하면 저장 시 거부됩니다. 계속할까요?")) return; niches.splice(+b.dataset.del, 1); list(); draw(); });
   }
   const pos = (e) => { const r = canvas.getBoundingClientRect(); return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) }; };
   canvas.onpointerdown = (e) => { const p = pos(e); drag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y }; canvas.setPointerCapture(e.pointerId); };
@@ -161,8 +167,8 @@ async function calib() {
   $("#undoBtn").onclick = () => { niches.pop(); list(); draw(); };
   $("#clearBtn").onclick = () => { if (confirm("모두 지울까요? (저장 전까지는 반영되지 않습니다)")) { niches = []; list(); draw(); } };
   $("#save").onclick = async () => {
-    try { niches = (await api(`/api/admin/cameras/${camId}/niches`, { method: "PUT", body: niches.map((n) => ({ id: n.id || null, code: n.code.trim(), row: n.row || 0, col: n.col || 0, x: n.x, y: n.y, w: n.w, h: n.h })) })).map((n) => ({ ...n })); list(); draw(); toast("저장했습니다. 현장 프로그램이 1초 안에 새 칸을 반영합니다."); }
-    catch (e) { toast("저장 실패: " + e.message); }
+    try { niches = (await api(`/api/admin/cameras/${camId}/niches`, { method: "PUT", body: niches.map((n) => ({ id: n.id || null, code: n.code.trim(), row: n.row || 0, col: n.col || 0, x: n.x, y: n.y, w: n.w, h: n.h })) })).map((n) => ({ ...n })); list(); draw(); toast("저장했습니다. 현장 프로그램이 1초 안에 새 봉안 자리를 반영합니다."); }
+    catch (e) { toast("봉안 자리 좌표를 저장하지 못했습니다. " + e.message); }
   };
   $("#camSel").onchange = () => { camId = +$("#camSel").value; img = new Image(); loadFrame(); loadNiches(); };
   $("#refresh").onclick = loadFrame;
@@ -182,7 +188,7 @@ async function calib() {
 async function contracts() {
   const rows = await api("/api/admin/contracts");
   page.innerHTML = `<h1>계약·가족</h1><div class="toolbar"><button class="small" id="newC">새 계약</button></div>
-    <div class="card"><table><tr><th>#</th><th>계약자</th><th>봉안함</th><th>요금제</th><th>가족</th><th>고인</th><th>등록</th><th></th></tr>
+    <div class="card"><table><tr><th>번호</th><th>계약자</th><th>봉안함</th><th>요금제</th><th>가족</th><th>고인</th><th>등록</th><th></th></tr>
       ${rows.map((c) => `<tr><td>${c.id}</td><td><b>${esc(c.holder_name)}</b><div class="muted">${esc(c.holder_phone)}</div></td><td>${esc(c.niche_code || "-")}</td><td>${c.plan === "premium" ? "프리미엄" : "기본"}</td><td>${c.member_count}</td><td>${esc(c.deceased_names || "-")}</td><td class="muted">${fmt(c.created_at)}</td><td><button class="small ghost" data-open="${c.id}">열기</button></td></tr>`).join("")}</table></div>`;
   page.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => contractDetail(+b.dataset.open));
   $("#newC").onclick = async () => {
@@ -203,17 +209,17 @@ async function freeNiches(includeId) {
 async function contractDetail(id) {
   const d = await api(`/api/admin/contracts/${id}`);
   const c = d.contract; const roleName = { view: "보기", chat: "보기·대화", manage: "관리" };
-  page.innerHTML = `<button class="small ghost" id="back">← 목록</button><h1 style="margin-top:8px">${esc(c.holder_name)} 계약 <small class="muted">#${c.id} · 봉안함 ${esc(c.niche_code || "-")}</small></h1>
+  page.innerHTML = `<button class="small ghost" id="back">← 목록</button><h1 style="margin-top:8px">${esc(c.holder_name)} 계약 <small class="muted">${c.id}번 · 봉안함 ${esc(c.niche_code || "-")}</small></h1>
     <div class="toolbar"><button class="small secondary" id="editC">계약 수정</button><button class="small secondary" id="addM">가족 추가</button><button class="small secondary" id="addD">고인 등록</button></div>
     <div class="card"><h3>가족 계정과 초대 링크 <span class="muted">(카카오톡으로 보내는 링크)</span></h3><table><tr><th>이름</th><th>관계</th><th>권한</th><th>링크</th><th>마지막 접속</th><th></th></tr>
-      ${d.members.map((m) => `<tr><td><b>${esc(m.name)}</b>${m.is_minor ? ' <span class="tag">미성년</span>' : ""}</td><td>${esc(m.relation)}</td><td>${roleName[m.role]}</td><td class="mono">${esc(m.link)} <button class="small ghost" data-copy="${esc(m.link)}" style="min-height:26px;padding:0 6px">복사</button></td><td class="muted">${fmt(m.last_seen_at)}</td><td><button class="small ghost" data-delm="${m.id}" style="min-height:26px;padding:0 6px">삭제</button></td></tr>`).join("")}</table></div>
+      ${d.members.map((m) => `<tr><td><b>${esc(m.name)}</b>${m.is_minor ? ' <span class="tag">미성년</span>' : ""}</td><td>${esc(m.relation)}</td><td>${roleName[m.role]}</td><td class="mono">${esc(m.link)} <button class="small ghost" data-copy="${esc(m.link)}">복사</button></td><td class="muted">${fmt(m.last_seen_at)}</td><td><button class="small ghost" data-delm="${m.id}" aria-label="${esc(m.name)} 가족 계정 삭제">삭제</button></td></tr>`).join("")}</table></div>
     <div class="card"><h3>고인</h3>${d.deceased.length ? d.deceased.map((x) => `<div class="list-item"><div><b>${esc(x.name)}</b> <span class="muted">${esc(x.honorific)} · ${esc(x.birth_date)} ~ ${esc(x.death_date)}</span>
         <div>${x.ai_enabled ? '<span class="tag on">대화 기능 열림</span>' : '<span class="tag">대화 기능 닫힘</span>'} 동의서 ${x.consents.filter((k) => !k.revoked_at).length}건 · 기억 카드 ${x.memory_card.length}자 · 자료 ${x.media.length}건</div></div>
-        <button class="small ghost" data-editd="${x.id}">편집</button></div>`).join("") : `<p class="muted">등록된 고인이 없습니다.</p>`}</div>
-    <div class="card"><h3>방명록(최근)</h3>${d.guestbook.map((g) => `<div class="guest"><span class="who">${esc(g.author)}</span><span class="when">${fmt(g.created_at)}</span><div>${esc(g.message)}</div></div>`).join("") || '<p class="muted">없음</p>'}</div>`;
+        <button class="small ghost" data-editd="${x.id}">편집</button></div>`).join("") : `<p class="muted">아직 등록한 고인 정보가 없습니다. 위의 ‘고인 등록’을 눌러 주세요.</p>`}</div>
+    <div class="card"><h3>방명록(최근)</h3>${d.guestbook.map((g) => `<div class="guest"><span class="who">${esc(g.author)}</span><span class="when">${fmt(g.created_at)}</span><div>${esc(g.message)}</div></div>`).join("") || '<p class="muted">아직 남긴 글이 없습니다.</p>'}</div>`;
   $("#back").onclick = contracts;
   page.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); toast("복사했습니다."); });
-  page.querySelectorAll("[data-delm]").forEach((b) => b.onclick = async () => { if (confirm("이 가족 계정을 삭제할까요?")) { await api(`/api/admin/members/${b.dataset.delm}`, { method: "DELETE" }); contractDetail(id); } });
+  page.querySelectorAll("[data-delm]").forEach((b) => b.onclick = async () => { if (sure("이 가족 계정을 삭제하면 초대 링크도 함께 사라지며")) { await api(`/api/admin/members/${b.dataset.delm}`, { method: "DELETE" }); contractDetail(id); } });
   page.querySelectorAll("[data-editd]").forEach((b) => b.onclick = () => deceasedForm(+b.dataset.editd, id));
   $("#addD").onclick = () => deceasedForm(null, id);
   $("#addM").onclick = () => {
@@ -234,14 +240,14 @@ async function contractDetail(id) {
 // ---------------- 고인·기억 카드·동의서 ----------------
 async function deceased() {
   const rows = await api("/api/admin/contracts");
-  page.innerHTML = `<h1>고인·기억 카드·동의서</h1><p class="muted">계약을 선택해 고인을 등록하고, 상담 인터뷰로 정리한 기억 카드(2,000~5,000자)와 직계가족 동의서를 넣습니다. 동의서와 '대화 기능 열림'이 모두 있어야 유족 앱에서 대화가 열립니다.</p>
+  page.innerHTML = `<h1>고인·기억 카드·동의서</h1><p class="muted">계약을 선택해 고인을 등록하고, 상담 인터뷰로 정리한 기억 카드(2,000~5,000자)와 직계가족 동의서를 넣습니다. 동의서와 '대화 기능 열림'이 모두 있어야 가족 추모 공간에서 대화가 열립니다.</p>
     <div class="card"><table><tr><th>계약</th><th>봉안함</th><th>고인</th><th></th></tr>${rows.map((c) => `<tr><td>${esc(c.holder_name)}</td><td>${esc(c.niche_code || "-")}</td><td>${esc(c.deceased_names || "-")}</td><td><button class="small ghost" data-open="${c.id}">열기</button></td></tr>`).join("")}</table></div>`;
   page.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => contractDetail(+b.dataset.open));
 }
 async function deceasedForm(did, contractId) {
   const detail = await api(`/api/admin/contracts/${contractId}`);
   const x = did ? detail.deceased.find((d) => d.id === did) : { contract_id: contractId, name: "", honorific: "", birth_date: "", death_date: "", memory_card: "", voice_note: "", ai_enabled: 0, chat_min_days_after_death: 49, theme: "classic", consents: [], media: [], photo_path: "", face_id: "", face_provider: "" };
-  const kindName = { ai_chat: "AI 대화", likeness: "초상 사용", voice: "음성 사용", lifetime_record: "생전 기록" };
+  const kindName = { ai_chat: "인공지능 대화", likeness: "초상 사용", voice: "음성 사용", lifetime_record: "생전 기록" };
   const m = modal(`<h2>${did ? "고인 편집" : "고인 등록"}</h2>
     <div class="form-grid">
       <div class="field"><label>이름</label><input id="dName" value="${esc(x.name)}"></div>
@@ -250,16 +256,16 @@ async function deceasedForm(did, contractId) {
       <div class="field"><label>별세일</label><input id="dDeath" type="date" value="${esc(x.death_date)}"></div>
       <div class="field"><label>첫 대화 권장 대기일</label><input id="dDays" type="number" value="${x.chat_min_days_after_death}"></div>
       <div class="field"><label>대화 기능</label><select id="dAi"><option value="0" ${!x.ai_enabled ? "selected" : ""}>닫힘</option><option value="1" ${x.ai_enabled ? "selected" : ""}>열림</option></select></div>
-      <div class="field"><label>추모 공간 테마(종교)</label><select id="dTheme">${[["classic", "전통 (먹빛과 금)"], ["buddhist", "불교 (연꽃·등불)"], ["catholic", "천주교 (성당의 빛)"], ["christian", "기독교 (새벽 빛·십자가)"]].map(([v, n]) => `<option value="${v}" ${(x.theme || "classic") === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+      <div class="field"><label>추모 공간 테마(종교)</label><select id="dTheme">${[["classic", "일반 (종교 상징 없음)"], ["buddhist", "불교 (연꽃·단청)"], ["catholic", "천주교 (아치 창과 십자 선)"], ["christian", "기독교 (십자 선)"]].map(([v, n]) => `<option value="${v}" ${(x.theme || "classic") === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
     </div>
     <div class="field" style="margin-top:10px"><label>기억 카드 (호칭·말투·입버릇·좋아하던 것·가족·가족만 아는 일화·성격·당부)</label><textarea id="dCard" style="min-height:220px;font-size:14px">${esc(x.memory_card)}</textarea><small class="muted" id="cardLen">${x.memory_card.length}자</small></div>
     <div class="field"><label>음성 자료 메모(출처·품질)</label><input id="dVoice" value="${esc(x.voice_note)}" placeholder="예: 2023년 생일 영상 1분 20초, 통화 녹음 3건(음질 낮음)"></div>
     <button id="dSave">저장</button>
     ${did ? `<hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
     <h3>사진·자료</h3><div class="row" style="flex-wrap:wrap"><label class="btn small secondary" style="width:auto">대표 사진 올리기<input type="file" id="dPhoto" accept="image/*" hidden></label>
-      <select id="mKind" style="width:auto"><option value="photo">사진</option><option value="video">영상</option><option value="voice">음성</option><option value="message_video">영상 메시지(AI 제작)</option></select><input id="mCap" placeholder="설명" style="width:200px"><label class="btn small secondary" style="width:auto">자료 올리기<input type="file" id="dMedia" hidden></label></div>
+      <select id="mKind" style="width:auto"><option value="photo">사진</option><option value="video">영상</option><option value="voice">음성</option><option value="message_video">영상 메시지(인공지능 제작)</option></select><input id="mCap" placeholder="설명" style="width:200px"><label class="btn small secondary" style="width:auto">자료 올리기<input type="file" id="dMedia" hidden></label></div>
     <div style="margin-top:8px">${x.photo_path ? `<img src="/api/admin/deceased/${did}/photo.jpg?key=${encodeURIComponent(KEY)}&_=${Date.now()}" class="portrait">` : '<span class="muted">대표 사진 없음</span>'}
-      ${x.media.map((md) => `<div class="list-item"><span>${md.kind} · ${esc(md.caption)} ${md.ai_generated ? '<span class="ai-tag">AI 제작</span>' : ""}</span><button class="small ghost" data-delmedia="${md.id}" style="min-height:26px">삭제</button></div>`).join("")}</div>
+      ${x.media.map((md) => `<div class="list-item"><span>${({ photo: "사진", video: "영상", voice: "음성", message_video: "영상 메시지" })[md.kind] || esc(md.kind)} · ${esc(md.caption)} ${md.ai_generated ? '<span class="ai-tag">인공지능 제작</span>' : ""}</span><button class="small ghost" data-delmedia="${md.id}">삭제</button></div>`).join("")}</div>
     <h3 style="margin-top:16px">복제 음성 <span class="muted">(음성 자료 + 음성 사용 동의서가 있어야 등록됩니다)</span></h3>
     <div class="row" style="flex-wrap:wrap">${x.voice_id ? `<span class="tag on">등록됨 · ${esc(x.voice_provider)} · <span class="mono">${esc(x.voice_id.slice(0, 8))}…</span></span><button class="small secondary" id="vPreview">미리 듣기</button><button class="small ghost" id="vDelete">음성 삭제</button>` : `<span class="tag">미등록</span><button class="small secondary" id="vRegister">음성 등록 (ElevenLabs)</button>`}<span id="vOut" class="muted"></span></div>
     <audio id="vAudio" controls style="display:none;margin-top:6px;width:100%"></audio>
@@ -267,8 +273,8 @@ async function deceasedForm(did, contractId) {
     <div class="row" style="flex-wrap:wrap">${x.face_id ? `<span class="tag on">등록됨 · ${esc(x.face_provider)} · <span class="mono">${esc(x.face_id.slice(0, 8))}…</span></span><button class="small ghost" id="fDelete">얼굴 삭제</button>` : `<span class="tag">미등록</span><button class="small secondary" id="fRegister">사진으로 얼굴 만들기</button>`}<span id="fOut" class="muted"></span></div>
     <div class="row" style="margin-top:6px"><select id="fPreset" style="width:auto"><option value="">기본 얼굴 고르기 (무료 플랜)…</option></select><button class="small secondary" id="fPresetGo">기본 얼굴로 설정</button></div>
     <h3 style="margin-top:16px">동의서</h3>
-    ${x.consents.map((k) => `<div class="list-item"><span>${kindName[k.kind]} · ${esc(k.signer_name)}(${esc(k.relation)}) · ${fmt(k.signed_at)} ${k.revoked_at ? `<span class="tag off">철회 ${fmt(k.revoked_at)}</span>` : '<span class="tag on">유효</span>'}</span>${!k.revoked_at ? `<button class="small ghost" data-revoke="${k.id}" style="min-height:26px">철회</button>` : ""}</div>`).join("") || '<p class="muted">동의서 없음 — AI 대화 동의서가 없으면 대화가 열리지 않습니다.</p>'}
-    <div class="row" style="margin-top:8px;flex-wrap:wrap"><input id="cSigner" placeholder="서명자" style="width:120px"><input id="cRel" placeholder="관계" style="width:100px"><select id="cKind" style="width:auto"><option value="ai_chat">AI 대화</option><option value="likeness">초상 사용</option><option value="voice">음성 사용</option><option value="lifetime_record">생전 기록</option></select><button class="small secondary" id="cAdd">동의서 등록</button></div>
+    ${x.consents.map((k) => `<div class="list-item"><span>${kindName[k.kind]} · ${esc(k.signer_name)}(${esc(k.relation)}) · ${fmt(k.signed_at)} ${k.revoked_at ? `<span class="tag off">철회 ${fmt(k.revoked_at)}</span>` : '<span class="tag on">유효</span>'}</span>${!k.revoked_at ? `<button class="small ghost" data-revoke="${k.id}">철회</button>` : ""}</div>`).join("") || '<p class="muted">동의서 없음 — 인공지능 대화 동의서가 없으면 대화가 열리지 않습니다.</p>'}
+    <div class="row" style="margin-top:8px;flex-wrap:wrap"><input id="cSigner" placeholder="서명자" style="width:120px"><input id="cRel" placeholder="관계" style="width:100px"><select id="cKind" style="width:auto"><option value="ai_chat">인공지능 대화</option><option value="likeness">초상 사용</option><option value="voice">음성 사용</option><option value="lifetime_record">생전 기록</option></select><button class="small secondary" id="cAdd">동의서 등록</button></div>
     <p class="muted" style="font-size:12px">가족 한 명이라도 이의를 제기하면 철회하고 대화 기능을 닫습니다(계획서 7장).</p>` : ""}`);
   $("#dCard", m).oninput = () => $("#cardLen", m).textContent = `${$("#dCard", m).value.length}자`;
   const body = () => ({ contract_id: contractId, name: $("#dName", m).value, honorific: $("#dHon", m).value, birth_date: $("#dBirth", m).value, death_date: $("#dDeath", m).value, memory_card: $("#dCard", m).value, voice_note: $("#dVoice", m).value, ai_enabled: $("#dAi", m).value === "1", chat_min_days_after_death: +$("#dDays", m).value || 49, theme: $("#dTheme", m).value });
@@ -276,15 +282,15 @@ async function deceasedForm(did, contractId) {
   if (did) {
     $("#dPhoto", m).onchange = async (e) => { const fd = new FormData(); fd.append("file", e.target.files[0]); await api(`/api/admin/deceased/${did}/photo`, { method: "POST", body: fd }); m.remove(); deceasedForm(did, contractId); };
     $("#dMedia", m).onchange = async (e) => { const fd = new FormData(); fd.append("file", e.target.files[0]); await api(`/api/admin/deceased/${did}/media?kind=${$("#mKind", m).value}&caption=${encodeURIComponent($("#mCap", m).value)}`, { method: "POST", body: fd }); m.remove(); deceasedForm(did, contractId); };
-    m.querySelectorAll("[data-delmedia]").forEach((b) => b.onclick = async () => { await api(`/api/admin/media/${b.dataset.delmedia}`, { method: "DELETE" }); m.remove(); deceasedForm(did, contractId); });
-    m.querySelectorAll("[data-revoke]").forEach((b) => b.onclick = async () => { if (confirm("철회할까요?")) { await api(`/api/admin/consents/${b.dataset.revoke}/revoke`, { method: "POST" }); m.remove(); deceasedForm(did, contractId); } });
+    m.querySelectorAll("[data-delmedia]").forEach((b) => b.onclick = async () => { if (!sure("이 자료를 삭제하면")) return; await api(`/api/admin/media/${b.dataset.delmedia}`, { method: "DELETE" }); m.remove(); deceasedForm(did, contractId); });
+    m.querySelectorAll("[data-revoke]").forEach((b) => b.onclick = async () => { if (confirm("동의서를 철회하면 되돌릴 수 없고, 이 동의가 필요한 기능(대화·음성·얼굴)이 바로 닫힙니다. 철회할까요?")) { await api(`/api/admin/consents/${b.dataset.revoke}/revoke`, { method: "POST" }); m.remove(); deceasedForm(did, contractId); } });
     const vOut = (msg, ok) => { const el = $("#vOut", m); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
     if ($("#vRegister", m)) $("#vRegister", m).onclick = async () => { vOut("등록 중… (1분 안팎)", true); $("#vRegister", m).disabled = true; try { const r = await api(`/api/admin/deceased/${did}/voice/register`, { method: "POST" }); toast(`음성을 등록했습니다 (${r.files}개 파일)`); m.remove(); deceasedForm(did, contractId); } catch (e) { vOut("실패: " + e.message, false); $("#vRegister", m).disabled = false; } };
-    if ($("#vDelete", m)) $("#vDelete", m).onclick = async () => { if (confirm("복제 음성을 삭제할까요? 공급자 쪽 데이터도 지웁니다.")) { await api(`/api/admin/deceased/${did}/voice`, { method: "DELETE" }); m.remove(); deceasedForm(did, contractId); } };
+    if ($("#vDelete", m)) $("#vDelete", m).onclick = async () => { if (sure("복제 음성을 삭제하면 공급자 쪽 데이터도 함께 지우며")) { await api(`/api/admin/deceased/${did}/voice`, { method: "DELETE" }); m.remove(); deceasedForm(did, contractId); } };
     if ($("#vPreview", m)) $("#vPreview", m).onclick = async () => { vOut("합성 중…", true); try { const r = await fetch(`/api/admin/deceased/${did}/voice/preview`, { method: "POST", headers: { "X-Admin-Key": KEY } }); if (!r.ok) throw new Error((await r.json()).detail); const a = $("#vAudio", m); a.src = URL.createObjectURL(await r.blob()); a.style.display = "block"; a.play(); vOut("", true); } catch (e) { vOut("실패: " + e.message, false); } };
     const fOut = (msg, ok) => { const el = $("#fOut", m); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
     if ($("#fRegister", m)) $("#fRegister", m).onclick = async () => { fOut("얼굴 생성 중… (1~3분)", true); $("#fRegister", m).disabled = true; try { await api(`/api/admin/deceased/${did}/face/register`, { method: "POST" }); toast("얼굴을 등록했습니다."); m.remove(); deceasedForm(did, contractId); } catch (e) { fOut("실패: " + e.message, false); $("#fRegister", m).disabled = false; } };
-    if ($("#fDelete", m)) $("#fDelete", m).onclick = async () => { await api(`/api/admin/deceased/${did}/face`, { method: "DELETE" }); m.remove(); deceasedForm(did, contractId); };
+    if ($("#fDelete", m)) $("#fDelete", m).onclick = async () => { if (!sure("아바타 얼굴을 삭제하면")) return; await api(`/api/admin/deceased/${did}/face`, { method: "DELETE" }); m.remove(); deceasedForm(did, contractId); };
     api("/api/admin/avatar/presets").then((list) => { const sel = $("#fPreset", m); list.forEach((pf) => { const o = document.createElement("option"); o.value = pf.id; o.textContent = pf.label; if (pf.id === x.face_id) o.selected = true; sel.appendChild(o); }); }).catch(() => {});
     $("#fPresetGo", m).onclick = async () => { const v = $("#fPreset", m).value; if (!v) return fOut("기본 얼굴을 고르세요.", false); try { await api(`/api/admin/deceased/${did}/face/preset`, { method: "POST", body: { face_id: v } }); toast("기본 얼굴로 설정했습니다."); m.remove(); deceasedForm(did, contractId); } catch (e) { fOut("실패: " + e.message, false); } };
     $("#cAdd", m).onclick = async () => { try { await api(`/api/admin/deceased/${did}/consents`, { method: "POST", body: { signer_name: $("#cSigner", m).value, relation: $("#cRel", m).value, kind: $("#cKind", m).value } }); m.remove(); deceasedForm(did, contractId); } catch (e) { toast(e.message); } };
@@ -294,15 +300,15 @@ async function deceasedForm(did, contractId) {
 // ---------------- 의례 일정·중계 ----------------
 async function rituals() {
   const [rows, cams, cons] = await Promise.all([api("/api/admin/rituals"), api("/api/admin/cameras"), api("/api/admin/contracts")]);
-  const kindName = { memorial: "기일", holiday: "명절", event: "행사" };
-  page.innerHTML = `<h1>의례 일정·생중계</h1><p class="muted">법회·행사(누구나)는 그냥 생중계, 제사(신청 가족만)는 참여를 신청한 가족만 봅니다. 진행 콘솔에서 봉행 순서·현재 차례·가족 메시지 답장을 하고, 현장 화면을 TV에 띄웁니다.</p>
+  const kindName = { memorial: "기일 제례", holiday: "명절 차례", event: "법회·추모식" };
+  page.innerHTML = `<h1>의례 일정·생중계</h1><p class="muted">법회·추모식(누구나)은 바로 생중계하고, 제례(신청 가족만)는 참여를 신청한 가족만 봅니다. 진행 콘솔에서 봉행 순서·현재 차례·가족 메시지 답장을 하고, 현장 화면을 제례 공간 화면에 띄웁니다.</p>
     <div class="toolbar"><button class="small" id="newR">일정 추가</button></div>
     <div class="card"><table><tr><th>일시</th><th>종류</th><th>제목</th><th>공개</th><th>참여</th><th>중계</th><th></th></tr>
       ${rows.map((r) => `<tr><td>${fmt(r.scheduled_at)}</td><td>${kindName[r.kind] || r.kind}</td><td><b>${esc(r.title)}</b><div class="muted">${esc(r.note)}${r.contract_id ? ` · ${esc(r.holder_name)} 가족` : ""}</div></td>
         <td>${r.access === "applied" ? '<span class="tag busy">신청 가족만</span>' : '<span class="tag on">누구나</span>'}</td><td>${r.participant_count || 0}가족${r.current_order ? ` · 지금 ${r.current_order}번` : ""}</td>
         <td>${r.camera_id ? "현장 카메라" : ""}${r.stream_url ? ' <a href="' + esc(r.stream_url) + '" target="_blank">링크</a>' : ""}</td>
-        <td class="row" style="gap:4px"><button class="small" data-console="${r.id}" style="min-height:28px">진행 콘솔</button><button class="small secondary" data-now="${r.id}" style="min-height:28px" title="일시를 지금으로 옮겨 중계를 바로 엽니다">지금 시작</button><button class="small ghost" data-edit="${r.id}" style="min-height:28px">편집</button><button class="small ghost" data-del="${r.id}" style="min-height:28px">삭제</button></td></tr>`).join("")}</table></div>
-    <p class="muted" style="font-size:13px">중계 창은 일시 30분 전부터 3시간 뒤까지 열립니다. 시연이나 봉행이 늦어질 때는 <b>지금 시작</b>을 누르면 일시가 지금으로 바뀌어 유족 앱에 "▶ 라이브 보기"가 바로 나옵니다.</p>`;
+        <td class="row" style="gap:4px"><button class="small" data-console="${r.id}">진행 콘솔</button><button class="small secondary" data-now="${r.id}" title="일시를 지금으로 옮겨 중계를 바로 엽니다">지금 시작</button><button class="small ghost" data-edit="${r.id}">편집</button><button class="small ghost" data-del="${r.id}" aria-label="${esc(r.title)} 일정 삭제">삭제</button></td></tr>`).join("")}</table></div>
+    <p class="muted" style="font-size:13px">중계 창은 일시 30분 전부터 3시간 뒤까지 열립니다. 시연이나 봉행이 늦어질 때는 <b>지금 시작</b>을 누르면 일시가 지금으로 바뀌어 가족 추모 공간에 '생중계 보기'가 바로 나옵니다.</p>`;
   const form = (r) => {
     const m = modal(`<h2>${r ? "일정 편집" : "일정 추가"}</h2><div class="form-grid">
       <div class="field"><label>제목</label><input id="rTitle" value="${esc(r?.title || "")}"></div>
@@ -321,9 +327,9 @@ async function rituals() {
   };
   $("#newR").onclick = () => form(null);
   page.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => form(rows.find((r) => r.id === +b.dataset.edit)));
-  page.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => { if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "정말 삭제"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "삭제"; }, 4000); return; } await api(`/api/admin/rituals/${b.dataset.del}`, { method: "DELETE" }); rituals(); });
+  page.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => { if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "되돌릴 수 없습니다 · 한 번 더 누르면 삭제"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "삭제"; }, 5000); return; } await api(`/api/admin/rituals/${b.dataset.del}`, { method: "DELETE" }); rituals(); });
   page.querySelectorAll("[data-console]").forEach((b) => b.onclick = () => ritualConsole(+b.dataset.console));
-  page.querySelectorAll("[data-now]").forEach((b) => b.onclick = async () => { try { const r = await api(`/api/admin/rituals/${b.dataset.now}/start-now`, { method: "POST" }); toast(r.camera_assigned ? `일시를 지금으로 옮기고 카메라 '${r.camera_assigned}'를 붙였습니다. 유족 앱에 라이브 보기가 나옵니다.` : "일시를 지금으로 옮겼습니다. 유족 앱에 라이브 보기가 나옵니다."); rituals(); } catch (e) { toast(e.message); } });
+  page.querySelectorAll("[data-now]").forEach((b) => b.onclick = async () => { try { const r = await api(`/api/admin/rituals/${b.dataset.now}/start-now`, { method: "POST" }); toast(r.camera_assigned ? `일시를 지금으로 옮기고 카메라 '${r.camera_assigned}'를 붙였습니다. 가족 추모 공간에 생중계 보기가 나옵니다.` : "일시를 지금으로 옮겼습니다. 가족 추모 공간에 생중계 보기가 나옵니다."); rituals(); } catch (e) { toast(e.message); } });
 }
 
 // 진행 콘솔: 봉행 순서(참여 가족)·현재 차례·가족 메시지 답장·현장 화면 링크. 2초마다 새로 고침.
@@ -333,17 +339,17 @@ async function ritualConsole(rid) {
   const c = await api(`/api/admin/rituals/${rid}/console`);
   const r = c.ritual; const pStatus = { requested: "신청됨", accepted: "확정", rejected: "반려" };
   page.innerHTML = `<div class="toolbar"><button class="small ghost" id="back">← 일정 목록</button><h1 style="margin:0">${esc(r.title)}</h1><span class="muted">${fmt(r.scheduled_at)} · ${r.access === "applied" ? "신청 가족만" : "누구나"}</span>
-      <button class="small secondary" id="cStartNow" style="margin-left:auto">지금 시작(일시를 현재로)</button><a class="btn small secondary" href="/screen?ritual=${rid}&key=${encodeURIComponent(KEY)}" target="_blank">현장 화면(TV) 열기</a></div>
+      <button class="small secondary" id="cStartNow" style="margin-left:auto">지금 시작(일시를 현재로)</button><a class="btn small secondary" href="/screen?ritual=${rid}&key=${encodeURIComponent(KEY)}" target="_blank" rel="noopener">현장 화면 열기 (새 창)</a></div>
     <div class="kpi" style="margin:12px 0"><div class="card"><div class="muted">지금 보는 가족</div><div class="n" id="cViewers">0</div></div><div class="card"><div class="muted">참여 가족</div><div class="n">${c.participants.length}</div></div><div class="card"><div class="muted">현재 차례</div><div class="n" id="cNow" style="font-size:20px">-</div></div><div class="card"><div class="muted">반응</div><div class="n" id="cReact" style="font-size:20px">-</div></div></div>
     <div class="cal" style="grid-template-columns:1.2fr 1fr">
       <div class="card"><h3>봉행 순서 <span class="muted">(번호를 고쳐 저장하면 순서가 바뀝니다)</span></h3>
         <table><tr><th>순서</th><th>고인</th><th>가족(계약자)</th><th>상주</th><th>상태</th><th></th></tr>
           ${c.participants.map((p) => `<tr data-pid="${p.id}"><td><input type="number" class="pOrder" value="${p.order_no || 0}" style="width:64px"></td><td><b>${esc(p.deceased_name || "-")}</b><div class="muted">${esc(fmt(p.birth_date))} ~ ${esc(fmt(p.death_date))}</div></td><td>${esc(p.holder_name)}${p.note ? `<div class="muted">${esc(p.note)}</div>` : ""}</td><td><input class="pMourner" value="${esc(p.mourner_name)}" style="width:110px"></td>
             <td><select class="pStatus" style="width:auto">${Object.entries(pStatus).map(([k, v]) => `<option value="${k}" ${p.status === k ? "selected" : ""}>${v}</option>`).join("")}</select></td>
-            <td class="row" style="gap:4px"><button class="small" data-psave="${p.id}" style="min-height:28px">저장</button><button class="small ghost" data-pnow="${p.order_no}" style="min-height:28px">이 차례로</button><button class="small ghost" data-pdel="${p.id}" style="min-height:28px">삭제</button></td></tr>`).join("") || '<tr><td colspan="6" class="muted">참여 가족이 없습니다. 유족 앱의 "제사 참여 신청" 또는 아래에서 추가하세요.</td></tr>'}</table>
+            <td class="row" style="gap:4px"><button class="small" data-psave="${p.id}">저장</button><button class="small ghost" data-pnow="${p.order_no}">이 차례로</button><button class="small ghost" data-pdel="${p.id}">삭제</button></td></tr>`).join("") || '<tr><td colspan="6" class="muted">아직 참여 가족이 없습니다. 가족 추모 공간의 ‘제례 참여 신청’으로 받거나 아래에서 추가해 주세요.</td></tr>'}</table>
         <div class="row" style="margin-top:10px;flex-wrap:wrap"><select id="addCon" style="width:auto">${c.contracts.map((x) => `<option value="${x.id}">${esc(x.holder_name)} 가족 — ${esc(x.deceased_names || "고인 미등록")}</option>`).join("")}</select><input id="addMourner" placeholder="상주 이름" style="width:120px"><button class="small secondary" id="addP">참여 가족 추가</button></div>
-        <div class="toolbar" style="margin-top:12px"><b>현재 차례</b><button class="small ghost" id="cReset">시작 전으로</button><button class="small" id="cNext">다음 차례 ▶</button><span class="muted">유족 앱과 현장 화면에 바로 반영됩니다.</span></div></div>
-      <div class="card"><h3>가족 메시지 <span class="muted">(유족 앱 라이브 화면과 쌍방향)</span></h3>
+        <div class="toolbar" style="margin-top:12px"><b>현재 차례</b><button class="small ghost" id="cReset">시작 전으로</button><button class="small" id="cNext">다음 차례로</button><span class="muted">가족 추모 공간과 현장 화면에 바로 반영됩니다.</span></div></div>
+      <div class="card"><h3>가족 메시지 <span class="muted">(가족 추모 공간 생중계 화면과 주고받음)</span></h3>
         <div id="cMsgs" class="stack" style="max-height:360px;overflow-y:auto;font-size:14px"></div>
         <div class="row" style="margin-top:10px"><input id="cInput" placeholder="답장 또는 안내 (예: 지금 김옥순 님 차례입니다)"><label class="row" style="gap:4px;width:auto;white-space:nowrap"><input type="checkbox" id="cNotice" style="width:18px;height:18px">공지(강조)</label><button class="small" id="cSend">보내기</button></div></div>
     </div>`;
@@ -351,7 +357,7 @@ async function ritualConsole(rid) {
   const reload = () => ritualConsole(rid);
   $("#cStartNow").onclick = async () => { try { await api(`/api/admin/rituals/${rid}/start-now`, { method: "POST" }); toast("일시를 지금으로 옮겼습니다."); reload(); } catch (e) { toast(e.message); } };
   page.querySelectorAll("[data-psave]").forEach((b) => b.onclick = async () => { const tr = b.closest("tr"); try { await api(`/api/admin/rituals/${rid}/participants/${b.dataset.psave}`, { method: "PUT", body: { order_no: +tr.querySelector(".pOrder").value, mourner_name: tr.querySelector(".pMourner").value, status: tr.querySelector(".pStatus").value } }); toast("저장했습니다."); reload(); } catch (e) { toast(e.message); } });
-  page.querySelectorAll("[data-pdel]").forEach((b) => b.onclick = async () => { await api(`/api/admin/rituals/${rid}/participants/${b.dataset.pdel}`, { method: "DELETE" }); reload(); });
+  page.querySelectorAll("[data-pdel]").forEach((b) => b.onclick = async () => { if (!sure("참여 가족을 봉행 순서에서 빼면")) return; await api(`/api/admin/rituals/${rid}/participants/${b.dataset.pdel}`, { method: "DELETE" }); reload(); });
   page.querySelectorAll("[data-pnow]").forEach((b) => b.onclick = async () => { try { await api(`/api/admin/rituals/${rid}/current`, { method: "POST", body: { order_no: +b.dataset.pnow } }); poll(); } catch (e) { toast(e.message); } });
   $("#cReset").onclick = async () => { await api(`/api/admin/rituals/${rid}/current`, { method: "POST", body: { order_no: 0 } }); poll(); };
   $("#cNext").onclick = async () => { try { await api(`/api/admin/rituals/${rid}/next`, { method: "POST" }); poll(); } catch (e) { toast(e.message); } };
@@ -378,10 +384,10 @@ async function usage() {
   page.innerHTML = `<h1>공양 접수·이용 현황</h1>
     <div class="card"><h3>공양·헌화·기도 신청</h3><table><tr><th>일시</th><th>가족</th><th>종류</th><th>일정</th><th>금액</th><th>전할 말</th><th>상태</th></tr>
       ${offs.map((o) => `<tr><td>${fmt(o.created_at)}</td><td>${esc(o.member_name || o.holder_name)}<div class="muted">${esc(o.holder_name)} 계약</div></td><td>${kindLabel[o.kind]}</td><td>${esc(o.ritual_title || "-")}</td><td>${(o.amount || 0).toLocaleString()}원</td><td>${esc(o.note)}</td>
-        <td><select data-status="${o.id}">${Object.entries(statuses).map(([k, v]) => `<option value="${k}" ${o.status === k ? "selected" : ""}>${v}</option>`).join("")}</select></td></tr>`).join("") || '<tr><td colspan="7" class="muted">신청 없음</td></tr>'}</table></div>
+        <td><select data-status="${o.id}">${Object.entries(statuses).map(([k, v]) => `<option value="${k}" ${o.status === k ? "selected" : ""}>${v}</option>`).join("")}</select></td></tr>`).join("") || '<tr><td colspan="7" class="muted">아직 들어온 신청이 없습니다.</td></tr>'}</table></div>
     <div class="card"><h3>대화 세션 <span class="muted">(원문은 저장하지 않으며 요약만 남습니다 · 안전 점검 발동 ${u.safety_events}건)</span></h3><table><tr><th>시작</th><th>가족</th><th>고인</th><th>왕복</th><th>공급자</th><th>안전 점검</th><th>요약</th></tr>
-      ${u.chat_sessions.map((s) => `<tr><td>${fmt(s.started_at)}</td><td>${esc(s.member_name)}</td><td>${esc(s.deceased_name)}</td><td>${s.turns}</td><td>${esc(s.provider)}</td><td>${s.safety_events && s.safety_events !== "[]" ? `<span class="tag busy">${esc(s.safety_events)}</span>` : "-"}</td><td class="muted">${esc(s.summary)}</td></tr>`).join("") || '<tr><td colspan="7" class="muted">없음</td></tr>'}</table></div>
-    <div class="card"><h3>실시간 보기</h3><table><tr><th>시작</th><th>가족</th><th>봉안함</th><th>종료</th></tr>${u.live_sessions.map((l) => `<tr><td>${fmt(l.started_at)}</td><td>${esc(l.member_name)}</td><td>${esc(l.code)}</td><td>${fmt(l.expires_at)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">없음</td></tr>'}</table></div>
+      ${u.chat_sessions.map((s) => `<tr><td>${fmt(s.started_at)}</td><td>${esc(s.member_name)}</td><td>${esc(s.deceased_name)}</td><td>${s.turns}</td><td>${esc(({ anthropic: "인공지능 언어 모델", mock: "규칙 기반 시연 대화" })[s.provider] || s.provider)}</td><td>${s.safety_events && s.safety_events !== "[]" ? `<span class="tag busy">${esc(s.safety_events)}</span>` : "-"}</td><td class="muted">${esc(s.summary)}</td></tr>`).join("") || '<tr><td colspan="7" class="muted">아직 대화 기록이 없습니다.</td></tr>'}</table></div>
+    <div class="card"><h3>실시간 보기</h3><table><tr><th>시작</th><th>가족</th><th>봉안함</th><th>종료</th></tr>${u.live_sessions.map((l) => `<tr><td>${fmt(l.started_at)}</td><td>${esc(l.member_name)}</td><td>${esc(l.code)}</td><td>${fmt(l.expires_at)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">아직 실시간 보기 기록이 없습니다.</td></tr>'}</table></div>
     <div class="card"><h3>접근 기록(관리자 열람 포함)</h3><table>${u.audit.map((a) => `<tr><td class="muted">${fmt(a.created_at)}</td><td>${esc(a.actor)}</td><td>${esc(a.action)}</td><td>${esc(a.target)}</td><td class="muted">${esc(a.detail)}</td></tr>`).join("")}</table></div>`;
   page.querySelectorAll("[data-status]").forEach((s) => s.onchange = async () => { await api(`/api/admin/offerings/${s.dataset.status}/status`, { method: "POST", body: { status: s.value } }); toast("상태를 바꿨습니다."); });
 }
@@ -389,9 +395,9 @@ async function usage() {
 // ---------------- AI 설정 (API 키) ----------------
 async function aisettings() {
   const s = await api("/api/admin/settings/ai");
-  const provName = { anthropic: "Anthropic Claude (실제 AI)", mock: "Mock (규칙 기반, 비용 없음)" };
+  const provName = { anthropic: "Anthropic Claude (실제 인공지능)", mock: "규칙 기반 시연 대화 (비용 없음)" };
   const srcName = { console: "관리자 콘솔에서 입력", env: ".env 파일", none: "없음" };
-  page.innerHTML = `<h1>AI 설정</h1><p class="muted">기념일 대화에 쓰는 언어 모델 설정입니다. API 키는 여기서 입력하며 서버 DB에만 저장되고 유족 앱에는 절대 노출되지 않습니다.</p>
+  page.innerHTML = `<h1>인공지능 설정</h1><p class="muted">기념일 대화에 쓰는 언어 모델 설정입니다. API 키는 여기서 입력하며 서버 DB에만 저장되고 가족 추모 공간에는 절대 보이지 않습니다.</p>
     <div class="kpi" style="margin:14px 0;max-width:720px">
       <div class="card"><div class="muted">지금 동작 중인 공급자</div><div class="n" style="font-size:20px">${provName[s.active_provider] || s.active_provider}</div></div>
       <div class="card"><div class="muted">API 키</div><div class="n" style="font-size:20px">${s.api_key_masked ? `<span class="mono">${esc(s.api_key_masked)}</span>` : (s.api_key_source === "env" ? ".env에서 읽음" : '<span class="tag off">없음</span>')}</div><div class="muted" style="font-size:12px">출처: ${srcName[s.api_key_source]}${s.updated_at ? " · " + fmt(s.updated_at) : ""}</div></div>
@@ -401,9 +407,9 @@ async function aisettings() {
         <div class="row"><input id="aiKey" type="password" placeholder="${s.api_key_masked ? "기존 키 유지" : "sk-ant-api03-…"}" autocomplete="off" spellcheck="false"><button class="small ghost" id="aiEye" style="min-height:40px">보기</button></div></div>
       <div class="form-grid">
         <div class="field"><label>공급자</label><select id="aiProv">
-          <option value="auto" ${s.provider === "auto" ? "selected" : ""}>자동 (키가 있으면 Claude, 없으면 Mock)</option>
+          <option value="auto" ${s.provider === "auto" ? "selected" : ""}>자동 (키가 있으면 Claude, 없으면 규칙 기반 시연 대화)</option>
           <option value="anthropic" ${s.provider === "anthropic" ? "selected" : ""}>Anthropic Claude</option>
-          <option value="mock" ${s.provider === "mock" ? "selected" : ""}>Mock (규칙 기반)</option></select></div>
+          <option value="mock" ${s.provider === "mock" ? "selected" : ""}>규칙 기반 시연 대화</option></select></div>
         <div class="field"><label>모델</label><select id="aiModel">${s.models.map((m) => `<option value="${m}" ${m === s.model ? "selected" : ""}>${m}${m === "claude-opus-5" ? " (권장)" : ""}</option>`).join("")}</select></div>
       </div>
       <div class="toolbar" style="margin-top:10px"><button class="small" id="aiSave">저장</button><button class="small secondary" id="aiTest">연결 테스트</button>${s.api_key_masked ? `<button class="small ghost" id="aiClear">키 삭제</button>` : ""}<span id="aiOut" class="muted"></span></div>
