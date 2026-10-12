@@ -158,6 +158,19 @@ tests/test_mvp.py  29개 테스트: python -m pytest -q
 | Railway / Fly.io / 작은 VM (상시 컨테이너 + 볼륨) | 전부(현장 프로그램은 봉안당 PC에서 `SERVER_URL`을 이 주소로) | — | 파일럿 |
 | **Vercel** (서버리스) | 유족 앱·관리자 콘솔 화면, AI 대화, 제사·공양·초대 | 카메라 사진·실시간 보기(인스턴스마다 저장소가 달라 현장 업로드가 안 보임), 데이터 영구 저장(재시작 시 초기화), 60초 넘는 음성 등록 | 화면만 보여 주는 링크 |
 
+### Railway에 올리기 (2026-10-12)
+
+상시 실행 서버 + 볼륨이라 실시간 참배·기록 저장·알림톡 예약까지 그대로 동작합니다. 설정 파일: `railway.json`(시작 명령·상태 확인 `/health`·인스턴스 1개), `railpack.json`(빌드 단계 시작 명령), `.python-version`(3.12), `.railwayignore`(`.env`·`data/`·`edge/` 는 올리지 않음).
+
+1. 프로젝트·서비스·볼륨: `railway init --name <이름>` → `railway add --service memorial` → `railway service link memorial` → `railway volume add --mount-path /data`
+2. 일반 변수: `DATA_DIR=/data`, `LAUNCHER=0`, `AUTO_SEED=1`(처음에 시연 데이터를 넣을 때만), `KAKAO_SEND_ENABLED=0`
+3. 비밀 키: **`powershell -NoProfile -File scripts\railway-keys.ps1`** — 강한 무작위 `ADMIN_KEY`·`EDGE_KEY`·`SEED_SALT` 를 만들어 넣고, 관리자 키는 내 문서 폴더에만 저장합니다. Railway 에서는 키가 기본값이거나 24자보다 짧으면 서버가 켜지지 않습니다(`server/config.py`).
+4. 배포·주소: `railway up --service memorial --detach` → `railway domain --service memorial`
+5. 인공지능·음성 키(`ANTHROPIC_API_KEY` 등)는 Railway 화면의 Variables 에서 직접 넣습니다. 넣지 않으면 시연용 응답(Mock)으로 동작합니다.
+6. 현장 카메라 프로그램(`edge/`)은 봉안당 PC 에서 돌리고 `SERVER_URL` 을 Railway 주소로, `EDGE_KEY` 를 위 키로 맞춥니다.
+
+SQLite 한 파일을 쓰므로 인스턴스는 1개로 둡니다(여러 개로 늘리면 기록이 갈라집니다).
+
 Vercel에 올릴 때 환경변수: `AUTO_SEED=1`(시작 시 시연 데이터), `SEED_SALT=아무문자열`(초대 링크 고정), `ADMIN_KEY`, `EDGE_KEY`. API 키는 배포 뒤 관리자 콘솔에서 넣되, 서버리스는 재시작 시 사라지므로 `ANTHROPIC_API_KEY`·`ELEVENLABS_API_KEY`를 환경변수로 넣는 편이 낫습니다. 진입점은 `pyproject.toml`의 `[tool.vercel] entrypoint`.
 
 ## 제사 생중계 (틱톡 라이브식 쌍방향)

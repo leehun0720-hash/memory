@@ -1,0 +1,13 @@
+# Railway 로 올리지 않는 것 (railway up). 개인정보·비밀값·로컬 기록은 절대 올리지 않는다.
+.env
+.env.*
+!.env.example
+data/
+.tmp-*/
+.pytest_cache/
+__pycache__/
+*.pyc
+.venv/
+.claude/
+edge/
+*.log
