@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from .. import config, db, face, voice
+from .. import config, db, face, ratelimit, voice
 from ..ai import factory, safety
 from ..ai.base import Persona, Turn
 from ..ai.prompt import build_greeting
@@ -50,9 +50,24 @@ def _persona(d: dict, m: dict, occasion: str) -> Persona:
     )
 
 
+def _reap() -> None:
+    """창을 닫고 떠나 '마치기'가 없었던 대화를 정리한다(대화 원문이 메모리에 남지 않게, 요약만 저장)."""
+    limit = config.CHAT_MAX_MINUTES * 60 + 600
+    with _lock:
+        stale = [(sid, s) for sid, s in _sessions.items() if time.time() - s["started"] > limit]
+    for sid, s in stale:
+        try:
+            _finish(sid, s)
+        except Exception:
+            with _lock:
+                _sessions.pop(sid, None)
+
+
 @router.post("/start")
 def start(body: StartIn, m: dict = Depends(require_member)):
     require_role(m, "chat")
+    _reap()
+    ratelimit.hit(f"chat-start:{m['id']}", 12, 3600, "대화는 한 시간에 12번까지 시작할 수 있습니다. 잠시 뒤 다시 시작해 주세요.")
     d = db.one("SELECT * FROM deceased WHERE id=? AND contract_id=?", (body.deceased_id, m["contract_id"]))
     if not d:
         raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
@@ -103,6 +118,10 @@ def _closing(persona: Persona) -> str:
 @router.post("/turn")
 def turn(body: TurnIn, m: dict = Depends(require_member)):
     require_role(m, 'chat')
+    ratelimit.hit(f"chat-turn:{m['id']}", 20, 60, "말씀이 너무 빠릅니다. 잠시 뒤 다시 말씀해 주세요.")
+    ratelimit.hit(f"chat-day:{m['id']}", 400, 86400, "오늘 대화 횟수를 모두 썼습니다. 내일 다시 이야기해 주세요.")
+    if not body.text.strip():
+        raise HTTPException(400, "하고 싶은 말을 적어 주세요.")
     with _lock:
         s = _sessions.get(body.session_id)
     if not s or s["member_id"] != m["id"]:
@@ -204,6 +223,7 @@ def tts(session_id: str, text: str, m: dict = Depends(require_member)):
     if not d or not d["voice_id"]:
         return Response(status_code=204)
     _speakable(s, text)
+    ratelimit.hit(f"tts:{m['id']}", 30, 60)
     try:
         r = factory.tts().synthesize(text[:400], d["voice_id"])
     except TTSError as e:
@@ -248,5 +268,6 @@ def avatar_speak(body: AvatarSpeakIn, m: dict = Depends(require_member)):
     if not d or not d["voice_id"]:
         raise HTTPException(400, "복제 음성이 없습니다.")
     _speakable(s, body.text)
+    ratelimit.hit(f"tts:{m['id']}", 30, 60)
     url, secs = face.speech_url(body.text, d["voice_id"])
     return {"audio_url": url, "seconds": secs}

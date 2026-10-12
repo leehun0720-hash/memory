@@ -57,6 +57,7 @@ class DemoCamera:
         self._last_snapshot = 0.0
         self._last_full = 0.0
         self.active: set[int] = set()      # 지금 시연 화면을 내보내는 카메라 id
+        self._seen: dict[int, float] = {}
         self._font = _font(22)
         self._font_small = _font(16)
 
@@ -174,8 +175,9 @@ class DemoCamera:
             state.set_camera(c["id"], False, 0, float(LIVE_FPS), -1.0, virtual=True)
             kind = c["kind"] or "wall"
             niches = [n for n in cfg_niches(cfg, c["id"])]
-            wants_live = [n for n in niches if n["id"] in live_niches]
-            ritual_live = c["id"] in ritual_cams
+            # 보는 사람(열린 스트림)이 있을 때만 실시간 장면을 만든다(아무도 안 보면 CPU·디스크를 쓰지 않게)
+            wants_live = [n for n in niches if n["id"] in live_niches and state.is_watched(n["id"])]
+            ritual_live = c["id"] in ritual_cams and state.is_watched(-c["id"])
             if not (snap_due or full_due or wants_live or ritual_live):
                 continue
             full = self.frame(kind, now)
@@ -192,7 +194,9 @@ class DemoCamera:
                 state.push_live(n["id"], self._jpeg(self._stamp(self.niche_view(full, n, blur), f"{n['code']} 실시간 보기"), 72))
             if ritual_live:
                 state.push_live(-c["id"], self._jpeg(self._stamp(full.resize((960, 540), Image.BILINEAR), "제례 공간 생중계"), 72))
-            db.execute("UPDATE cameras SET last_seen_at=? WHERE id=?", (db.now(), c["id"]))
+            if now - self._seen.get(c["id"], 0) >= 5:   # 마지막 신호 기록은 5초에 한 번
+                self._seen[c["id"]] = now
+                db.execute("UPDATE cameras SET last_seen_at=? WHERE id=?", (db.now(), c["id"]))
         if snap_due:
             self._last_snapshot = now
         if full_due:

@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field
 
 from starlette.concurrency import run_in_threadpool
 
-from .. import config, db, demo_camera, face, voice
+from fastapi.responses import JSONResponse
+
+from .. import config, db, demo_camera, face, ratelimit, voice
 from ..ai import factory
 from ..deps import require_admin
 from ..state import state
@@ -64,6 +66,24 @@ def retry_notification(nid:int):
     db.execute("UPDATE notifications SET delivery_status='pending',provider_id='',delivery_error='' WHERE id=? AND delivery_status='failed'",(nid,))
     db.audit('admin','notification.retry',f'notification:{nid}')
     return {'ok':True}
+
+@router.post("/session")
+def admin_session_cookie(request: Request):
+    """헤더로 확인한 관리자 키를 보안 쿠키(12시간)로 준다. 이후 사진·카메라 화면·현장 생중계 주소에 ?key= 를 싣지 않는다."""
+    from ..deps import ADMIN_COOKIE
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(ADMIN_COOKIE, config.ADMIN_KEY, max_age=12 * 3600, path="/api/admin", httponly=True,
+                    samesite="strict", secure=request.url.scheme == "https")
+    return resp
+
+
+@router.delete("/session")
+def admin_session_clear():
+    from ..deps import ADMIN_COOKIE
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(ADMIN_COOKIE, path="/api/admin")
+    return resp
+
 
 @router.get("/overview")
 def overview():
@@ -457,9 +477,9 @@ class RitualIn(BaseModel):
     access: str = Field(default="open", pattern="^(open|applied)$")   # open=누구나 생중계 · applied=신청 가족만
     scheduled_at: str
     contract_id: int | None = None
-    stream_url: str = ""
+    stream_url: str = Field(default="", max_length=500, pattern=r"^(https?://\S+)?$")    # http(s) 주소만(다른 방식의 링크 차단)
     camera_id: int | None = None
-    replay_url: str = ""
+    replay_url: str = Field(default="", max_length=500, pattern=r"^(https?://\S+)?$")
     note: str = ""
 
 
@@ -609,8 +629,10 @@ def ritual_start_now(rid: int):
     r = _ritual_or_404(rid)
     now = datetime.now().astimezone().isoformat(timespec="seconds")
     cam_id, assigned = r["camera_id"], None
-    if cam_id is None:   # 카메라가 없으면 제례 공간 카메라(없으면 아무 카메라)를 붙여 바로 중계되게
-        cam = db.one("SELECT id, name FROM cameras ORDER BY CASE WHEN kind='ritual' THEN 0 ELSE 1 END, id LIMIT 1")
+    if cam_id is None:   # 카메라가 없으면 제례 공간 카메라를 붙여 바로 중계되게. 안치실 벽면 카메라는 시연 모드에서만(다른 가족 칸·참배객이 보이므로)
+        from .edge import _demo_mode
+        cam = db.one("SELECT id, name FROM cameras WHERE kind='ritual' ORDER BY id LIMIT 1") or (
+            db.one("SELECT id, name FROM cameras ORDER BY id LIMIT 1") if _demo_mode() else None)
         if cam:
             cam_id, assigned = cam["id"], cam["name"]
     db.execute("UPDATE rituals SET scheduled_at=?, current_order=0, camera_id=? WHERE id=?", (now, cam_id, rid))
@@ -869,6 +891,7 @@ async def voice_upload(did: int, kind: str = Form("voice"), agree: bool = Form(F
         raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
     if kind not in voice.VOICE_KINDS:
         raise HTTPException(400, "동의 종류를 골라 주세요.")
+    ratelimit.hit("admin-voice-up", 30, 3600, "음성 자료는 한 시간에 30번까지 올릴 수 있습니다.")
     if not file or len(file) > 10:
         raise HTTPException(400, "음성 자료는 한 번에 1~10개까지 올릴 수 있습니다.")
     has_consent = db.one("SELECT id FROM consents WHERE deceased_id=? AND kind IN ('voice','lifetime_record') AND revoked_at IS NULL", (did,))

@@ -34,9 +34,12 @@ async function poll() {
 }
 if (!RID || !KEY) { $("#title").textContent = "관리자 콘솔의 진행 콘솔에서 '현장 화면 열기'로 열어 주세요."; $("#videoWait").firstChild.textContent = "열 일정을 찾지 못했습니다."; }
 else {
-  $("#video").src = `/api/admin/rituals/${RID}/stream?key=${encodeURIComponent(KEY)}&_=${Date.now()}`;
+  // 주소의 관리자 키는 처음 한 번 보안 쿠키로 바꾸고 주소에서 지운다(이후 생중계 주소에 키를 싣지 않음)
+  try { await fetch("/api/admin/session", { method: "POST", headers: { "X-Admin-Key": KEY } }); } catch {}
+  if (qs.get("key")) { sessionStorage.setItem("admin_key", KEY); qs.delete("key"); history.replaceState(null, "", location.pathname + "?" + qs.toString()); }
+  $("#video").src = `/api/admin/rituals/${RID}/stream?_=${Date.now()}`;
   $("#video").onload = () => { $("#videoWait").hidden = true; };
   $("#video").addEventListener("error", () => { $("#videoWait").hidden = false; });
-  $("#video").onerror = () => setTimeout(() => { $("#video").src = `/api/admin/rituals/${RID}/stream?key=${encodeURIComponent(KEY)}&_=${Date.now()}`; }, 3000);
+  $("#video").onerror = () => setTimeout(() => { $("#video").src = `/api/admin/rituals/${RID}/stream?_=${Date.now()}`; }, 3000);
   poll(); setInterval(poll, 2000);
 }

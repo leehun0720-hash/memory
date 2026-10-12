@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from starlette.concurrency import run_in_threadpool
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+
+from .. import ratelimit
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -39,6 +41,26 @@ def _days_since(date_str: str) -> int | None:
         return (datetime.now().date() - datetime.fromisoformat(date_str).date()).days
     except (ValueError, TypeError):
         return None
+
+
+@router.post("/session")
+def session_cookie(request: Request, m: dict = Depends(require_member)):
+    """헤더로 확인한 초대 토큰을 보안 쿠키로 준다. 이후 사진·영상·생중계 주소에 ?t= 를 싣지 않는다."""
+    from fastapi.responses import JSONResponse
+    from ..deps import FAMILY_COOKIE
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(FAMILY_COOKIE, m["invite_token"], max_age=30 * 86400, path="/api/family", httponly=True,
+                    samesite="strict", secure=request.url.scheme == "https")
+    return resp
+
+
+@router.delete("/session")
+def session_cookie_clear():
+    from fastapi.responses import JSONResponse
+    from ..deps import FAMILY_COOKIE
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(FAMILY_COOKIE, path="/api/family")
+    return resp
 
 
 @router.get("/me")
@@ -114,6 +136,7 @@ def niche_snapshot(m: dict = Depends(require_member)):
 
 @router.post("/live/start")
 def live_start(m: dict = Depends(require_member)):
+    ratelimit.hit(f"live:{m['id']}", 30, 3600, "실시간 보기는 한 시간에 30번까지 열 수 있습니다. 잠시 뒤 다시 열어 주세요.")
     if not m["niche_id"]:
         raise HTTPException(404, "연결된 봉안함이 없습니다.")
     cam = state.camera(m["camera_id"])
@@ -134,6 +157,15 @@ async def _mjpeg(key: int, deadline: float, cam_id: int | None):
     """실시간 영상(MJPEG). 비동기로 새 장면을 기다려 서버 작업자(스레드)를 붙잡지 않는다(시청자가 많아도 다른 화면이 멈추지 않게).
     5초 넘은 장면은 '실시간'으로 내보내지 않는다(지난 장면이 먼저 보이지 않게)."""
     boundary = b"--frame"
+    state.watch(key, +1)
+    try:
+        async for chunk in _mjpeg_frames(key, deadline, cam_id, boundary):
+            yield chunk
+    finally:
+        state.watch(key, -1)
+
+
+async def _mjpeg_frames(key: int, deadline: float, cam_id: int | None, boundary: bytes):
     seq = 0
     idle_since = time.time()
     next_check = 0.0
@@ -234,6 +266,8 @@ def rituals(m: dict = Depends(require_member)):
         r["participants"] = [{k: x[k] for k in ("order_no", "deceased_name", "mourner_name", "birth_date", "death_date", "status", "is_mine")} for x in parts]
         r["my_participation"] = next((x for x in r["participants"] if x["is_mine"]), None)
         r["can_watch"] = _can_watch(r, m, parts)
+        if not r["can_watch"]:   # 신청 가족만 보는 제례: 외부 중계·다시보기 주소를 내려보내지 않는다
+            r["stream_url"], r["replay_url"] = "", ""
         r["viewer_count"] = state.viewer_count(r["id"])
     return rows
 
@@ -329,7 +363,9 @@ def ritual_live(ritual_id: int, since: int = 0, rseq: int = -1, m: dict = Depend
     if not _can_watch(r, m, parts):
         raise HTTPException(403, "참여를 신청한 가족만 볼 수 있는 제사입니다.")
     state.touch_viewer(ritual_id, m["id"])
-    return _live_payload(r, parts, since, rseq)
+    # 가족 화면에는 다른 가족의 계약자 이름·메모·계약 번호를 보내지 않는다(관리자 진행 화면은 전체를 본다)
+    public = [{k: x[k] for k in ("order_no", "deceased_name", "mourner_name", "birth_date", "death_date", "status", "is_mine")} for x in parts]
+    return _live_payload(r, public, since, rseq)
 
 
 class RitualMessageIn(BaseModel):
@@ -362,6 +398,7 @@ def ritual_reaction(ritual_id: int, body: ReactionIn, m: dict = Depends(require_
         raise HTTPException(400, "허용되지 않는 반응입니다.")
     if not _can_watch(r, m, _participants(ritual_id, m["contract_id"])):
         raise HTTPException(403, "참여를 신청한 가족만 보낼 수 있습니다.")
+    ratelimit.hit(f"react:{m['id']}", 30, 60, "마음을 너무 자주 보내셨습니다. 잠시 뒤 다시 보내 주세요.")
     return {"seq": state.push_reaction(ritual_id, body.emoji, m["name"])}
 
 
@@ -488,6 +525,7 @@ async def voice_register(deceased_id: int = Form(...), kind: str = Form("lifetim
         raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
     if not agree:
         raise HTTPException(400, "동의 확인이 필요합니다.")
+    ratelimit.hit(f"voice-up:{m['id']}", 10, 3600, "목소리 자료는 한 시간에 10번까지 올릴 수 있습니다. 잠시 뒤 다시 시도해 주세요.")
     if not file or len(file) > 10:
         raise HTTPException(400, "음성 자료는 한 번에 1~10개까지 올릴 수 있습니다.")
     base = note.strip() or ("앱에서 직접 녹음" if kind == "lifetime_record" else "앱에서 올린 음성 자료")
@@ -522,6 +560,7 @@ def voice_build(deceased_id: int, m: dict = Depends(require_member)):
         raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
     if not voice.provider_ready():
         raise HTTPException(400, "시설에서 아직 음성 복제 기능을 켜지 않았습니다. 자료는 저장되어 있으니 켜진 뒤 다시 눌러 주세요.")
+    ratelimit.hit(f"voice-build:{m['id']}", 10, 3600, "목소리 만들기는 한 시간에 10번까지 할 수 있습니다.")
     r = voice.register(deceased_id, f"member:{m['id']}")
     return {"ok": True, "seconds": r.get("seconds"), "files": r["files"], "provider": r["provider"]}
 
@@ -534,6 +573,7 @@ class VoicePreviewIn(BaseModel):
 @router.post("/voice/preview")
 def voice_preview(body: VoicePreviewIn, m: dict = Depends(require_member)):
     require_role(m, "manage")   # 고인 목소리로 임의 문장을 만드는 기능이라 계약자만
+    ratelimit.hit(f"voice-preview:{m['id']}", 20, 3600, "미리 듣기는 한 시간에 20번까지 할 수 있습니다.")
     d = db.one("SELECT id, name FROM deceased WHERE id=? AND contract_id=?", (body.deceased_id, m["contract_id"]))
     if not d:
         raise HTTPException(404)
@@ -595,6 +635,7 @@ class FaceRegisterIn(BaseModel):
 def avatar_register(body: FaceRegisterIn, m: dict = Depends(require_member)):
     """대표 사진으로 얼굴을 만든다. 동의(초상 사용/생전 기록)를 함께 기록한다."""
     require_role(m, "manage")
+    ratelimit.hit(f"face:{m['id']}", 5, 3600, "얼굴 만들기는 한 시간에 5번까지 할 수 있습니다.")
     d = db.one("SELECT id FROM deceased WHERE id=? AND contract_id=?", (body.deceased_id, m["contract_id"]))
     if not d:
         raise HTTPException(404)

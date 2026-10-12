@@ -36,6 +36,7 @@ class State:
         self.viewers: dict[int, dict[int, float]] = {}     # 생중계 시청자: ritual_id → {member_id: 마지막 확인 시각}
         self.reactions: dict[int, list] = {}               # 반응(합장·촛불…)은 저장하지 않고 메모리에 최근 200개만
         self._rseq = 0
+        self.watching: dict[int, int] = {}                # 열려 있는 MJPEG 스트림 수: key → 개수
 
     def set_camera(self, cam_id: int, occupied: bool, persons: int, fps: float, sharpness: float = -1.0, virtual: bool = False) -> None:
         with self._lock:
@@ -44,6 +45,18 @@ class State:
     def camera(self, cam_id: int) -> CameraStatus:
         with self._lock:
             return self.cameras.get(cam_id, CameraStatus())
+
+    def watch(self, key: int, delta: int) -> None:
+        with self._lock:
+            n = self.watching.get(key, 0) + delta
+            if n > 0:
+                self.watching[key] = n
+            else:
+                self.watching.pop(key, None)
+
+    def is_watched(self, key: int) -> bool:
+        with self._lock:
+            return self.watching.get(key, 0) > 0
 
     def push_live(self, niche_id: int, data: bytes) -> None:
         with self._new_frame:

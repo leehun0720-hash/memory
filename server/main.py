@@ -62,6 +62,36 @@ app = FastAPI(title="봉안함 원격 참배·AI 추모 대화 MVP", version="0.
               openapi_url=None if config.REQUIRE_STRONG_KEYS else "/openapi.json")
 
 
+# 보안 헤더: 다른 사이트에 넣어 보이기 금지, 형식 추측 금지, 주소 노출 최소화, 실행 가능한 출처 제한(CSP).
+# 외부: 구글 글꼴, D-ID 브라우저 도구(jsdelivr), 실시간 아바타·중계(https/wss), 중계 링크(iframe)만 허용한다.
+CSP = ("default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+       "font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' data: blob: https:; "
+       "connect-src 'self' https: wss:; frame-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; "
+       "form-action 'self'; frame-ancestors 'none'")
+SECURITY_HEADERS = [(b"x-content-type-options", b"nosniff"), (b"referrer-policy", b"same-origin"), (b"x-frame-options", b"DENY"),
+                    (b"permissions-policy", b"camera=(), geolocation=(), microphone=(self)"), (b"content-security-policy", CSP.encode())]
+
+
+class SecurityHeaders:
+    """응답 시작에 보안 헤더를 붙인다(BaseHTTPMiddleware 를 쓰지 않아 생중계 스트림도 그대로 흐른다)."""
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.inner(scope, receive, send)
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                names = {k.lower() for k, _ in message.get("headers", [])}
+                message["headers"] = list(message.get("headers", [])) + [(k, v) for k, v in SECURITY_HEADERS if k not in names]
+            await send(message)
+        await self.inner(scope, receive, send_with_headers)
+
+
+app.add_middleware(SecurityHeaders)
+
+
 @app.exception_handler(RequestValidationError)
 async def _validation_error(_request: Request, exc: RequestValidationError):
     """입력 형식 오류를 영어 목록 대신 한국어 한 줄로."""
@@ -119,7 +149,7 @@ def launcher(request: Request):
     client = (request.client.host if request.client else "") or ""
     host = request.headers.get("host", "").split(":")[0].strip("[]")
     if (client not in ("127.0.0.1", "::1") or host not in ("127.0.0.1", "localhost", "::1")
-            or request.headers.get("x-forwarded-for") or config.EPHEMERAL or config.LAUNCHER_DISABLED):
+            or request.headers.get("x-forwarded-for") or config.EPHEMERAL or config.LAUNCHER_DISABLED or config.REQUIRE_STRONG_KEYS):
         raise HTTPException(404)
     members = db.rows(
         """SELECT m.id, m.name, m.relation, m.role, m.invite_token, c.holder_name, c.plan, n.code AS niche_code,

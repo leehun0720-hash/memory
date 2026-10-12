@@ -22,7 +22,7 @@ const modal = (html) => { const bg = document.createElement("div"); bg.className
 
 async function boot() {
   if (!KEY) { KEY = prompt("관리자 키를 입력해 주세요") || ""; sessionStorage.setItem("admin_key", KEY); }
-  try { await api("/api/admin/overview"); } catch (e) { sessionStorage.removeItem("admin_key"); page.innerHTML = `<div class="card" role="alert"><h1>관리자 콘솔을 열지 못했습니다</h1><p>${esc(e.message)}</p><p class="muted">관리자 키를 확인한 뒤 다시 입력해 주세요. 키는 서버 설정(.env의 ADMIN_KEY)에 있습니다.</p><button class="small" onclick="location.reload()">다시 입력하기</button></div>`; return; }
+  try { await api("/api/admin/overview"); await api("/api/admin/session", { method: "POST" }).catch(() => {}); } catch (e) { sessionStorage.removeItem("admin_key"); page.innerHTML = `<div class="card" role="alert"><h1>관리자 콘솔을 열지 못했습니다</h1><p>${esc(e.message)}</p><p class="muted">관리자 키를 확인한 뒤 다시 입력해 주세요. 키는 서버 설정(.env의 ADMIN_KEY)에 있습니다.</p><button class="small" id="reloadKey">다시 입력하기</button></div>`; $("#reloadKey").onclick = () => location.reload(); return; }
   document.querySelectorAll("aside button").forEach((b) => b.onclick = () => go(b.dataset.page));
   const want = location.hash.slice(1);   // /admin?key=…#rituals 처럼 페이지를 지정해 열 수 있다
   go(["overview", "tasks", "calib", "contracts", "deceased", "rituals", "usage", "aisettings"].includes(want) ? want : "overview");
@@ -135,7 +135,7 @@ async function calib() {
     const im = new Image();
     im.onload = () => { img = im; canvas.width = im.naturalWidth; canvas.height = im.naturalHeight; $("#frameInfo").textContent = `${im.naturalWidth}×${im.naturalHeight}`; draw(); };
     im.onerror = () => { $("#frameInfo").textContent = "카메라 화면이 아직 없습니다. 현장 프로그램을 실행해 주세요."; if (!img.naturalWidth) { canvas.width = 1280; canvas.height = 720; draw(); } };
-    im.src = `/api/admin/cameras/${camId}/frame.jpg?key=${encodeURIComponent(KEY)}&_=${Date.now()}`;
+    im.src = `/api/admin/cameras/${camId}/frame.jpg?_=${Date.now()}`;
   }
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -269,7 +269,7 @@ async function deceasedForm(did, contractId) {
     ${did ? `<hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
     <h3>사진·자료</h3><div class="row" style="flex-wrap:wrap"><label class="btn small secondary" style="width:auto">대표 사진 올리기<input type="file" id="dPhoto" accept="image/*" hidden></label>
       <select id="mKind" style="width:auto"><option value="photo">사진</option><option value="video">영상</option><option value="voice">음성</option><option value="message_video">영상 메시지(인공지능 제작)</option></select><input id="mCap" placeholder="설명" style="width:200px"><label class="btn small secondary" style="width:auto">자료 올리기<input type="file" id="dMedia" hidden></label></div>
-    <div style="margin-top:8px">${x.photo_path ? `<img src="/api/admin/deceased/${did}/photo.jpg?key=${encodeURIComponent(KEY)}&_=${Date.now()}" class="portrait">` : '<span class="muted">대표 사진 없음</span>'}
+    <div style="margin-top:8px">${x.photo_path ? `<img src="/api/admin/deceased/${did}/photo.jpg?_=${Date.now()}" class="portrait">` : '<span class="muted">대표 사진 없음</span>'}
       ${x.media.map((md) => `<div class="list-item"><span>${({ photo: "사진", video: "영상", voice: "음성", message_video: "영상 메시지" })[md.kind] || esc(md.kind)} · ${esc(md.caption)} ${md.ai_generated ? '<span class="ai-tag">인공지능 제작</span>' : ""}</span><button class="small ghost" data-delmedia="${md.id}">삭제</button></div>`).join("")}</div>
     <h3 style="margin-top:16px">복제 음성 <span class="muted">(음성 자료 + 음성 사용 동의서가 있어야 등록됩니다)</span></h3>
     <div class="row" style="flex-wrap:wrap">${x.voice_id ? `<span class="tag on">등록됨 · ${esc(x.voice_provider)} · <span class="mono">${esc(x.voice_id.slice(0, 8))}…</span></span><button class="small secondary" id="vPreview">미리 듣기</button><button class="small ghost" id="vDelete">음성 삭제</button>` : `<span class="tag">미등록</span><button class="small secondary" id="vRegister">저장한 자료로 음성 등록</button>`}<button class="small" id="vUpload">목소리 녹음 · 파일 올리기</button><span id="vOut" class="muted"></span></div>

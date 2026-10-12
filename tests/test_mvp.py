@@ -33,6 +33,12 @@ def client(tmp_path_factory):
 
 
 ADMIN = {"X-Admin-Key": config.ADMIN_KEY}
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    from server import ratelimit
+    ratelimit.reset()
 EDGE = {"X-Edge-Key": config.EDGE_KEY}
 
 
@@ -664,6 +670,9 @@ def test_demo_camera_feeds_snapshot_live_and_ritual(client):
     cam_id = db.one("SELECT camera_id FROM niches WHERE code='A-1-2'")["camera_id"]
     state.cameras.pop(cam_id, None)
     db.set_setting("demo_camera", "auto")
+    niche_key = db.one("SELECT id FROM niches WHERE code='A-1-2'")["id"]
+    ritual_key = -db.one("SELECT id FROM cameras WHERE kind='ritual'")["id"]
+    state.watch(niche_key, +1); state.watch(ritual_key, +1)   # 가족이 실시간 보기·생중계를 열어 둔 상태
     try:
         cam = DemoCamera()
         cam.tick(time.time())
@@ -687,6 +696,7 @@ def test_demo_camera_feeds_snapshot_live_and_ritual(client):
         assert client.put("/api/admin/settings/demo-camera", headers=ADMIN, json={"mode": "off"}).json()["mode"] == "off"
         assert client.get("/api/admin/overview", headers=ADMIN).json()["demo_camera"] == "off"
     finally:
+        state.watch(niche_key, -1); state.watch(ritual_key, -1)
         db.set_setting("demo_camera", "off")
 
 
@@ -891,3 +901,63 @@ def test_mjpeg_is_async_and_skips_stale_frames():
     assert b"FRESHJPEG" in asyncio.run(first(-999))
     state.live_frames[-998] = type(state.live_frames[-999])(b"OLDJPEG", state.live_frames[-999].seq + 1, time.time() - 60)
     assert asyncio.run(first(-998)) is None          # 1분 지난 장면은 '실시간'으로 내보내지 않는다
+
+
+# ---------- ECC 점검 2차 수정(2026-10-12) ----------
+
+def test_family_and_admin_cookie_sessions(client):
+    """처음에 헤더로 확인한 뒤에는 보안 쿠키로 다닌다(사진·생중계 주소에 ?t= · ?key= 를 싣지 않게)."""
+    from fastapi.testclient import TestClient
+    from server.main import app
+    c = TestClient(app)
+    tok = holder_token()
+    assert c.get("/api/family/me").status_code == 401
+    r = c.post("/api/family/session", headers={"X-Family-Token": tok})
+    assert r.status_code == 200 and "httponly" in r.headers["set-cookie"].lower() and "samesite=strict" in r.headers["set-cookie"].lower()
+    assert c.get("/api/family/me").status_code == 200                      # 쿠키만으로
+    c.delete("/api/family/session")
+    assert c.get("/api/family/me").status_code == 401
+    assert c.get("/api/admin/overview").status_code == 401
+    assert c.post("/api/admin/session", headers=ADMIN).status_code == 200
+    assert c.get("/api/admin/overview").status_code == 200                 # 쿠키만으로
+
+
+def test_rate_limits_and_admin_key_guessing(client):
+    tok = {"X-Family-Token": holder_token()}
+    codes = [client.post("/api/family/live/start", headers=tok).status_code for _ in range(31)]
+    assert codes[-1] == 429 and 429 not in codes[:30]
+    bad = [client.get("/api/admin/overview", headers={"X-Admin-Key": "wrong"}).status_code for _ in range(21)]
+    assert bad[:20] == [401] * 20 and bad[20] == 429
+
+
+def test_security_headers_present(client):
+    r = client.get("/health")
+    assert r.headers["x-content-type-options"] == "nosniff" and r.headers["x-frame-options"] == "DENY"
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"] and "object-src 'none'" in r.headers["content-security-policy"]
+
+
+def test_applied_ritual_hides_links_and_other_families(client):
+    tok2 = {"X-Family-Token": holder_token("김태형")}
+    fid = db.one("SELECT id FROM facilities LIMIT 1")["id"]
+    rid = db.execute("INSERT INTO rituals(facility_id, contract_id, title, kind, access, scheduled_at, stream_url, replay_url, note) VALUES (?,?,?,?,?,?,?,?,?)",
+                     (fid, None, "비공개 합동 제사", "memorial", "applied", "2030-01-01T10:00:00+09:00", "https://youtu.be/private", "https://youtu.be/replay", ""))
+    row = next(x for x in client.get("/api/family/rituals", headers=tok2).json() if x["id"] == rid)
+    assert row["can_watch"] is False and row["stream_url"] == "" and row["replay_url"] == ""
+    # 순서표: 신청한 가족은 다른 가족의 계약자 이름·메모를 받지 않는다
+    seq_rid = db.one("SELECT id FROM rituals WHERE title LIKE '합동 기제사%'")["id"]
+    live = client.get(f"/api/family/rituals/{seq_rid}/live", headers=tok2).json()
+    assert live["order"] and all("holder_name" not in x and "note" not in x and "contract_id" not in x for x in live["order"])
+
+
+def test_ritual_links_must_be_http(client):
+    fid = db.one("SELECT id FROM facilities LIMIT 1")["id"]
+    r = client.post("/api/admin/rituals", headers=ADMIN, json={"title": "t", "scheduled_at": "2030-01-01T10:00:00+09:00", "stream_url": "javascript:alert(1)"})
+    assert r.status_code == 422
+
+
+def test_playlist_files_rejected(client):
+    tok = {"X-Family-Token": holder_token("이미영")}
+    did = db.one("SELECT id FROM deceased WHERE name='김옥순'")["id"]
+    body = b"#EXTM3U\n#EXTINF:10,\nhttp://169.254.169.254/latest\n" + b" " * 3000
+    r = client.post("/api/family/voice/register", headers=tok, data={"deceased_id": did, "kind": "voice", "agree": "true"}, files={"file": ("x.wav", body, "audio/wav")})
+    assert r.status_code == 400 and "재생 목록" in r.json()["detail"]

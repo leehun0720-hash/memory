@@ -68,7 +68,7 @@ def _duration(path: Path) -> float | None:
     if not FFMPEG:
         return None
     try:
-        r = subprocess.run([FFMPEG, "-hide_banner", "-i", str(path)], capture_output=True, text=True, timeout=60,
+        r = subprocess.run([FFMPEG, "-hide_banner", "-nostdin", "-protocol_whitelist", "file", "-i", str(path)], capture_output=True, text=True, timeout=60,
                            encoding="utf-8", errors="replace")
         m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", r.stderr or "")
         if not m:
@@ -89,7 +89,7 @@ def _to_mp3(src: Path) -> Path:
         raise HTTPException(503, "서버에 음성 변환 도구(ffmpeg)가 없어 mp3 파일만 받을 수 있습니다. 시설 담당자에게 알려 주세요.")
     dest = src.with_name(src.stem + "-voice.mp3")
     try:
-        r = subprocess.run([FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-i", str(src), "-t", str(MAX_SECONDS), "-vn", "-sn", "-dn",
+        r = subprocess.run([FFMPEG, "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-protocol_whitelist", "file", "-i", str(src), "-t", str(MAX_SECONDS), "-vn", "-sn", "-dn",
                             "-af", "highpass=f=70,loudnorm=I=-18:TP=-2:LRA=11", "-ac", "1", "-ar", "44100", "-b:a", "128k", str(dest)],
                            capture_output=True, timeout=300)
         ok = r.returncode == 0 and dest.exists() and dest.stat().st_size > 1000
@@ -121,6 +121,9 @@ def save_sample(deceased_id: int, filename: str, data: bytes, caption: str, cont
         raise HTTPException(400, f"파일이 너무 큽니다({len(data) / 1024 / 1024:.0f}MB). 100MB 이하로 올려 주세요. 영상이면 소리만 있는 파일로 바꾸면 작아집니다.")
     if len(data) < 2000:
         raise HTTPException(400, "녹음이 비어 있습니다. 다시 녹음해 주세요.")
+    head = data[:64].lstrip().lower()
+    if head.startswith((b"#extm3u", b"ffconcat", b"[playlist]", b"<?xml", b"<asx", b"v=0", b"#ext")):
+        raise HTTPException(400, "재생 목록 파일은 올릴 수 없습니다. 실제 음성이나 영상 파일을 올려 주세요.")
     folder = config.MEDIA_DIR / "voice"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{uuid.uuid4().hex}{ext}"

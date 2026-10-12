@@ -38,7 +38,8 @@ async function api(path, opts = {}) {
   if (r.status === 204) return null;
   return r.json();
 }
-const withToken = (url) => url + (url.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(TOKEN);
+// 토큰은 보안 쿠키(서버가 /api/family/session 에서 발급)로 다니므로 주소에 싣지 않는다. 뒤에 "&_=" 를 붙이는 곳이 있어 "?" 만 맞춘다.
+const withToken = (url) => (url.includes("?") ? url : url + "?");
 
 let toastT;
 function toast(msg, ms = 2600) {
@@ -128,10 +129,10 @@ async function boot() {
     mountArt($("#heroArt"), state.theme, motionReduced());
     return;
   }
-  try { state.me = await api("/api/family/me"); }
+  try { state.me = await api("/api/family/me"); await api("/api/family/session", { method: "POST" }).catch(() => {}); }
   catch (e) {
     view.innerHTML = `<section class="memorial-hero entry-hero"><div class="memorial-hero-copy"><span class="eyebrow">가족 추모 공간</span><h1>추모 공간을<br>열지 못했습니다.</h1><p>${esc(e.message)}</p><p>초대 링크가 바뀌었을 수 있습니다. 계약하신 가족이나 시설 담당자에게 새 초대 링크를 요청해 주세요.</p><div class="row" style="gap:10px;flex-wrap:wrap"><button class="secondary" type="button" id="retryBoot">다시 열기</button><button class="secondary" type="button" id="forgetBoot">이 기기에 저장된 링크 지우기</button></div></div><div class="hero-art" id="heroArt"></div></section>`;
-    $("#tabs").classList.add("hidden"); $("#retryBoot").onclick = () => location.reload(); $("#forgetBoot").onclick = () => { localStorage.removeItem("family_token"); location.href = "/"; }; mountArt($("#heroArt"), state.theme, motionReduced()); return;
+    $("#tabs").classList.add("hidden"); $("#retryBoot").onclick = () => location.reload(); $("#forgetBoot").onclick = async () => { localStorage.removeItem("family_token"); await fetch("/api/family/session", { method: "DELETE" }).catch(() => {}); location.href = "/"; }; mountArt($("#heroArt"), state.theme, motionReduced()); return;
   }
   applyTheme(currentTheme());
   $("#who").textContent = `${state.me.member.name} 님`;
@@ -751,7 +752,7 @@ async function renderSettings() {
   $("#logout").onclick = () => {
     const m = modal(`<h2>이 기기에서 나갈까요?</h2><p>나가면 이 기기에서는 초대 링크를 다시 눌러야 들어올 수 있습니다. 가족 기록은 지워지지 않습니다.</p><div class="modal-actions"><button class="secondary" type="button" data-cancel>머무르기</button><button type="button" data-ok>나가기</button></div>`);
     $("[data-cancel]", m).onclick = () => m.querySelector(".modal-close").click();
-    $("[data-ok]", m).onclick = () => { localStorage.removeItem("family_token"); location.href = "/"; };
+    $("[data-ok]", m).onclick = async () => { localStorage.removeItem("family_token"); await fetch("/api/family/session", { method: "DELETE" }).catch(() => {}); location.href = "/"; };
   };
   renderVoiceCard(); renderFaceCard();
   $("#inviteBtn") && ($("#inviteBtn").onclick = () => {
