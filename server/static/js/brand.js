@@ -1,7 +1,7 @@
 // 가족 추모 공간 첫 화면 그림 (2026-10-11). 불교 테마는 도면 표기 없는 가족용 연화문(lotus-family), 나머지 테마는 종교 상징 없는 촛불 선화(candle-light).
 // - 정적 그림이 먼저 보이고, Lottie를 불러오면 그 위에 그려진다. 못 불러오면 정적 그림이 그대로 남는다(내용을 막지 않음).
 // - 움직임 줄이기(기기 설정·앱 설정)를 켜면 마지막 장면에서 멈춘다. 움직이는 동안에는 '움직임 멈추기' 버튼을 준다.
-// - 두 Lottie 모두 30fps, 0~90프레임 그리기 → 90~330프레임 반복 (scripts/make_memorial_lottie.py 참고).
+// - 두 Lottie 모두 30fps, 0~90프레임 그리기 → 90프레임부터 파일 끝까지 반복 (연화문 20초, 촛불은 scripts/make_memorial_lottie.py 참고).
 const ART = {
   buddhist: { json: "/static/lottie/lotus-family.json", still: "/static/images/brand/lotus-static.svg", label: "연꽃이 선으로 그려지고 피어나는 그림" },
   other: { json: "/static/lottie/candle-light.json", still: "/static/images/brand/candle-light.svg", label: "둥근 선 안에 촛불이 켜지는 그림" },
@@ -48,7 +48,7 @@ export function mountArt(stage, theme, reduced = false) {
       me.anim = anim;
       stage.classList.add("is-live");
       if (reduced) { anim.goToAndStop(BLOOM, true); return; }
-      anim.addEventListener("complete", () => { if (current === me && !me.paused) { anim.loop = true; anim.playSegments([BLOOM, END], true); } });
+      anim.addEventListener("complete", () => { if (current === me && !me.paused) { anim.loop = true; anim.playSegments([BLOOM, anim.totalFrames || END], true); } });
       anim.playSegments([0, BLOOM], true);
       // 멈춤 버튼 (움직임이 5초 넘게 이어지므로)
       const btn = document.createElement("button");
