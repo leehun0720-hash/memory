@@ -5,13 +5,26 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config, db
 from .routers import admin, chat, edge, family, community
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+
+class _DropQuery(logging.Filter):
+    """접속 기록(uvicorn.access)에서 주소의 쿼리(?key=관리자키, ?t=가족토큰, ?text=대화 문장)를 지운다."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str) and "?" in args[2]:
+            record.args = args[:2] + (args[2].split("?", 1)[0],) + args[3:]
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_DropQuery())
 
 STATIC = Path(__file__).parent / "static"
 
@@ -42,7 +55,25 @@ async def lifespan(_: FastAPI):
         await worker
 
 
-app = FastAPI(title="봉안함 원격 참배·AI 추모 대화 MVP", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="봉안함 원격 참배·AI 추모 대화 MVP", version="0.1.0", lifespan=lifespan,
+              # 온라인 서버(Railway 등)에서는 API 문서를 닫는다(관리자 기능 목록이 보이지 않게)
+              docs_url=None if config.REQUIRE_STRONG_KEYS else "/docs",
+              redoc_url=None if config.REQUIRE_STRONG_KEYS else "/redoc",
+              openapi_url=None if config.REQUIRE_STRONG_KEYS else "/openapi.json")
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(_request: Request, exc: RequestValidationError):
+    """입력 형식 오류를 영어 목록 대신 한국어 한 줄로."""
+    fields = sorted({str(e.get("loc", ["", "?"])[-1]) for e in exc.errors()})
+    return JSONResponse(status_code=422, content={"detail": f"입력한 값을 다시 확인해 주세요. (확인할 항목: {', '.join(fields)})"})
+
+
+@app.exception_handler(Exception)
+async def _unhandled_error(request: Request, exc: Exception):
+    """예상하지 못한 오류: 화면에는 한국어 안내, 자세한 내용은 서버 기록에만."""
+    logging.getLogger("server.error").exception("처리되지 않은 오류: %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "서버에 문제가 생겨 처리하지 못했습니다. 잠시 뒤 다시 시도해 주세요. 계속되면 시설 담당자에게 알려 주세요."})
 app.include_router(edge.router)
 app.include_router(family.router)
 app.include_router(chat.router)

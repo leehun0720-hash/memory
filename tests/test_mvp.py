@@ -275,7 +275,9 @@ def test_voice_register_and_tts_flow(client, monkeypatch):
     assert d["has_voice"] is True and "voice_id" not in d
     s = client.post("/api/family/chat/start", headers=tok, json={"deceased_id": did, "acknowledged_ai": True}).json()
     assert s["voice_available"] is True and s["voice_provider"] == "elevenlabs" and s["voice_hint"] == "male"
-    a = client.get(f"/api/family/chat/tts?session_id={s['session_id']}&text=잘 지냈니", headers=tok)
+    # 대화에서 나온 말(첫 인사)만 고인 목소리로 합성한다. 아무 문장은 거부(딥페이크 방지)
+    assert client.get(f"/api/family/chat/tts?session_id={s['session_id']}&text=아무 말이나 해 봐", headers=tok).status_code == 403
+    a = client.get(f"/api/family/chat/tts", params={"session_id": s["session_id"], "text": s["greeting"]}, headers=tok)
     assert a.status_code == 200 and a.content.endswith(b"voice_abc123")
     # 작별(삭제) → 공급자 음성도 삭제, voice_id 비움
     client.post("/api/family/farewell", headers=tok, json={"deceased_id": did, "action": "delete"})
@@ -372,6 +374,7 @@ def test_avatar_register_and_session(client, monkeypatch):
     assert calls["created"][0].startswith("memorial-")
     # 대화 시작: 목소리+얼굴+공급자 → avatar_available. 목소리가 없으면 아바타도 없음
     db.execute("UPDATE deceased SET ai_enabled=1, voice_id='v1', voice_provider='elevenlabs' WHERE id=?", (did,))
+    client.post(f"/api/admin/deceased/{did}/consents", headers=ADMIN, json={"signer_name": "김태형", "relation": "아들", "kind": "voice"})   # 목소리는 음성 동의가 있어야 쓴다
     client.post(f"/api/admin/deceased/{did}/consents", headers=ADMIN, json={"signer_name": "이미영", "relation": "큰딸", "kind": "ai_chat"})
     s = client.post("/api/family/chat/start", headers=tok, json={"deceased_id": did, "acknowledged_ai": True}).json()
     assert s["avatar_available"] is True and s["avatar_provider"] == "simli"
@@ -444,7 +447,8 @@ def test_did_avatar_flow(client, monkeypatch):
     assert s["avatar_available"] and s["avatar_provider"] == "did"
     sess = client.post("/api/family/chat/avatar-session", headers=tok, json={"session_id": s["session_id"]}).json()
     assert sess["provider"] == "did" and sess["agent_id"] == "agt_test1" and sess["client_key"] == "ck-agt_test1" and sess["sdk_url"].startswith("https://cdn.jsdelivr.net/")
-    sp = client.post("/api/family/chat/avatar-speak", headers=tok, json={"session_id": s["session_id"], "text": "잘 지냈니"}).json()
+    assert client.post("/api/family/chat/avatar-speak", headers=tok, json={"session_id": s["session_id"], "text": "아무 말이나"}).status_code == 403
+    sp = client.post("/api/family/chat/avatar-speak", headers=tok, json={"session_id": s["session_id"], "text": s["greeting"]}).json()
     assert sp["audio_url"].startswith("https://") and calls["audio"] == len(b"ID3did")
     client.delete(f"/api/family/avatar/{did}", headers=tok)
     assert calls["deleted"] == "agt_test1"
@@ -812,3 +816,78 @@ def test_admin_voice_upload_records_consent_and_builds(client, monkeypatch):
     c = db.one("SELECT signer_name, relation, kind FROM consents WHERE deceased_id=? AND kind='voice' AND revoked_at IS NULL", (did,))
     assert c == {"signer_name": "이미영", "relation": "큰딸", "kind": "voice"}
     client.delete(f"/api/admin/deceased/{did}/voice", headers=ADMIN)
+
+
+# ---------- ECC 점검 1차 수정(2026-10-12) ----------
+
+def test_consent_revoke_closes_voice_and_face(client, monkeypatch):
+    """동의 철회 → 그 동의가 필요한 복제 음성·고인 얼굴을 바로 지운다(화면 안내와 일치)."""
+    from server.ai.tts import ElevenLabsTTS
+    deleted = {}
+    monkeypatch.setattr(ElevenLabsTTS, "delete_voice", lambda self, voice_id: deleted.setdefault("voice", voice_id))
+    client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5",
+                                                              "elevenlabs_api_key": "sk_test00000000000000000000000000", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2"})
+    did = db.one("SELECT id FROM deceased WHERE name='김철수'")["id"]
+    db.execute("UPDATE consents SET revoked_at=? WHERE deceased_id=? AND kind IN ('voice','lifetime_record')", (db.now(), did))
+    client.post(f"/api/admin/deceased/{did}/consents", headers=ADMIN, json={"signer_name": "김태형", "relation": "아들", "kind": "voice"})
+    cid = db.one("SELECT id FROM consents WHERE deceased_id=? AND kind='voice' AND revoked_at IS NULL", (did,))["id"]
+    db.execute("UPDATE deceased SET voice_id='v_revoke', voice_provider='elevenlabs' WHERE id=?", (did,))
+    r = client.post(f"/api/admin/consents/{cid}/revoke", headers=ADMIN).json()
+    assert r["ok"] and "복제 음성" in r["closed"] and deleted["voice"] == "v_revoke"
+    assert db.one("SELECT voice_id FROM deceased WHERE id=?", (did,))["voice_id"] == ""
+
+
+def test_voice_preview_is_manage_only(client):
+    did = db.one("SELECT id FROM deceased WHERE name='김옥순'")["id"]
+    viewer = {"X-Family-Token": holder_token("이하은")}      # '보기' 권한(미성년)
+    r = client.post("/api/family/voice/preview", headers=viewer, json={"deceased_id": did, "text": "아무 말"})
+    assert r.status_code == 403
+
+
+def test_provider_connection_error_becomes_korean_503(monkeypatch):
+    import requests as rq
+    from server.ai.tts import ElevenLabsTTS, TTSError
+    def boom(self, *a, **k):
+        raise rq.ConnectionError("down")
+    monkeypatch.setattr(rq.Session, "request", boom)
+    with pytest.raises(TTSError) as ei:
+        ElevenLabsTTS("sk_x", "eleven_multilingual_v2").synthesize("안녕", "v1")
+    assert ei.value.status == 503 and "연결하지 못했습니다" in ei.value.message
+
+
+def test_unhandled_error_and_validation_are_korean(client):
+    from fastapi.testclient import TestClient
+    from server.main import app
+    if not any(getattr(r, "path", "") == "/__test_boom" for r in app.routes):
+        app.add_api_route("/__test_boom", lambda: 1 / 0, methods=["GET"])
+    r = TestClient(app, raise_server_exceptions=False).get("/__test_boom")
+    assert r.status_code == 500 and "서버에 문제가 생겨" in r.json()["detail"]
+    v = client.post("/api/family/guestbook", headers={"X-Family-Token": holder_token()}, json={})
+    assert v.status_code == 422 and "입력한 값을 다시 확인" in v.json()["detail"]
+
+
+def test_access_log_drops_query_secrets():
+    import logging
+    from server.main import _DropQuery
+    rec = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, '%s - "%s %s HTTP/%s" %d',
+                            ("1.2.3.4:5", "GET", "/api/admin/cameras/1/frame.jpg?key=SECRET", "1.1", 200), None)
+    _DropQuery().filter(rec)
+    assert "SECRET" not in rec.getMessage() and "/frame.jpg" in rec.getMessage()
+
+
+def test_mjpeg_is_async_and_skips_stale_frames():
+    import asyncio, time
+    from server.routers.family import _mjpeg
+    from server.state import state
+    async def first(key):
+        agen = _mjpeg(key, time.time() + 2, None)
+        try:
+            return await asyncio.wait_for(agen.__anext__(), 1.5)
+        except (StopAsyncIteration, asyncio.TimeoutError):
+            return None
+        finally:
+            await agen.aclose()
+    state.push_live(-999, b"FRESHJPEG")
+    assert b"FRESHJPEG" in asyncio.run(first(-999))
+    state.live_frames[-998] = type(state.live_frames[-999])(b"OLDJPEG", state.live_frames[-999].seq + 1, time.time() - 60)
+    assert asyncio.run(first(-998)) is None          # 1분 지난 장면은 '실시간'으로 내보내지 않는다

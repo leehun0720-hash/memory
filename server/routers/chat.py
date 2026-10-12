@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from .. import config, db, face
+from .. import config, db, face, voice
 from ..ai import factory, safety
 from ..ai.base import Persona, Turn
 from ..ai.prompt import build_greeting
@@ -179,6 +179,19 @@ def history(m: dict = Depends(require_member)):
            WHERE s.member_id=? ORDER BY s.started_at DESC LIMIT 20""", (m["id"],))
 
 
+def _speakable(s: dict, text: str) -> None:
+    """고인 목소리로는 이 대화에서 인공지능이 실제로 한 말(인사·답변·안전 안내)만 합성한다.
+    동의가 철회됐거나 대화 기능이 닫혔으면 막는다(임의 문장 합성·딥페이크 방지)."""
+    d = db.one("SELECT ai_enabled FROM deceased WHERE id=?", (s["deceased_id"],))
+    if not d or not d["ai_enabled"] or not db.one("SELECT id FROM consents WHERE deceased_id=? AND kind='ai_chat' AND revoked_at IS NULL", (s["deceased_id"],)):
+        raise HTTPException(403, "대화 동의가 철회되었거나 대화 기능이 닫혔습니다.")
+    if not voice.consent_ok(s["deceased_id"]):
+        raise HTTPException(403, "음성 사용 동의가 철회되어 이 목소리를 쓸 수 없습니다.")
+    said = {t.text.strip() for t in s["history"] if t.role == "assistant"}
+    if text.strip() not in said:
+        raise HTTPException(403, "대화에서 나온 답변만 목소리로 들을 수 있습니다.")
+
+
 @router.get("/tts")
 def tts(session_id: str, text: str, m: dict = Depends(require_member)):
     """진행 중인 세션의 고인 복제 음성으로 합성한 오디오. 공급자가 없으면 204(브라우저 음성 합성으로 대체)."""
@@ -190,6 +203,7 @@ def tts(session_id: str, text: str, m: dict = Depends(require_member)):
     d = db.one("SELECT voice_id FROM deceased WHERE id=?", (s["deceased_id"],))
     if not d or not d["voice_id"]:
         return Response(status_code=204)
+    _speakable(s, text)
     try:
         r = factory.tts().synthesize(text[:400], d["voice_id"])
     except TTSError as e:
@@ -233,5 +247,6 @@ def avatar_speak(body: AvatarSpeakIn, m: dict = Depends(require_member)):
     d = db.one("SELECT voice_id FROM deceased WHERE id=?", (s["deceased_id"],))
     if not d or not d["voice_id"]:
         raise HTTPException(400, "복제 음성이 없습니다.")
+    _speakable(s, body.text)
     url, secs = face.speech_url(body.text, d["voice_id"])
     return {"audio_url": url, "seconds": secs}

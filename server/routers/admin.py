@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from starlette.concurrency import run_in_threadpool
+
 from .. import config, db, demo_camera, face, voice
 from ..ai import factory
 from ..deps import require_admin
@@ -426,9 +428,25 @@ def consent_create(did: int, body: ConsentIn):
 
 @router.post("/consents/{cid}/revoke")
 def consent_revoke(cid: int):
+    """동의 철회: 화면 안내대로 그 동의가 필요한 기능(복제 음성·고인 얼굴)을 바로 닫는다(공급자 쪽 자료도 삭제)."""
+    c = db.one("SELECT id, deceased_id, kind FROM consents WHERE id=?", (cid,))
+    if not c:
+        raise HTTPException(404, "동의서를 찾을 수 없습니다.")
     db.execute("UPDATE consents SET revoked_at=? WHERE id=? AND revoked_at IS NULL", (db.now(), cid))
     db.audit("admin", "consent.revoke", f"consent:{cid}")
-    return {"ok": True}
+    closed = []
+    did = c["deceased_id"]
+    if c["kind"] in ("voice", "lifetime_record") and not voice.consent_ok(did):
+        if db.one("SELECT voice_id FROM deceased WHERE id=? AND voice_id<>''", (did,)):
+            voice.delete(did, "admin:consent_revoke")
+            closed.append("복제 음성")
+    if c["kind"] in ("likeness", "lifetime_record") and not face.likeness_ok(did):
+        from ..ai.avatar import SimliAvatar
+        row = db.one("SELECT face_id FROM deceased WHERE id=?", (did,))
+        if row and row["face_id"] and row["face_id"] not in SimliAvatar.PRESET_IDS:
+            face.delete(did, "admin:consent_revoke")
+            closed.append("고인 얼굴(실시간 아바타)")
+    return {"ok": True, "closed": closed}
 
 
 # ---------- 의례 일정 · 중계 ----------
@@ -861,15 +879,21 @@ async def voice_upload(did: int, kind: str = Form("voice"), agree: bool = Form(F
                    (did, signer_name.strip()[:40], relation.strip()[:20], kind, db.now(), f"관리자 콘솔 목소리 등록 창에서 확인 · {voice.VOICE_KINDS[kind]}"))
         db.audit("admin", "consent.create", f"deceased:{did}", kind)
     base = note.strip() or "관리자 콘솔 녹음·업로드"
+    datas, total = [], 0
+    for f in file:   # 1MB씩 읽고 한도를 넘으면 바로 멈춘다
+        b = await voice.read_upload(f)
+        total += len(b)
+        if total > voice.MAX_REQUEST_BYTES:
+            raise HTTPException(413, "한 번에 올리는 자료가 너무 많습니다(모두 합쳐 200MB까지). 나눠서 올려 주세요.")
+        datas.append((f, b))
     saved = []
-    for f in file:
-        data = await f.read()
-        saved.append(voice.save_sample(did, f.filename or "recording.webm", data, f"{base} · {f.filename or '녹음'}", f.content_type))
+    for f, b in datas:   # 변환(ffmpeg)은 스레드에서: 다른 가족의 화면·생중계를 멈추지 않게
+        saved.append(await run_in_threadpool(voice.save_sample, did, f.filename or "recording.webm", b, f"{base} · {f.filename or '녹음'}", f.content_type))
     secs = round(sum(x["seconds"] or 0 for x in saved)) or None
     if not build or not voice.provider_ready():
         return {"ok": True, "pending": True, "files": len(saved), "seconds": secs,
                 "message": "음성 자료를 저장했습니다." + ("" if voice.provider_ready() else " 음성 복제(ElevenLabs)가 꺼져 있어 목소리는 아직 만들지 않았습니다. 인공지능 설정에서 키를 넣은 뒤 '음성 등록'을 눌러 주세요.")}
-    r = voice.register(did, "admin")
+    r = await run_in_threadpool(voice.register, did, "admin")
     return {"ok": True, "pending": False, "files": r["files"], "seconds": r.get("seconds") or secs, "provider": r["provider"]}
 
 

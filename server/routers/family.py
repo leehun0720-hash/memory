@@ -1,6 +1,9 @@
 """유족 웹앱 API. 초대 토큰 하나로 계약·칸·고인이 결정된다."""
+import asyncio
 import time
 from datetime import datetime, timedelta
+
+from starlette.concurrency import run_in_threadpool
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -127,19 +130,26 @@ def live_start(m: dict = Depends(require_member)):
     return {"session_id": sid, "seconds": config.LIVE_SECONDS, "expires_at": expires.isoformat(timespec="seconds")}
 
 
-def _mjpeg(key: int, deadline: float, cam_id: int | None):
+async def _mjpeg(key: int, deadline: float, cam_id: int | None):
+    """실시간 영상(MJPEG). 비동기로 새 장면을 기다려 서버 작업자(스레드)를 붙잡지 않는다(시청자가 많아도 다른 화면이 멈추지 않게).
+    5초 넘은 장면은 '실시간'으로 내보내지 않는다(지난 장면이 먼저 보이지 않게)."""
     boundary = b"--frame"
     seq = 0
     idle_since = time.time()
+    next_check = 0.0
     while time.time() < deadline:
-        if cam_id is not None and state.camera(cam_id).occupied and _live_protect():
-            break   # 참배객 보호: 사람 감지 시 송출 중단 → 클라이언트가 사진 화면으로 전환
-        f = state.wait_live(key, seq, timeout=1.0)
-        if f is None:
-            if time.time() - idle_since > 8:
+        now = time.time()
+        if cam_id is not None and now >= next_check:
+            next_check = now + 1.0
+            if state.camera(cam_id).occupied and _live_protect():
+                break   # 참배객 보호: 사람 감지 시 송출 중단 → 클라이언트가 사진 화면으로 전환
+        f = state.live_frames.get(key)
+        if f is None or f.seq <= seq or now - f.at >= 5:
+            if now - idle_since > 8:
                 break
+            await asyncio.sleep(0.04)
             continue
-        idle_since = time.time()
+        idle_since = now
         seq = f.seq
         yield boundary + b"\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(f.data)).encode() + b"\r\n\r\n" + f.data + b"\r\n"
 
@@ -481,10 +491,16 @@ async def voice_register(deceased_id: int = Form(...), kind: str = Form("lifetim
     if not file or len(file) > 10:
         raise HTTPException(400, "음성 자료는 한 번에 1~10개까지 올릴 수 있습니다.")
     base = note.strip() or ("앱에서 직접 녹음" if kind == "lifetime_record" else "앱에서 올린 음성 자료")
+    datas, total = [], 0
+    for f in file:   # 1MB씩 읽고 한도를 넘으면 바로 멈춘다
+        b = await voice.read_upload(f)
+        total += len(b)
+        if total > voice.MAX_REQUEST_BYTES:
+            raise HTTPException(413, "한 번에 올리는 자료가 너무 많습니다(모두 합쳐 200MB까지). 나눠서 올려 주세요.")
+        datas.append((f, b))
     saved = []
-    for f in file:
-        data = await f.read()
-        saved.append(voice.save_sample(d["id"], f.filename or "recording.webm", data, f"{base} · {f.filename or '녹음'}", f.content_type))
+    for f, b in datas:   # 변환(ffmpeg)은 스레드에서: 다른 가족의 화면·생중계를 멈추지 않게
+        saved.append(await run_in_threadpool(voice.save_sample, d["id"], f.filename or "recording.webm", b, f"{base} · {f.filename or '녹음'}", f.content_type))
     if not db.one("SELECT id FROM consents WHERE deceased_id=? AND kind=? AND revoked_at IS NULL", (d["id"], kind)):
         db.execute("INSERT INTO consents(deceased_id, signer_name, relation, kind, signed_at, note) VALUES (?,?,?,?,?,?)",
                    (d["id"], m["name"], m["relation"], kind, db.now(), f"유족 앱에서 동의 · {VOICE_KINDS[kind]}"))
@@ -494,7 +510,7 @@ async def voice_register(deceased_id: int = Form(...), kind: str = Form("lifetim
         db.audit(f"member:{m['id']}", "voice.samples_saved", f"deceased:{d['id']}", f"{len(saved)} files (provider off)")
         return {"ok": True, "pending": True, "seconds": secs, "files": len(saved),
                 "message": "목소리 자료와 동의를 저장했습니다. 시설에서 음성 복제 기능을 켜면 '저장한 자료로 목소리 만들기'로 바로 만들 수 있습니다."}
-    r = voice.register(d["id"], f"member:{m['id']}")
+    r = await run_in_threadpool(voice.register, d["id"], f"member:{m['id']}")
     return {"ok": True, "seconds": r.get("seconds") or secs, "files": r["files"], "provider": r["provider"]}
 
 
@@ -517,6 +533,7 @@ class VoicePreviewIn(BaseModel):
 
 @router.post("/voice/preview")
 def voice_preview(body: VoicePreviewIn, m: dict = Depends(require_member)):
+    require_role(m, "manage")   # 고인 목소리로 임의 문장을 만드는 기능이라 계약자만
     d = db.one("SELECT id, name FROM deceased WHERE id=? AND contract_id=?", (body.deceased_id, m["contract_id"]))
     if not d:
         raise HTTPException(404)
@@ -602,9 +619,7 @@ async def avatar_photo(deceased_id: int = Form(...), file: UploadFile = File(...
     ext = Path(file.filename or "").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
         raise HTTPException(400, "jpg·png·webp 사진만 올릴 수 있습니다.")
-    data = await file.read()
-    if len(data) > 5 * 1024 * 1024:
-        raise HTTPException(400, "사진이 5MB를 넘습니다.")
+    data = await voice.read_upload(file, 5 * 1024 * 1024)
     rel = f"photos/{uuid.uuid4().hex}{ext}"
     dest = config.MEDIA_DIR / rel
     dest.parent.mkdir(parents=True, exist_ok=True)

@@ -804,7 +804,7 @@ async function renderVoiceCard() {
         ${d.has_voice ? '<span class="pill ok">목소리 등록됨</span>' : d.samples ? '<span class="pill">자료 저장됨 · 만들기 전</span>' : '<span class="pill">미등록</span>'}</div>
       <div class="muted">${d.has_voice ? "이 목소리로 대화가 재생됩니다." : d.samples ? `저장한 자료 ${d.samples}개 · 모두 ${d.sample_seconds || 0}초${(d.sample_seconds || 0) < v.min_seconds ? ` (${v.min_seconds}초 이상 필요)` : ""}` : "아직 자료가 없습니다."}${d.consent ? ` · 동의: ${esc(d.consent.signer_name)} (${d.consent.kind === "lifetime_record" ? "생전 기록" : "음성 사용"})` : ""}</div>
       <div class="row" style="flex-wrap:wrap">
-        ${d.has_voice ? `<button class="small secondary" data-vprev="${d.id}">미리 듣기</button>` : ""}
+        ${d.has_voice && v.can_manage ? `<button class="small secondary" data-vprev="${d.id}">미리 듣기</button>` : ""}
         ${v.can_manage ? `<button class="small ${d.has_voice ? "ghost" : ""}" data-vrec="${d.id}">${d.has_voice ? "다시 등록" : d.samples ? "자료 더하기" : "목소리 등록"}</button>` : ""}
         ${v.can_manage && !d.has_voice && d.samples && v.provider_ready && (d.sample_seconds || 0) >= v.min_seconds ? `<button class="small" data-vbuild="${d.id}">저장한 자료로 목소리 만들기</button>` : ""}
         ${v.can_manage && d.has_voice ? `<button class="small ghost" data-vdel="${d.id}">삭제</button>` : ""}

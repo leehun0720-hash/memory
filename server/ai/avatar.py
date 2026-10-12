@@ -17,6 +17,16 @@ class AvatarError(Exception):
         self.message = message
 
 
+class _SafeSession(requests.Session):
+    """연결 실패·시간 초과를 AvatarError(503, 한국어 안내)로 바꾼다."""
+    def request(self, *args, **kwargs):
+        try:
+            return super().request(*args, **kwargs)
+        except requests.RequestException as e:
+            log.warning("아바타 공급자 연결 실패: %s", e)
+            raise AvatarError(503, "실시간 아바타 서비스에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요.") from e
+
+
 class NoAvatar:
     name = "none"
 
@@ -41,7 +51,7 @@ class SimliAvatar:
 
     def __init__(self, api_key: str) -> None:
         self.key = api_key
-        self.s = requests.Session()
+        self.s = _SafeSession()
         self.s.headers["x-simli-api-key"] = api_key
 
     @staticmethod
@@ -165,7 +175,7 @@ class DIDAvatar:
 
     def __init__(self, api_key: str) -> None:
         self.key = api_key
-        self.s = requests.Session()
+        self.s = _SafeSession()
         self.s.headers["Authorization"] = f"Basic {api_key}"
         self.s.headers["Accept"] = "application/json"
 

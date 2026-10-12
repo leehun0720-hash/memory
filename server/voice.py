@@ -45,6 +45,24 @@ MIME = {".mp3": "audio/mpeg"}
 VOICE_KINDS = {"lifetime_record": "생전 기록(본인 녹음)", "voice": "고인 음성 자료(가족 동의)"}
 
 
+MAX_REQUEST_BYTES = 200 * 1024 * 1024   # 한 번에 올리는 자료 합계 상한
+
+
+async def read_upload(f, limit: int = MAX_BYTES) -> bytes:
+    """업로드를 1MB씩 읽다가 한도를 넘으면 바로 멈춘다(큰 파일을 통째로 메모리에 올리지 않게)."""
+    out = bytearray()
+    while chunk := await f.read(1024 * 1024):
+        out.extend(chunk)
+        if len(out) > limit:
+            raise HTTPException(413, f"‘{getattr(f, 'filename', '') or '파일'}’이 너무 큽니다. {limit // (1024 * 1024)}MB 이하로 올려 주세요.")
+    return bytes(out)
+
+
+def consent_ok(deceased_id: int) -> bool:
+    """복제 음성을 쓸 수 있는 동의(음성 사용 또는 생전 기록)가 살아 있는지."""
+    return bool(db.one("SELECT id FROM consents WHERE deceased_id=? AND kind IN ('voice','lifetime_record') AND revoked_at IS NULL", (deceased_id,)))
+
+
 def _duration(path: Path) -> float | None:
     """ffmpeg 로 길이를 잰다(ffprobe 가 없어도 됨)."""
     if not FFMPEG:
@@ -148,12 +166,15 @@ def register(deceased_id: int, actor: str) -> dict:
         raise HTTPException(400, f"음성 자료가 모두 합쳐 {total:.0f}초입니다. {MIN_SECONDS}초 이상(1분 정도 권장) 되도록 더 녹음하거나 올려 주세요.")
     files = [(x["file"].name, x["file"].read_bytes(), MIME.get(x["file"].suffix.lower(), "audio/mpeg")) for x in found]
     provider = factory.tts()
-    try:
-        if d["voice_id"] and d["voice_provider"] == provider.name:
-            provider.delete_voice(d["voice_id"])
+    try:   # 새 목소리를 먼저 만들고, 성공했을 때만 옛 목소리를 지운다(중간에 실패해도 '등록됨'인데 소리가 안 나는 상태가 없게)
         vid = provider.add_voice(f"memorial-{deceased_id}-{d['name']}", files, f"{d['name']} ({d['honorific']})")
     except TTSError as e:
         raise HTTPException(e.status if 400 <= e.status < 600 else 502, e.message)
+    if d["voice_id"] and d["voice_provider"] == provider.name and d["voice_id"] != vid:
+        try:
+            provider.delete_voice(d["voice_id"])
+        except TTSError as e:
+            db.audit(actor, "voice.delete_failed", f"deceased:{deceased_id}", e.message[:200])
     db.execute("UPDATE deceased SET voice_id=?, voice_provider=? WHERE id=?", (vid, provider.name, deceased_id))
     db.audit(actor, "voice.register", f"deceased:{deceased_id}", f"{provider.name} {len(files)} files")
     return {"voice_id": vid, "provider": provider.name, "files": len(files), "seconds": round(total) if total else None}
@@ -177,6 +198,8 @@ def preview(deceased_id: int, text: str) -> tuple[bytes, str]:
     d = db.one("SELECT voice_id FROM deceased WHERE id=?", (deceased_id,))
     if not d or not d["voice_id"]:
         raise HTTPException(404, "등록된 음성이 없습니다.")
+    if not consent_ok(deceased_id):
+        raise HTTPException(403, "음성 사용 동의가 철회되어 이 목소리를 쓸 수 없습니다.")
     try:
         r = factory.tts().synthesize(text[:200], d["voice_id"])
     except TTSError as e:

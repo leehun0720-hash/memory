@@ -74,38 +74,38 @@ def camera_status(cam_id: int, occupied: bool = Form(...), persons: int = Form(0
 
 
 @router.post("/cameras/{cam_id}/frame")
-async def camera_frame(cam_id: int, file: UploadFile = File(...)):
+def camera_frame(cam_id: int, file: UploadFile = File(...)):
     """관리자 칸 좌표 등록용 전체 화면. 현장 프로그램은 사람이 없을 때만 보낸다."""
     if not db.one("SELECT id FROM cameras WHERE id=?", (cam_id,)):
         raise HTTPException(404, "camera")
-    data = await file.read()
+    data = file.file.read()
     state.push_full(cam_id, data)
     _atomic_write(config.FRAME_DIR / f"cam_{cam_id}.jpg", data)
     return {"ok": True}
 
 
 @router.post("/niches/{niche_id}/snapshot")
-async def niche_snapshot(niche_id: int, file: UploadFile = File(...)):
+def niche_snapshot(niche_id: int, file: UploadFile = File(...)):
     """내 칸만 잘라내고 바깥을 흐린 사진. 10초마다 갱신."""
     if not db.one("SELECT id FROM niches WHERE id=?", (niche_id,)):
         raise HTTPException(404, "niche")
-    data = await file.read()
+    data = file.file.read()
     _atomic_write(config.SNAPSHOT_DIR / f"{niche_id}.jpg", data)
     db.execute("UPDATE niches SET last_snapshot_at=? WHERE id=?", (db.now(), niche_id))
     return {"ok": True}
 
 
 @router.post("/niches/{niche_id}/live")
-async def niche_live(niche_id: int, file: UploadFile = File(...)):
+def niche_live(niche_id: int, file: UploadFile = File(...)):
     """실시간 보기 프레임. 메모리에만 두고 저장하지 않는다."""
-    data = await file.read()
+    data = file.file.read()
     state.push_live(niche_id, data)
     return {"ok": True}
 
 
 @router.post("/cameras/{cam_id}/ritual-live")
-async def ritual_live(cam_id: int, file: UploadFile = File(...)):
+def ritual_live(cam_id: int, file: UploadFile = File(...)):
     """제례 공간 카메라 중계 프레임(전체 화면). niche id 대신 음수 카메라 키를 쓴다."""
-    data = await file.read()
+    data = file.file.read()
     state.push_live(-cam_id, data)
     return {"ok": True}

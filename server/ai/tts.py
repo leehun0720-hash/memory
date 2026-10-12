@@ -9,6 +9,16 @@ import requests
 
 from .base import TTSResult
 
+
+class _SafeSession(requests.Session):
+    """연결 실패·시간 초과(requests 예외)를 TTSError(503, 한국어 안내)로 바꾼다. 호출하는 쪽은 TTSError 만 잡으면 된다."""
+    def request(self, *args, **kwargs):
+        try:
+            return super().request(*args, **kwargs)
+        except requests.RequestException as e:
+            log.warning("ElevenLabs 연결 실패: %s", e)
+            raise TTSError(503, "음성 서비스(ElevenLabs)에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요.") from e
+
 log = logging.getLogger(__name__)
 
 
@@ -41,7 +51,7 @@ class ElevenLabsTTS:
         self.key = api_key
         self.model = model if model in self.MODELS else self.MODELS[0]
         self.settings = self.clean_settings(settings)
-        self.s = requests.Session()
+        self.s = _SafeSession()
         self.s.headers["xi-api-key"] = api_key
 
     # ---------- 오류 해석 ----------
