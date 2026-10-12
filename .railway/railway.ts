@@ -14,7 +14,7 @@ export default defineRailway(() => {
       startCommand: "python -m uvicorn server.main:app --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips=*",
       healthcheckPath: "/health",
       healthcheckTimeout: 120,
-      restartPolicyType: "ON_FAILURE",
+      // 재시작 방식은 Railway 기본값(실패 시 재시작, ON_FAILURE)이라 적지 않는다. 적으면 Railway 가 기본값을 비워 저장해 늘 '변경 있음'으로 나온다.
       restartPolicyMaxRetries: 5,
     },
     // SQLite 한 파일을 쓰므로 인스턴스는 1개(늘리면 기록이 갈라진다)

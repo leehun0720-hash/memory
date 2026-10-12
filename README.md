@@ -166,7 +166,7 @@ tests/test_mvp.py  29개 테스트: python -m pytest -q
 
 ### Railway에 올리기 (2026-10-12)
 
-상시 실행 서버 + 볼륨이라 실시간 참배·기록 저장·알림톡 예약까지 그대로 동작합니다. 설정 파일: `railway.json`(시작 명령·상태 확인 `/health`·인스턴스 1개), `railpack.json`(빌드 단계 시작 명령), `.python-version`(3.12), `.railwayignore`(`.env`·`data/`·`edge/` 는 올리지 않음).
+상시 실행 서버 + 볼륨이라 실시간 참배·기록 저장·알림톡 예약까지 그대로 동작합니다. 설정 파일: `.railway/railway.ts`(아래 '인프라 설정 파일' — 시작 명령·상태 확인 `/health`·재시작·인스턴스 1개·볼륨), `railpack.json`(빌드 단계 시작 명령), `.python-version`(3.12), `.railwayignore`(`.env`·`data/`·`edge/` 는 올리지 않음).
 
 1. 프로젝트·서비스·볼륨: `railway init --name <이름>` → `railway add --service memorial` → `railway service link memorial` → `railway volume add --mount-path /data`
 2. 일반 변수: `DATA_DIR=/data`, `LAUNCHER=0`, `AUTO_SEED=1`(처음에 시연 데이터를 넣을 때만), `KAKAO_SEND_ENABLED=0`
@@ -189,7 +189,7 @@ $env:_ = "$env:APPDATA\npm\node_modules\@railway\cli\bin\railway.exe"
 & $env:_ config apply     # 확인 후 적용
 ```
 
-적용이 끝나 `config plan` 이 "already up to date" 로 나오면 `railway.json` 을 지웁니다(그 전에 지우면 시작 명령·상태 확인·재시작 정책이 빠집니다). `railpack.json` 은 Railpack 빌드 설정이라 그대로 둡니다.
+2026-10-12 에 적용을 마쳤고(`config plan` → "already up to date") `railway.json` 은 지웠습니다. 재시작 방식은 Railway 기본값(실패 시 재시작)이라 파일에 적지 않습니다(적으면 Railway 가 기본값을 비워 저장해 늘 '변경 있음'으로 보입니다). `railpack.json` 은 Railpack 빌드 설정이라 그대로 둡니다.
 
 Vercel에 올릴 때 환경변수: `AUTO_SEED=1`(시작 시 시연 데이터), `SEED_SALT=아무문자열`(초대 링크 고정), `ADMIN_KEY`, `EDGE_KEY`. API 키는 배포 뒤 관리자 콘솔에서 넣되, 서버리스는 재시작 시 사라지므로 `ANTHROPIC_API_KEY`·`ELEVENLABS_API_KEY`를 환경변수로 넣는 편이 낫습니다. 진입점은 `pyproject.toml`의 `[tool.vercel] entrypoint`.
 
