@@ -114,7 +114,7 @@ app.include_router(community.router)
 def _page(name: str) -> HTMLResponse:
     """정적 HTML을 내보내되 js/css 주소에 수정 시각을 붙여 브라우저 캐시가 옛 파일을 쓰지 않게 한다."""
     html = (STATIC / name).read_text(encoding="utf-8")
-    for rel in ("css/app.css", "css/family.css", "css/community.css", "css/warm.css", "css/dream.css", "css/voice-recorder.css", "js/community.js", "js/app.js", "js/admin.js", "js/screen.js"):
+    for rel in ("css/app.css", "css/family.css", "css/community.css", "css/warm.css", "css/dream.css", "css/voice-recorder.css", "css/serene.css", "css/console.css", "js/community.js", "js/app.js", "js/admin.js", "js/screen.js"):
         f = STATIC / rel
         if f.exists():
             html = html.replace(f"/static/{rel}", f"/static/{rel}?v={int(f.stat().st_mtime)}")
@@ -123,6 +123,12 @@ def _page(name: str) -> HTMLResponse:
 
 @app.get("/", include_in_schema=False)
 def family_app():
+    return _page("index.html")
+
+
+@app.get("/demo", include_in_schema=False)
+def demo_entry():
+    """시연 시작 화면(홈페이지·플랫폼의 'MVP 바로가기'가 여는 주소). 이 기기에 가족 링크가 저장돼 있어도 시작 화면을 먼저 보여 준다."""
     return _page("index.html")
 
 

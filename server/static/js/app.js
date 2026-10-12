@@ -1,5 +1,5 @@
 // 유족 웹앱. 초대 링크(/?t=토큰)로 열리며 설치가 필요 없다.
-import {createCommunity} from './community.js?v=20261011-brand';
+import {createCommunity} from './community.js?v=20261012-serene';
 import {mountArt, destroyAll as destroyArt, mountScene, mountVoice, playReaction} from './dream.js?v=20261012-3';
 import {openVoiceRecorder} from './voice-recorder.js?v=20261012-1';
 const qs = new URLSearchParams(location.search);
@@ -22,6 +22,8 @@ if (storedToken && !cleanToken(storedToken)) localStorage.removeItem("family_tok
 const TOKEN = linkToken || (BAD_LINK ? "" : cleanToken(storedToken));
 if (rawLinkToken !== null) { if (linkToken) localStorage.setItem("family_token", linkToken); history.replaceState(null, "", location.pathname + location.hash); }   // 토큰만 지우고 #탭 지정은 남긴다
 
+// /demo: 홈페이지·플랫폼의 'MVP 바로가기'가 여는 시연 시작 화면. 가족 링크가 저장돼 있어도 시작 화면부터 보여 준다.
+const DEMO_ENTRY = location.pathname === "/demo" && !linkToken;
 const $ = (s, el = document) => el.querySelector(s);
 const view = $("#view");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -117,89 +119,151 @@ function chime() {
 // ---------------- 부팅 ----------------
 async function boot() {
   applyTheme(localStorage.getItem("theme_local") || "classic"); applyMotion();
-  if (!TOKEN) {
-    $("#tabs").classList.add("hidden");
+  if (DEMO_ENTRY || !TOKEN) {
+    $("#tabs").classList.add("hidden"); document.body.classList.add("is-entry");
     if (!BAD_LINK && await renderLauncher()) return;
-    if (BAD_LINK) {
-      view.innerHTML = `<section class="memorial-hero entry-hero"><div class="memorial-hero-copy"><span class="eyebrow">가족 추모 공간</span><h1>초대 링크를<br>확인해 주세요.</h1><p>주소의 초대 링크 부분이 올바르지 않습니다. 받은 링크를 앞뒤 글자 없이 그대로 눌러 주세요. 링크는 <b>/?t=</b> 뒤에 영문과 숫자가 이어진 모양입니다.</p><p>관리자 콘솔의 ‘계약·가족’에서 초대 링크를 다시 복사할 수 있습니다.</p></div><div class="hero-art" id="heroArt"></div></section>`;
-      mountArt($("#heroArt"), state.theme, motionReduced());
-      return;
-    }
-    view.innerHTML = `<section class="memorial-hero entry-hero"><div class="memorial-hero-copy"><span class="eyebrow">가족 추모 공간</span><h1>초대 링크로<br>들어와 주세요.</h1><p>계약하신 가족에게 받은 카카오톡 초대 링크를 누르면 바로 열립니다. 링크가 없으면 시설 담당자에게 초대를 요청해 주세요.</p></div><div class="hero-art" id="heroArt"></div></section>`;
-    mountArt($("#heroArt"), state.theme, motionReduced());
+    if (TOKEN) { location.replace("/"); return; }   // 시작 화면이 없는 서버(온라인)에서 /demo → 저장된 가족 링크로
+    renderEntry(BAD_LINK);
     return;
   }
   try { state.me = await api("/api/family/me"); await api("/api/family/session", { method: "POST" }).catch(() => {}); }
   catch (e) {
     view.innerHTML = `<section class="memorial-hero entry-hero"><div class="memorial-hero-copy"><span class="eyebrow">가족 추모 공간</span><h1>추모 공간을<br>열지 못했습니다.</h1><p>${esc(e.message)}</p><p>초대 링크가 바뀌었을 수 있습니다. 계약하신 가족이나 시설 담당자에게 새 초대 링크를 요청해 주세요.</p><div class="row" style="gap:10px;flex-wrap:wrap"><button class="secondary" type="button" id="retryBoot">다시 열기</button><button class="secondary" type="button" id="forgetBoot">이 기기에 저장된 링크 지우기</button></div></div><div class="hero-art" id="heroArt"></div></section>`;
-    $("#tabs").classList.add("hidden"); $("#retryBoot").onclick = () => location.reload(); $("#forgetBoot").onclick = async () => { localStorage.removeItem("family_token"); await fetch("/api/family/session", { method: "DELETE" }).catch(() => {}); location.href = "/"; }; mountArt($("#heroArt"), state.theme, motionReduced()); return;
+    $("#tabs").classList.add("hidden"); document.body.classList.add("is-entry"); $("#retryBoot").onclick = () => location.reload(); $("#forgetBoot").onclick = async () => { localStorage.removeItem("family_token"); await fetch("/api/family/session", { method: "DELETE" }).catch(() => {}); location.href = "/"; }; mountArt($("#heroArt"), state.theme, motionReduced()); return;
   }
   applyTheme(currentTheme());
   $("#who").textContent = `${state.me.member.name} 님`;
+  $("#who").dataset.initial = String(state.me.member.name || "").slice(-2);
   community.init();
   $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) go(b.dataset.tab); });
   const want = location.hash.slice(1);   // /?t=…#ritual 처럼 탭을 지정해 열 수 있다
-  go(["visit", "memorial", "chat", "ritual", "settings", ...Object.keys(community.pages)].includes(want) ? want : localStorage.getItem('memorial_easy')==='true'?'easy':'visit');
+  const routes = ["visit", "memorial", "chat", "ritual", "settings", ...Object.keys(community.pages)];
+  go(routes.includes(want) ? want : localStorage.getItem('memorial_easy')==='true'?'easy':'visit');
+  window.addEventListener("popstate", () => { const t = location.hash.slice(1) || "visit"; if (t !== state.tab && routes.includes(t)) go(t, false); });
 }
-function go(tab) {
-  clearTimers(); stopSpeech(); destroyArt(); state.tab = tab; history.replaceState(null, "", location.pathname + (tab === "visit" ? "" : "#" + tab));
+// 화면 이동은 방문 기록에 남겨 휴대폰 '뒤로 가기'로 앞 화면에 돌아오게 한다(주소의 #탭을 바꿔도 이동).
+function go(tab, push = true) {
+  const url = location.pathname + (tab === "visit" ? "" : "#" + tab);
+  if (push && state.tab && state.tab !== tab) history.pushState(null, "", url); else history.replaceState(null, "", url);
+  clearTimers(); stopSpeech(); destroyArt(); state.tab = tab;
   document.querySelectorAll("#tabs button").forEach((b) => {
     b.classList.toggle("active", b.dataset.tab === tab);
     if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
-  view.dataset.page = tab;
+  view.dataset.page = tab; document.body.dataset.page = tab;
   view.innerHTML = `<div class="card center"><p class="muted" role="status">화면을 불러오는 중입니다…</p></div>`;
   const render = ({ visit: renderVisit, memorial: renderMemorial, chat: renderChat, ritual: renderRitual, settings: renderSettings, ...community.pages })[tab];
   Promise.resolve(render()).then(() => {if(state.tab===tab)community.mount(tab);}).catch(e=>failCard("화면을", e, tab));
   window.scrollTo(0, 0);
 }
 
-// ---------------- 로컬 시작 화면 (서버를 켠 컴퓨터에서 초대 링크 없이 열었을 때) ----------------
+// ---------------- 초대 링크 화면 (링크 없이 열었거나 링크가 망가졌을 때) ----------------
+function renderEntry(bad) {
+  view.innerHTML = `<section class="memorial-hero entry-hero"><div class="memorial-hero-copy"><span class="eyebrow">가족 추모 공간</span>
+      <h1>${bad ? "초대 링크를<br>확인해 주세요." : "초대 링크로<br>들어와 주세요."}</h1>
+      <p>${bad ? "주소의 초대 링크 부분이 올바르지 않습니다. 받은 링크를 앞뒤 글자 없이 그대로 눌러 주세요." : "계약하신 가족에게 받은 카카오톡 초대 링크를 누르면 바로 열립니다."}</p></div><div class="hero-art" id="heroArt"></div></section>
+    <section class="card" aria-labelledby="linkTitle"><h2 id="linkTitle">받은 링크 붙여 넣기</h2>
+      <p class="muted">카카오톡에서 받은 초대 링크를 통째로 붙여 넣어도 됩니다. 링크가 없으면 시설 담당자에게 초대를 요청해 주세요.</p>
+      <form class="link-form" id="linkForm"><label class="sr-only" for="linkIn">초대 링크</label><input id="linkIn" autocomplete="off" inputmode="url" placeholder="예: https://…/?t=영문과숫자"><button type="submit">추모 공간 열기</button></form>
+      <p class="muted" style="margin-top:14px">시설 직원이신가요? <a href="/admin">관리자 콘솔</a>에서 계약·가족을 관리하고 초대 링크를 복사할 수 있습니다.</p></section>`;
+  $("#linkForm").onsubmit = (e) => {
+    e.preventDefault();
+    const t = cleanToken($("#linkIn").value);
+    if (!t) { toast("초대 링크 모양이 아닙니다. 받은 링크를 그대로 붙여 넣어 주세요.", 4200); $("#linkIn").focus(); return; }
+    location.href = "/?t=" + encodeURIComponent(t);
+  };
+  mountArt($("#heroArt"), state.theme, motionReduced());
+}
+
+// ---------------- 시연 시작 화면 (서버를 켠 컴퓨터에서 초대 링크 없이 열었거나 /demo) ----------------
 async function renderLauncher() {
   let L;
   try { const r = await fetch("/api/launcher"); if (!r.ok) return false; L = await r.json(); } catch { return false; }
   const roleName = { view: "보기", chat: "보기·대화", manage: "계약자(관리)" };
+  const pick = L.members.find((m) => m.role === "manage") || L.members[0];
+  const admin = esc(L.admin_url);
+  const staff = [
+    ["overview", "현황 · 시연 카메라", "봉안실 카메라 상태, 시연 화면 켜고 끄기"],
+    ["aisettings", "인공지능 연결 키 등록", "Claude · ElevenLabs · D-ID 키를 넣고 연결 테스트"],
+    ["rituals", "의례 일정 · 생중계", "추도식 만들기, 지금 시작, 다음 차례로"],
+    ["deceased", "고인 · 목소리 등록", "기억 카드, 동의서, 녹음·파일 올리기"],
+  ];
   view.innerHTML = `<div class="launch">
-    <section class="memorial-hero launch-intro"><div class="memorial-hero-copy"><span class="eyebrow">가족 추모 공간 · 원격 추도식</span><h1>그리운 마음을,<br>가까이 전합니다.</h1>
-      <p>${esc(L.facility || "봉안당")}의 가족 추모 공간입니다. 아래에서 가족 계정을 골라 들어가 주세요.</p></div><div class="hero-art" id="heroArt"></div></section>
-    <div class="card"><div class="row between"><h2>가족 계정으로 들어가기</h2><span class="pill">시연 계정</span></div>
-      ${L.members.map((m) => `<div class="who-row"><div><b>${esc(m.name)}</b> <span class="muted">${esc(m.relation)} · ${roleName[m.role] || m.role}</span>
-        <div class="muted meta">${esc(m.deceased_names || "고인 정보 등록 전")} · 봉안함 ${esc(m.niche_code || "-")} · ${m.plan === "premium" ? "프리미엄" : "기본"}</div></div>
-        <div class="row" style="gap:6px"><a class="btn" href="${esc(m.url)}">들어가기</a><a class="btn secondary" href="${esc(m.url)}" target="_blank" rel="noopener">새 창으로</a></div></div>`).join("") || '<p class="muted">아직 시연 계정이 없습니다. 관리자 콘솔에서 계약·가족을 만들거나, 명령 창에서 python -m server.seed 를 실행해 주세요.</p>'}
+    <section class="memorial-hero launch-intro" aria-labelledby="launchTitle"><div class="memorial-hero-copy"><span class="eyebrow">MVP 시연 · 가족 추모 공간</span>
+      <h1 id="launchTitle">그리운 마음을,<br>가까이 전합니다.</h1>
+      <p>${esc(L.facility || "봉안당")}의 원격 참배, 추도식 생중계, 인공지능 추모 대화를 직접 써 보세요. 시연 속 인물은 모두 가상입니다.</p>
+      <div class="hero-cta">${pick ? `<a class="btn hero-primary" href="${esc(pick.url)}">${esc(pick.name)} 님으로 바로 체험 <span aria-hidden="true">→</span></a>` : ""}<a class="btn ghost-light" href="${admin}" target="_blank" rel="noopener">관리자 콘솔 열기 (새 창)</a></div></div>
+      <div class="hero-art" id="heroArt"></div></section>
+    ${TOKEN ? `<div class="card continue-bar"><span>이 기기에는 이전에 연 가족 화면이 저장돼 있습니다.</span><a class="btn small secondary" href="/">이어서 보기</a></div>` : ""}
+    <div class="launch-grid">
+      <section class="card" aria-labelledby="famTitle"><div class="launch-head"><span class="launch-no">01</span><div><h2 id="famTitle">가족으로 들어가기</h2><p class="muted">계정마다 권한이 달라 보이는 화면도 다릅니다.</p></div></div>
+        ${L.members.length ? `<ul class="member-list">${L.members.map((m) => `<li><a class="member" href="${esc(m.url)}"><span class="avatar" aria-hidden="true">${esc(String(m.name || "").slice(-2))}</span>
+          <span class="member-body"><b>${esc(m.name)}</b><span class="role-chip role-${esc(m.role)}">${roleName[m.role] || esc(m.role)}</span>
+          <small>${esc(m.relation)} · ${esc(m.deceased_names || "고인 정보 등록 전")} · 봉안함 ${esc(m.niche_code || "-")} · ${m.plan === "premium" ? "프리미엄" : "기본"}</small></span><span class="go" aria-hidden="true">→</span></a></li>`).join("")}</ul>`
+          : '<p class="muted">아직 시연 계정이 없습니다. 관리자 콘솔에서 계약·가족을 만들거나, 명령 창에서 python -m server.seed 를 실행해 주세요.</p>'}
+      </section>
+      <section class="card" aria-labelledby="staffTitle"><div class="launch-head"><span class="launch-no">02</span><div><h2 id="staffTitle">직원으로 운영하기</h2><p class="muted">관리자 콘솔은 새 창으로 열립니다.</p></div></div>
+        <ul class="staff-links">${staff.map(([page, title, sub]) => `<li><a href="${admin}#${page}" target="_blank" rel="noopener"><span class="s-body"><b>${title}</b><small>${sub}</small></span><span class="go" aria-hidden="true">↗</span></a></li>`).join("")}</ul>
+      </section>
     </div>
-    <div class="card"><div class="row between"><div><h2>추모 운영</h2><p class="muted">직원이 가족·일정·서비스 설정을 관리합니다.</p></div><a class="btn small secondary" href="${esc(L.admin_url)}" target="_blank" rel="noopener">관리자 콘솔 열기 (새 창)</a></div></div>
-    <details class="launch-help card"><summary>시작 화면 이용 안내</summary><p>이 화면은 서버를 실행한 컴퓨터에서만 보입니다. 가족에게는 초대 링크를 보내 주세요.</p><p>다음에 이용할 때는 바탕화면의 <b>봉안당 시연 시작</b> 또는 <b>시작.bat</b>을 열어 주세요.</p></details>
+    <section class="card launch-steps" aria-labelledby="stepsTitle"><h2 id="stepsTitle">10분 시연 순서</h2><ol class="steps">
+      <li><b>연결 키 등록</b><span>직원 콘솔 ‘인공지능 설정’에서 키를 넣고 연결 테스트. 키가 없어도 규칙 기반 대화로 시연됩니다.</span></li>
+      <li><b>원격 참배</b><span>가족 화면 첫 장에서 봉안함 사진을 보고 ‘실시간으로 뵙기’.</span></li>
+      <li><b>추도식 생중계</b><span>‘일정’에서 생중계를 열고 합장·헌화 반응과 메시지 보내기.</span></li>
+      <li><b>인공지능 추모 대화</b><span>‘대화’에서 안내에 동의하고 이야기 나누기. 끝내면 요약만 남습니다.</span></li>
+      <li><b>가족 기억</b><span>‘추모’에서 방명록을 쓰고, 가족 앨범에 기억 남기기.</span></li>
+    </ol></section>
+    <p class="launch-note">시연 표시 원칙: 인물·계약은 모두 가상입니다. 인공지능이 만든 답·목소리·사진에는 ‘인공지능’ 표시가 붙고, 현장 웹캠 대신 나오는 화면에는 ‘시연 화면’이 찍힙니다. 실제 결제·카카오톡 발송은 없습니다. 이 시작 화면은 서버를 켠 컴퓨터에서만 보이며, 가족에게는 초대 링크를 보내 주세요.</p>
   </div>`;
   mountArt($("#heroArt"), state.theme, motionReduced());
   return true;
 }
 
 // ---------------- 1. 원격 참배 ----------------
+// 첫 화면 '바로 하기' 칸: [이동할 화면, 아이콘 선, 이름, 설명]
+const HOME_QUICK = [
+  ["memorial", '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m20.5 16-5-5-7.5 8"/>', "추모 공간", "사진 · 방명록"],
+  ["comfort", '<path d="M12 20s-7-4.4-7-9.5A3.8 3.8 0 0 1 12 8a3.8 3.8 0 0 1 7 2.5C19 15.6 12 20 12 20z"/>', "마음 남기기", "꽃 · 촛불 · 편지"],
+  ["chat", '<path d="M4 5.5h16v10.5H9.5L5 19.5V16H4z"/><path d="M8 9.5h8M8 12.5h5"/>', "추모 대화", "인공지능과 기억 나누기"],
+  ["ritual", '<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="m10.5 9.5 4 2.5-4 2.5z"/>', "추도식 생중계", "일정 · 실시간 참여"],
+  ["album", '<path d="M4 6.5h6l2 2h8v10H4z"/><path d="M8 14.5h8"/>', "가족 앨범", "함께 채우는 기억"],
+  ["calendar", '<rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>', "함께 참배 약속", "기일 · 가족 일정"],
+];
 async function renderVisit() {
   const me = state.me;
   if (!me.niche) { view.innerHTML = `<div class="card empty-state"><h2>아직 연결된 봉안함이 없습니다</h2><p class="muted">시설에서 봉안함 번호를 연결하면 이 화면에서 참배하실 수 있습니다. 시설 담당자에게 연결을 요청해 주세요.</p><button class="secondary" type="button" id="toMemorial">추모 공간 열기</button></div>`; $("#toMemorial").onclick = () => go("memorial"); return; }
   const d = me.deceased[0];
   const liveLabel = `<svg viewBox="0 0 24 24" width="22" height="22" style="stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg> 실시간으로 뵙기 <small class="btn-note">${me.live_seconds}초</small>`;
+  const who = d ? d.name + " 님" : "우리 가족";
   view.innerHTML = `
-    <section class="welcome-garden memorial-hero" aria-labelledby="heroTitle"><div class="memorial-hero-copy"><span class="eyebrow">원격 참배</span><h1 id="heroTitle">그리운 마음에,<br>따뜻한 안부를.</h1><p>${esc(d ? d.name + " 님" : "소중한 분")}의 봉안함을 사진과 실시간 영상으로 뵙습니다.</p></div><div class="hero-art" id="heroArt"></div></section>
-    <div class="card tight visit-card">
-      <div class="row between" style="margin-bottom:10px"><h2 style="margin:0">${esc(d ? d.name + " 님" : "우리 가족")} <small class="muted niche-code">봉안함 ${esc(me.niche.code)}</small></h2></div>
-      <div class="viewer" id="viewer">
-        <div class="snapshot" id="snap"><div class="placeholder">사진을 불러오는 중…</div></div>
-        <div class="offering-layer" id="offering"></div>
-        <div class="title-card" id="titleCard" hidden>${esc(d ? d.name + " 님을 뵙습니다" : "가족을 뵙습니다")}</div>
-      </div>
-      <div class="status-line"><span id="camStatus" role="status"><span class="dot"></span>카메라 상태를 확인하는 중입니다…</span><span class="row" style="gap:8px"><span id="snapAt"></span><button class="chime-toggle ${chimeEnabled() ? "on" : ""}" id="chimeBtn">종소리 ${chimeEnabled() ? "켬" : "끔"}</button></span></div>
-    </div>
-    <div class="visit-actions">
-      <button id="liveBtn">${liveLabel}</button>
-      <button class="secondary" id="toMemorial">추모 공간 열기</button>
-    </div>
-    <details class="visit-help"><summary>참배 화면 이용 안내</summary><p>사진은 10초마다 새로 찍힙니다. 현장에 다른 참배객이 계시면 실시간 영상은 잠시 멈추고 사진으로 보여 드립니다.</p></details>`;
+    <section class="welcome-garden memorial-hero home-greet" aria-labelledby="heroTitle"><div class="memorial-hero-copy"><span class="eyebrow">원격 참배</span><h1 id="heroTitle">그리운 마음에, 따뜻한 안부를.</h1><p>${esc(who)}의 봉안함을 사진과 실시간 영상으로 뵙습니다.</p></div><div class="hero-art" id="heroArt"></div></section>
+    <div class="home-grid">
+      <section class="card tight visit-card" aria-labelledby="visitTitle">
+        <div class="visit-head"><h2 id="visitTitle">${esc(who)}</h2><span class="niche-code">봉안함 ${esc(me.niche.code)}</span></div>
+        <div class="viewer" id="viewer">
+          <div class="snapshot" id="snap"><div class="placeholder">사진을 불러오는 중…</div></div>
+          <div class="offering-layer" id="offering"></div>
+          <div class="title-card" id="titleCard" hidden>${esc(d ? d.name + " 님을 뵙습니다" : "가족을 뵙습니다")}</div>
+        </div>
+        <div class="status-line"><span id="camStatus" role="status"><span class="dot"></span>카메라 상태를 확인하는 중입니다…</span><span class="row" style="gap:8px"><span id="snapAt"></span><button class="chime-toggle ${chimeEnabled() ? "on" : ""}" id="chimeBtn" type="button">종소리 ${chimeEnabled() ? "켬" : "끔"}</button></span></div>
+      </section>
+      <aside class="home-side" aria-label="바로 하기">
+        <button id="liveBtn" class="live-cta" type="button">${liveLabel}</button>
+        <p class="live-note">사진은 10초마다 새로 찍힙니다. 현장에 다른 참배객이 계시면 실시간 영상은 잠시 멈추고 사진으로 보여 드립니다.</p>
+        <nav class="quick-grid" aria-label="자주 쓰는 기능">${HOME_QUICK.map(([route, icon, label, sub]) => `<button type="button" class="quick" data-go="${route}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg><b>${label}</b><small>${sub}</small></button>`).join("")}</nav>
+        <div class="card next-up" id="nextUp" hidden></div>
+      </aside>
+    </div>`;
   mountArt($("#heroArt"), state.theme, motionReduced());
-  $("#toMemorial").onclick = () => go("memorial");
+  view.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => go(b.dataset.go));
   $("#snap").onclick = () => { if (!live.on) go("memorial"); };   // 화면 속 봉안함을 누르면 추모 공간
   $("#chimeBtn").onclick = () => { localStorage.setItem("chime", chimeEnabled() ? "0" : "1"); const on = chimeEnabled(); $("#chimeBtn").classList.toggle("on", on); $("#chimeBtn").textContent = `종소리 ${on ? "켬" : "끔"}`; if (on) chime(); };
+  api("/api/family/memorial").then((m) => {   // 다가오는 기일·추도식 한 건
+    const r = m.upcoming?.[0], box = $("#nextUp");
+    if (!r || !box) return;
+    box.innerHTML = `<span class="when">${esc(fmtDT(r.scheduled_at))}</span><span class="what">${esc(r.title)}<small class="muted">다가오는 추도식</small></span><button class="secondary" type="button">일정 보기</button>`;
+    $("button", box).onclick = () => go("ritual"); box.hidden = false;
+  }).catch(() => {});
   const live = { on: false, timer: null, scene: null, title: null };
   let firstShown = false;
 

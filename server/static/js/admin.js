@@ -20,20 +20,51 @@ async function api(path, opts = {}) {
 const toast = (m) => { let el = $(".toast"); if (!el) { el = document.createElement("div"); el.className = "toast"; document.body.appendChild(el); } el.textContent = m; el.classList.remove("hidden"); setTimeout(() => el.classList.add("hidden"), 2500); };
 const modal = (html) => { const bg = document.createElement("div"); bg.className = "modal-bg"; bg.style.alignItems = "center"; bg.innerHTML = `<div class="modal" style="border-radius:16px;max-width:720px">${html}</div>`; bg.addEventListener("click", (e) => e.target === bg && bg.remove()); document.body.appendChild(bg); return bg; };
 
+let booted = false;
+const PAGES = ["overview", "tasks", "calib", "contracts", "deceased", "rituals", "usage", "aisettings"];
 async function boot() {
-  if (!KEY) { KEY = prompt("관리자 키를 입력해 주세요") || ""; sessionStorage.setItem("admin_key", KEY); }
-  try { await api("/api/admin/overview"); await api("/api/admin/session", { method: "POST" }).catch(() => {}); } catch (e) { sessionStorage.removeItem("admin_key"); page.innerHTML = `<div class="card" role="alert"><h1>관리자 콘솔을 열지 못했습니다</h1><p>${esc(e.message)}</p><p class="muted">관리자 키를 확인한 뒤 다시 입력해 주세요. 키는 서버 설정(.env의 ADMIN_KEY)에 있습니다.</p><button class="small" id="reloadKey">다시 입력하기</button></div>`; $("#reloadKey").onclick = () => location.reload(); return; }
+  // 키가 없어도 먼저 시도한다: 이 브라우저에 관리자 쿠키(ma)가 남아 있으면 키를 다시 묻지 않는다.
+  try { await api("/api/admin/overview"); }
+  catch (e) { const had = Boolean(KEY); sessionStorage.removeItem("admin_key"); KEY = ""; askKey(had ? `저장된 키로 열지 못했습니다(${e.message}). 다시 넣어 주세요.` : ""); return; }
+  await api("/api/admin/session", { method: "POST" }).catch(() => {});
   document.querySelectorAll("aside button").forEach((b) => b.onclick = () => go(b.dataset.page));
   const want = location.hash.slice(1);   // /admin?key=…#rituals 처럼 페이지를 지정해 열 수 있다
-  go(["overview", "tasks", "calib", "contracts", "deceased", "rituals", "usage", "aisettings"].includes(want) ? want : "overview");
+  go(PAGES.includes(want) ? want : "overview", false);
+  if (!booted) window.addEventListener("popstate", () => { const p = location.hash.slice(1) || "overview"; if (PAGES.includes(p) && p !== current) go(p, false); });
+  booted = true;
 }
-function go(p) {
+// 관리자 키 입력: 브라우저 팝업 대신 화면 안에서 받는다.
+function askKey(message) {
+  document.body.classList.add("locked");
+  page.innerHTML = `<section class="card key-card" aria-labelledby="keyTitle"><p class="eyebrow">추모 운영 · 관리자 콘솔</p><h1 id="keyTitle">관리자 키를 넣어 주세요</h1>
+    <p class="muted">시설 직원만 들어올 수 있습니다. 키는 서버 설정(.env 의 ADMIN_KEY)이나 통합 시작 화면의 ‘관리자 콘솔 열기’ 단추에 들어 있습니다.</p>
+    <form id="keyForm" class="key-form"><label for="keyIn">관리자 키</label><div class="row"><input id="keyIn" type="password" autocomplete="current-password" required><button type="submit">콘솔 열기</button></div></form>
+    <p class="muted" id="keyMsg" role="status">${esc(message)}</p></section>`;
+  $("#keyIn").focus();
+  $("#keyForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const k = $("#keyIn").value.trim(); if (!k) return;
+    const btn = $("#keyForm button"); btn.disabled = true; btn.textContent = "확인하는 중…";
+    KEY = k;
+    try { await api("/api/admin/overview"); sessionStorage.setItem("admin_key", k); document.body.classList.remove("locked"); boot(); }
+    catch (err) { KEY = ""; btn.disabled = false; btn.textContent = "콘솔 열기"; $("#keyMsg").textContent = `열지 못했습니다. ${err.message} 키를 확인해 주세요.`; $("#keyIn").select(); }
+  };
+}
+let current = "";
+function go(p, push = true) {
   timers.forEach(clearInterval); timers = [];
+  if (push && current && current !== p) history.pushState(null, "", location.pathname + "#" + p); else history.replaceState(null, "", location.pathname + "#" + p);
+  current = p;
   document.querySelectorAll("aside button").forEach((b) => { b.classList.toggle("active", b.dataset.page === p); if (b.dataset.page === p) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+  const label = document.querySelector(`aside button[data-page="${p}"] span`)?.textContent || "";
+  if ($("#consoleTitle")) $("#consoleTitle").textContent = label;
+  document.title = `${label} · 추모 운영 관리자 콘솔`;
+  document.querySelector(`aside button[data-page="${p}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   page.innerHTML = '<p class="muted" role="status">화면을 불러오는 중입니다…</p>';
+  window.scrollTo(0, 0);
   Promise.resolve(({ overview, tasks, calib, contracts, deceased, rituals, usage, aisettings })[p]()).catch((e) => {
     page.innerHTML = `<div class="card" role="alert"><h2>화면을 불러오지 못했습니다</h2><p>${esc(e.message)}</p><p class="muted">서버 연결을 확인한 뒤 다시 불러와 주세요.</p><button class="small secondary" id="pageRetry">다시 불러오기</button></div>`;
-    $("#pageRetry").onclick = () => go(p);
+    $("#pageRetry").onclick = () => go(p, false);
   });
 }
 // 되돌릴 수 없는 일: 결과를 먼저 말하고 확인한다.

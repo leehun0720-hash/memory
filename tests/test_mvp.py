@@ -961,3 +961,24 @@ def test_playlist_files_rejected(client):
     body = b"#EXTM3U\n#EXTINF:10,\nhttp://169.254.169.254/latest\n" + b" " * 3000
     r = client.post("/api/family/voice/register", headers=tok, data={"deceased_id": did, "kind": "voice", "agree": "true"}, files={"file": ("x.wav", body, "audio/wav")})
     assert r.status_code == 400 and "재생 목록" in r.json()["detail"]
+
+
+def test_demo_entry_and_redesigned_shell(client):
+    # /demo: 홈페이지·플랫폼의 'MVP 바로가기'가 여는 시작 화면(같은 가족 앱 HTML)
+    r = client.get("/demo")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    html = r.text
+    assert 'id="topTools"' in html and 'class="brand" href="/"' in html
+    assert "/static/css/serene.css?v=" in html   # 새 디자인 층도 수정 시각으로 캐시를 깬다
+    from pathlib import Path
+    static = Path(__file__).resolve().parents[1] / "server" / "static"
+    app_js = (static / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'location.pathname === "/demo"' in app_js and "HOME_QUICK" in app_js and "history.pushState" in app_js
+    assert "community.js?v=20261012-serene" in app_js
+    # 관리자 콘솔: 메뉴 묶음, 제목 막대, 화면 안 키 입력(브라우저 팝업 없음)
+    admin = client.get("/admin").text
+    assert admin.count('class="nav-group"') == 4 and 'id="consoleTitle"' in admin and "/static/css/console.css?v=" in admin
+    admin_js = (static / "js" / "admin.js").read_text(encoding="utf-8")
+    assert "prompt(" not in admin_js and 'id="keyForm"' in admin_js
+    for page in ("overview", "tasks", "contracts", "deceased", "rituals", "calib", "usage", "aisettings"):
+        assert f'data-page="{page}"' in admin
