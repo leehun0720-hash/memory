@@ -374,7 +374,7 @@ def deceased_media(did: int, kind: str = "photo", caption: str = "", ai_generate
     if kind not in {"photo", "video", "voice", "message_video"}:
         raise HTTPException(400, "kind")
     if kind == "voice":
-        r = voice.save_sample(did, file.filename or "sample.mp3", file.file.read(), caption or "관리자 업로드")
+        r = voice.save_sample(did, file.filename or "sample.mp3", file.file.read(), caption or "관리자 업로드", file.content_type)
         return {"id": r["media_id"], "path": r["path"], "seconds": r["seconds"]}
     rel = _save_upload(file, kind)
     mid = db.execute("INSERT INTO media(deceased_id, kind, path, caption, ai_generated, created_at) VALUES (?,?,?,?,?,?)",

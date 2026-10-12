@@ -458,33 +458,56 @@ def voice_status(m: dict = Depends(require_member)):
             "id": d["id"], "name": d["name"], "honorific": d["honorific"],
             "has_voice": bool(d["voice_id"]), "provider": d["voice_provider"] or None,
             "samples": db.one("SELECT COUNT(*) AS n FROM media WHERE deceased_id=? AND kind='voice'", (d["id"],))["n"],
+            "sample_seconds": round(sum(x["seconds"] or 0 for x in voice.samples(d["id"]))),
             "consent": db.one("SELECT kind, signer_name, signed_at FROM consents WHERE deceased_id=? AND kind IN ('voice','lifetime_record') AND revoked_at IS NULL ORDER BY id DESC", (d["id"],)),
         })
-    return {"provider_ready": voice.provider_ready(), "can_manage": m["role"] == "manage", "deceased": out, "min_seconds": voice.MIN_SECONDS}
+    return {"provider_ready": voice.provider_ready(), "can_manage": m["role"] == "manage", "deceased": out, "min_seconds": voice.MIN_SECONDS,
+            "formats": voice.AUDIO_EXT_LABEL, "accept": ",".join(sorted(voice.AUDIO_EXTS)) + ",audio/*,video/*", "max_mb": voice.MAX_BYTES // (1024 * 1024)}
 
 
 @router.post("/voice/register")
 async def voice_register(deceased_id: int = Form(...), kind: str = Form("lifetime_record"), agree: bool = Form(False),
-                         note: str = Form(""), file: UploadFile = File(...), m: dict = Depends(require_member)):
-    """녹음 파일 하나로 자료 저장 → 동의서 → 공급자 등록까지 한 번에."""
+                         note: str = Form(""), file: list[UploadFile] = File(...), m: dict = Depends(require_member)):
+    """실시간 녹음·음성 파일(여러 개, 여러 형식) → mp3 로 바꿔 자료 저장 → 동의서 → 공급자 등록까지 한 번에.
+    시설이 아직 음성 복제를 켜지 않았으면 자료와 동의만 저장해 두고(pending), 켜진 뒤 '/voice/{id}/build' 로 만든다."""
     require_role(m, "manage")
     if kind not in VOICE_KINDS:
         raise HTTPException(400, "kind")
     d = db.one("SELECT id, name FROM deceased WHERE id=? AND contract_id=?", (deceased_id, m["contract_id"]))
     if not d:
         raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
-    if not voice.provider_ready():
-        raise HTTPException(400, "봉안당에서 아직 음성 복제 기능을 켜지 않았습니다. 사무실에 문의해 주세요.")
     if not agree:
         raise HTTPException(400, "동의 확인이 필요합니다.")
-    data = await file.read()
-    saved = voice.save_sample(d["id"], file.filename or "recording.webm", data, note.strip() or ("앱에서 직접 녹음" if kind == "lifetime_record" else "앱에서 올린 음성 자료"))
+    if not file or len(file) > 10:
+        raise HTTPException(400, "음성 자료는 한 번에 1~10개까지 올릴 수 있습니다.")
+    base = note.strip() or ("앱에서 직접 녹음" if kind == "lifetime_record" else "앱에서 올린 음성 자료")
+    saved = []
+    for f in file:
+        data = await f.read()
+        saved.append(voice.save_sample(d["id"], f.filename or "recording.webm", data, f"{base} · {f.filename or '녹음'}", f.content_type))
     if not db.one("SELECT id FROM consents WHERE deceased_id=? AND kind=? AND revoked_at IS NULL", (d["id"], kind)):
         db.execute("INSERT INTO consents(deceased_id, signer_name, relation, kind, signed_at, note) VALUES (?,?,?,?,?,?)",
                    (d["id"], m["name"], m["relation"], kind, db.now(), f"유족 앱에서 동의 · {VOICE_KINDS[kind]}"))
         db.audit(f"member:{m['id']}", "consent.create", f"deceased:{d['id']}", kind)
+    secs = round(sum(x["seconds"] or 0 for x in saved)) or None
+    if not voice.provider_ready():
+        db.audit(f"member:{m['id']}", "voice.samples_saved", f"deceased:{d['id']}", f"{len(saved)} files (provider off)")
+        return {"ok": True, "pending": True, "seconds": secs, "files": len(saved),
+                "message": "목소리 자료와 동의를 저장했습니다. 시설에서 음성 복제 기능을 켜면 '저장한 자료로 목소리 만들기'로 바로 만들 수 있습니다."}
     r = voice.register(d["id"], f"member:{m['id']}")
-    return {"ok": True, "seconds": saved["seconds"], "files": r["files"], "provider": r["provider"]}
+    return {"ok": True, "seconds": r.get("seconds") or secs, "files": r["files"], "provider": r["provider"]}
+
+
+@router.post("/voice/{deceased_id}/build")
+def voice_build(deceased_id: int, m: dict = Depends(require_member)):
+    """이미 저장한 음성 자료(최근 5개)로 목소리를 만든다. 자료·동의가 있어야 한다."""
+    require_role(m, "manage")
+    if not db.one("SELECT id FROM deceased WHERE id=? AND contract_id=?", (deceased_id, m["contract_id"])):
+        raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
+    if not voice.provider_ready():
+        raise HTTPException(400, "시설에서 아직 음성 복제 기능을 켜지 않았습니다. 자료는 저장되어 있으니 켜진 뒤 다시 눌러 주세요.")
+    r = voice.register(deceased_id, f"member:{m['id']}")
+    return {"ok": True, "seconds": r.get("seconds"), "files": r["files"], "provider": r["provider"]}
 
 
 class VoicePreviewIn(BaseModel):

@@ -306,11 +306,14 @@ def test_family_voice_register_from_app(client, monkeypatch):
     # 동의 없이 불가
     r = client.post("/api/family/voice/register", headers=tok, data={"deceased_id": did, "kind": "lifetime_record", "agree": "false"}, files={"file": ("rec.wav", fake_wav(20), "audio/wav")})
     assert r.status_code == 400
-    # 너무 짧은 녹음 거부(ffprobe가 있을 때)
+    # 너무 짧은 자료는 거부(파일 하나 3초 미만, 또는 모두 합쳐 15초 미만)
     from server import voice as vmod
-    if vmod.FFPROBE:
-        r = client.post("/api/family/voice/register", headers=tok, data={"deceased_id": did, "kind": "lifetime_record", "agree": "true"}, files={"file": ("rec.wav", fake_wav(5), "audio/wav")})
+    if vmod.FFMPEG:
+        r = client.post("/api/family/voice/register", headers=tok, data={"deceased_id": did, "kind": "lifetime_record", "agree": "true"}, files={"file": ("rec.wav", fake_wav(1.5), "audio/wav")})
         assert r.status_code == 400 and "짧" in r.json()["detail"]
+        r = client.post("/api/family/voice/register", headers=tok, data={"deceased_id": did, "kind": "lifetime_record", "agree": "true"}, files={"file": ("rec.wav", fake_wav(5), "audio/wav")})
+        assert r.status_code == 400 and "15초" in r.json()["detail"]
+        db.execute("DELETE FROM media WHERE deceased_id=? AND kind='voice'", (did,))   # 짧은 시험 자료는 치운다
     # 정상 등록
     r = client.post("/api/family/voice/register", headers=tok, data={"deceased_id": did, "kind": "lifetime_record", "agree": "true", "note": "아버지 생전 녹음"}, files={"file": ("rec.webm", fake_wav(20), "audio/wav")})
     assert r.status_code == 200, r.text
@@ -719,3 +722,65 @@ def test_demo_portrait_replaces_only_seed_placeholder(client, tmp_path):
     assert seed._is_placeholder(p)
     assert seed.refresh_demo_photos() == 1 and not seed._is_placeholder(p)
     assert seed.refresh_demo_photos() == 0                         # 실제(또는 이미 바꾼) 사진은 건드리지 않음
+
+
+
+# ---------- 목소리 등록: 실시간 녹음·여러 형식 파일·여러 개 합치기·기능이 꺼져 있을 때 저장 (2026-10-12) ----------
+
+def _convert(wav: bytes, ext: str) -> bytes:
+    """시험용: wav 를 ffmpeg 로 다른 형식(m4a·ogg·flac·mp4 영상 등)으로 바꾼다."""
+    import subprocess, tempfile, os
+    from server import voice as vmod
+    with tempfile.TemporaryDirectory() as d:
+        src, dst = os.path.join(d, "in.wav"), os.path.join(d, "out" + ext)
+        open(src, "wb").write(wav)
+        args = [vmod.FFMPEG, "-y", "-loglevel", "error", "-i", src]
+        if ext == ".mp4":   # 소리가 든 짧은 영상
+            args = [vmod.FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=12", "-i", src, "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p"]
+        subprocess.run(args + [dst], check=True, capture_output=True, timeout=120)
+        return open(dst, "rb").read()
+
+
+def test_voice_samples_many_formats_and_pending(client, monkeypatch):
+    import pytest as _pt
+    from server import voice as vmod
+    from server.ai.tts import ElevenLabsTTS
+    if not vmod.FFMPEG:
+        _pt.skip("ffmpeg 없음")
+    sent = {}
+    monkeypatch.setattr(ElevenLabsTTS, "add_voice", lambda self, name, files, description="": sent.setdefault("files", files) and "voice_multi")
+    monkeypatch.setattr(ElevenLabsTTS, "delete_voice", lambda self, voice_id: None)
+    tok = {"X-Family-Token": holder_token("이미영")}
+    did = db.one("SELECT id FROM deceased WHERE name='김옥순'")["id"]
+    db.execute("DELETE FROM media WHERE deceased_id=? AND kind='voice'", (did,))
+    # 1) 음성 복제가 꺼져 있으면: 자료(여러 형식)와 동의만 저장하고 '대기'로 돌려준다
+    client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5", "elevenlabs_api_key": "",
+                                                              "tts_provider": "browser", "tts_model": "eleven_multilingual_v2"})
+    st = client.get("/api/family/voice", headers=tok).json()
+    assert st["provider_ready"] is False and ".m4a" in st["accept"] and "amr" in st["formats"]
+    files = [("file", ("통화녹음.m4a", _convert(fake_wav(8), ".m4a"), "audio/mp4")),
+             ("file", ("음성메시지.ogg", _convert(fake_wav(6), ".ogg"), "audio/ogg")),
+             ("file", ("가족영상.mp4", _convert(fake_wav(10), ".mp4"), "video/mp4"))]
+    r = client.post("/api/family/voice/register", headers=tok, data={"deceased_id": did, "kind": "voice", "agree": "true"}, files=files)
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["pending"] is True and j["files"] == 3 and 20 <= j["seconds"] <= 28
+    rows = db.rows("SELECT path FROM media WHERE deceased_id=? AND kind='voice'", (did,))
+    assert len(rows) == 3 and all(x["path"].endswith(".mp3") for x in rows)          # 모두 mp3 로 바뀜(영상은 소리만)
+    assert client.get("/api/family/voice", headers=tok).json()["deceased"][0]["sample_seconds"] >= 20
+    assert client.post(f"/api/family/voice/{did}/build", headers=tok).status_code == 400   # 아직 꺼져 있음
+    # 2) 시설이 켜면 저장해 둔 자료로 바로 만든다
+    client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5",
+                                                              "elevenlabs_api_key": "sk_test00000000000000000000000000", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2"})
+    r = client.post(f"/api/family/voice/{did}/build", headers=tok)
+    assert r.status_code == 200, r.text
+    assert len(sent["files"]) == 3 and all(f[2] == "audio/mpeg" and f[0].endswith(".mp3") for f in sent["files"])
+    assert db.one("SELECT voice_id FROM deceased WHERE id=?", (did,))["voice_id"] == "voice_multi"
+    # 3) 소리가 아닌 파일·손상된 파일은 알아듣게 거부
+    bad = client.post("/api/family/voice/register", headers=tok, data={"deceased_id": did, "kind": "voice", "agree": "true"},
+                      files={"file": ("메모.txt", b"x" * 5000, "text/plain")})
+    assert bad.status_code == 400 and "음성이나 영상" in bad.json()["detail"]
+    broken = client.post("/api/family/voice/register", headers=tok, data={"deceased_id": did, "kind": "voice", "agree": "true"},
+                         files={"file": ("망가진.m4a", b"\x00not-audio" * 800, "audio/mp4")})
+    assert broken.status_code == 400 and "소리를 읽지 못" in broken.json()["detail"]
+    client.delete(f"/api/family/voice/{did}", headers=tok)
