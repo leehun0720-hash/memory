@@ -1,5 +1,7 @@
 """유족 웹앱 API. 초대 토큰 하나로 계약·칸·고인이 결정된다."""
 import asyncio
+import json
+from typing import Literal
 import time
 from datetime import datetime, timedelta
 
@@ -11,13 +13,21 @@ from .. import ratelimit
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from .. import config, db, face, voice
+from .. import config, db, face, music, services, voice
 from ..ai.avatar import SimliAvatar  # 기본 얼굴 목록
 from ..deps import require_member, require_role
 from ..state import state
 from .edge import _always_live, _in_window, _live_open, _demo_mode
 
 router = APIRouter(prefix="/api/family", tags=["family"])
+
+
+def _style_of(raw) -> dict:
+    """저장된 테마 세부(JSON)를 검사해 돌려준다. 망가졌거나 비었으면 기본값."""
+    try:
+        return ThemeStyle(**json.loads(raw)).model_dump() if raw else ThemeStyle().model_dump()
+    except Exception:
+        return ThemeStyle().model_dump()
 
 
 def _deceased_for(contract_id: int) -> list[dict]:
@@ -31,6 +41,7 @@ def _deceased_for(contract_id: int) -> list[dict]:
         d["days_since_death"] = _days_since(d["death_date"])
         d["has_voice"] = bool(d.get("voice_id"))
         d["has_face"] = bool(d.get("face_id"))
+        d["theme_style"] = _style_of(d.get("theme_style"))
         d.pop("memory_card", None)   # 기억 카드는 유족 화면에 노출하지 않음
         d.pop("voice_id", None); d.pop("voice_provider", None); d.pop("face_id", None); d.pop("face_provider", None)
     return rows
@@ -81,9 +92,18 @@ def me(m: dict = Depends(require_member)):
 THEMES = ("classic", "buddhist", "catholic", "christian")
 
 
+class ThemeStyle(BaseModel):
+    """테마 세부. 글자 크기는 사람마다 달라 각 기기에만 저장한다(서버에 두지 않음)."""
+    accent: Literal["1", "2", "3", "4"] = "1"                     # 테마별 강조색 네 가지 중 하나
+    pattern: Literal["off", "soft", "clear"] = "soft"              # 배경 문양: 끄기 · 은은하게 · 조금 더 또렷하게
+    tone: Literal["hanji", "dawn", "mist"] = "hanji"               # 바탕 빛: 한지 · 새벽 노을 · 고요한 안개
+    font: Literal["myeongjo", "batang", "gothic"] = "myeongjo"     # 제목 글꼴: 명조 · 부드러운 바탕 · 또렷한 고딕
+
+
 class ThemeIn(BaseModel):
     deceased_id: int
     theme: str = Field(pattern="^(classic|buddhist|catholic|christian)$")
+    style: ThemeStyle | None = None
 
 
 @router.post("/theme")
@@ -92,9 +112,13 @@ def set_theme(body: ThemeIn, m: dict = Depends(require_member)):
     require_role(m, "manage")
     if not db.one("SELECT id FROM deceased WHERE id=? AND contract_id=?", (body.deceased_id, m["contract_id"])):
         raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
-    db.execute("UPDATE deceased SET theme=? WHERE id=?", (body.theme, body.deceased_id))
+    if body.style is None:
+        db.execute("UPDATE deceased SET theme=? WHERE id=?", (body.theme, body.deceased_id))
+    else:
+        db.execute("UPDATE deceased SET theme=?, theme_style=? WHERE id=?", (body.theme, json.dumps(body.style.model_dump()), body.deceased_id))
     db.audit(f"member:{m['id']}", "theme.set", f"deceased:{body.deceased_id}", body.theme)
-    return {"ok": True, "theme": body.theme}
+    style = _style_of(db.one("SELECT theme_style FROM deceased WHERE id=?", (body.deceased_id,))["theme_style"])
+    return {"ok": True, "theme": body.theme, "style": style}
 
 
 # ---------- 원격 참배 ----------
@@ -205,7 +229,7 @@ def live_stream(sid: str, m: dict = Depends(require_member)):
 def memorial(m: dict = Depends(require_member)):
     deceased = _deceased_for(m["contract_id"])
     for d in deceased:
-        d["media"] = db.rows("SELECT id, kind, path, caption, ai_generated, created_at FROM media WHERE deceased_id=? ORDER BY id DESC", (d["id"],))
+        d["media"] = db.rows("SELECT id, kind, path, caption, ai_generated, created_at FROM media WHERE deceased_id=? AND kind<>'music' ORDER BY id DESC", (d["id"],))
     guestbook = db.rows("SELECT id, author, message, created_at FROM guestbook WHERE contract_id=? ORDER BY id DESC LIMIT 50", (m["contract_id"],))
     upcoming = db.rows(
         """SELECT * FROM rituals WHERE (contract_id=? OR contract_id IS NULL) AND scheduled_at >= date('now','-1 day')
@@ -677,3 +701,172 @@ def avatar_remove(deceased_id: int, m: dict = Depends(require_member)):
         raise HTTPException(404)
     face.delete(deceased_id, f"member:{m['id']}")
     return {"ok": True}
+
+
+# ---------- 생전 좋아하신 노래 (2026-10-12) ----------
+# 계약자가 올리고 고르며, 가족 모두가 참배·추모 공간에서 듣는다. 파일은 /api/family/media/{id} 로 받는다.
+def _own_deceased(did: int, m: dict) -> dict:
+    d = db.one("SELECT id, name, visit_music_id FROM deceased WHERE id=? AND contract_id=?", (did, m["contract_id"]))
+    if not d:
+        raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
+    return d
+
+
+@router.get("/music")
+def music_list(deceased_id: int, m: dict = Depends(require_member)):
+    d = _own_deceased(deceased_id, m)
+    items = music.songs(d["id"])
+    visit = d["visit_music_id"] if any(x["id"] == d["visit_music_id"] for x in items) else None
+    return {"items": items, "visit_music_id": visit, "can_manage": m["role"] == "manage", "max": music.MAX_SONGS}
+
+
+@router.post("/music")
+async def music_upload(deceased_id: int = Form(...), title: str = Form(""), file: UploadFile = File(...), m: dict = Depends(require_member)):
+    require_role(m, "manage")
+    d = _own_deceased(deceased_id, m)
+    ratelimit.hit(f"music-up:{m['id']}", 20, 3600, "노래는 한 시간에 20곡까지 올릴 수 있습니다. 잠시 뒤 다시 올려 주세요.")
+    data = await voice.read_upload(file)
+    item = await run_in_threadpool(music.save, d["id"], file.filename or "song.mp3", data, title, file.content_type)
+    if not d["visit_music_id"]:   # 첫 곡은 참배 때 트는 곡으로 정해 둔다
+        db.execute("UPDATE deceased SET visit_music_id=? WHERE id=?", (item["id"], d["id"]))
+    db.audit(f"member:{m['id']}", "music.add", f"deceased:{d['id']}", item["title"])
+    return item
+
+
+@router.delete("/music/{media_id}")
+def music_delete(media_id: int, m: dict = Depends(require_member)):
+    require_role(m, "manage")
+    r = db.one("SELECT md.id FROM media md JOIN deceased d ON d.id=md.deceased_id WHERE md.id=? AND md.kind='music' AND d.contract_id=?", (media_id, m["contract_id"]))
+    if not r:
+        raise HTTPException(404, "노래를 찾을 수 없습니다.")
+    music.remove(media_id)
+    db.audit(f"member:{m['id']}", "music.remove", f"media:{media_id}", "")
+    return {"ok": True}
+
+
+class VisitMusicIn(BaseModel):
+    deceased_id: int
+    media_id: int | None = None   # 비우면 참배 때 노래를 틀지 않는다
+
+
+@router.put("/music/visit")
+def music_visit(body: VisitMusicIn, m: dict = Depends(require_member)):
+    require_role(m, "manage")
+    d = _own_deceased(body.deceased_id, m)
+    if body.media_id is not None and not db.one("SELECT id FROM media WHERE id=? AND deceased_id=? AND kind='music'", (body.media_id, d["id"])):
+        raise HTTPException(404, "노래를 찾을 수 없습니다.")
+    db.execute("UPDATE deceased SET visit_music_id=? WHERE id=?", (body.media_id, d["id"]))
+    return {"ok": True, "visit_music_id": body.media_id}
+
+
+# ---------- 추모 제단: 국화·촛불·스티커 놓기 (2026-10-12) ----------
+# 그림은 static/images/altar/<item>.svg (scripts/make_altar_items.py). 자리는 판 위 백분율(x·y), 기울기·크기와 함께 저장.
+ALTAR_ITEMS = ("chrysanthemum-white", "chrysanthemum-yellow", "carnation", "rose-white", "lily", "lotus", "candle", "incense",
+               "heart", "star", "butterfly", "dove", "hands", "text-miss", "text-love", "text-thanks")
+ALTAR_SHOWN = 80   # 판에 보이는 최근 아이템 수
+
+
+class AltarIn(BaseModel):
+    item: Literal[ALTAR_ITEMS]  # type: ignore[valid-type]
+    x: float = Field(ge=0, le=100)
+    y: float = Field(ge=0, le=100)
+    rot: float = Field(0, ge=-45, le=45)
+    scale: float = Field(1, ge=.6, le=1.6)
+    message: str = Field("", max_length=120)
+
+
+@router.get("/altar/{deceased_id}")
+def altar_list(deceased_id: int, m: dict = Depends(require_member)):
+    _own_deceased(deceased_id, m)
+    rows = db.rows("""SELECT a.id, a.item, a.x, a.y, a.rot, a.scale, a.message, a.created_at, a.member_id, f.name AS author
+                      FROM altar_items a JOIN family_members f ON f.id=a.member_id WHERE a.deceased_id=? ORDER BY a.id DESC LIMIT ?""",
+                   (deceased_id, ALTAR_SHOWN))
+    for r in rows:
+        r["mine"] = r.pop("member_id") == m["id"]
+        r["can_remove"] = r["mine"] or m["role"] == "manage"
+    total = db.one("SELECT COUNT(*) AS n FROM altar_items WHERE deceased_id=?", (deceased_id,))["n"]
+    return {"items": list(reversed(rows)), "total": total, "catalog": list(ALTAR_ITEMS)}
+
+
+@router.post("/altar/{deceased_id}")
+def altar_add(deceased_id: int, body: AltarIn, m: dict = Depends(require_member)):
+    _own_deceased(deceased_id, m)
+    ratelimit.hit(f"altar:{m['id']}", 30, 3600, "한 시간에 30개까지 놓을 수 있습니다. 잠시 뒤 다시 놓아 주세요.")
+    aid = db.execute("INSERT INTO altar_items(deceased_id, member_id, item, x, y, rot, scale, message, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                     (deceased_id, m["id"], body.item, round(body.x, 2), round(body.y, 2), round(body.rot, 1), round(body.scale, 2), body.message.strip(), db.now()))
+    return {"id": aid}
+
+
+@router.delete("/altar/item/{item_id}")
+def altar_remove(item_id: int, m: dict = Depends(require_member)):
+    r = db.one("SELECT a.id, a.member_id FROM altar_items a JOIN deceased d ON d.id=a.deceased_id WHERE a.id=? AND d.contract_id=?", (item_id, m["contract_id"]))
+    if not r:
+        raise HTTPException(404, "찾을 수 없습니다.")
+    if r["member_id"] != m["id"] and m["role"] != "manage":
+        raise HTTPException(403, "내가 놓은 것만 치울 수 있습니다. 다른 가족이 놓은 것은 계약자가 정리할 수 있습니다.")
+    db.execute("DELETE FROM altar_items WHERE id=?", (item_id,))
+    return {"ok": True}
+
+
+# ---------- 추모 서비스(유료): 헌화 · 선물하기 · 제사 상차림 · 기도 (2026-10-12, 시연 결제) ----------
+class OrderIn(BaseModel):
+    service: str = Field(max_length=40)
+    deceased_id: int
+    qty: int = Field(1, ge=1, le=10)
+    ritual_id: int | None = None
+    deliver_on: str | None = Field(None, max_length=10)
+    gift_to: int | None = None
+    card_message: str = Field("", max_length=100)
+    note: str = Field("", max_length=1000)
+    pay_method: str = Field(max_length=20)
+
+
+@router.get("/services")
+def services_catalog(m: dict = Depends(require_member)):
+    members = db.rows("SELECT id, name, relation FROM family_members WHERE contract_id=? AND revoked_at IS NULL AND id<>? ORDER BY id", (m["contract_id"], m["id"]))
+    return {"items": services.catalog(), "categories": services.CATEGORIES, "pay_methods": services.PAY_METHODS, "members": members, "demo": True}
+
+
+@router.post("/orders")
+def order_create(body: OrderIn, m: dict = Depends(require_member)):
+    ratelimit.hit(f"order:{m['id']}", 20, 3600, "주문은 한 시간에 20건까지 할 수 있습니다. 잠시 뒤 다시 해 주세요.")
+    return services.create(m, body)
+
+
+@router.get("/orders")
+def order_list(m: dict = Depends(require_member)):
+    """내 주문 + 내가 받은 선물. 계약자는 가족 모두의 주문을 본다."""
+    if m["role"] == "manage":
+        ids = db.rows("SELECT id FROM service_orders WHERE contract_id=? ORDER BY id DESC LIMIT 100", (m["contract_id"],))
+    else:
+        ids = db.rows("SELECT id FROM service_orders WHERE contract_id=? AND (member_id=? OR gift_to=?) ORDER BY id DESC LIMIT 100", (m["contract_id"], m["id"], m["id"]))
+    out = []
+    for r in ids:
+        o = services.get(r["id"])
+        o["mine"] = o["member_id"] == m["id"]
+        o["gift_for_me"] = o["gift_to"] == m["id"]
+        o["can_cancel"] = o["mine"] and o["status"] == "paid"
+        out.append(o)
+    return out
+
+
+@router.post("/orders/{order_id}/cancel")
+def order_cancel(order_id: int, m: dict = Depends(require_member)):
+    o = db.one("SELECT id, member_id, status FROM service_orders WHERE id=? AND contract_id=?", (order_id, m["contract_id"]))
+    if not o:
+        raise HTTPException(404, "주문을 찾을 수 없습니다.")
+    if o["member_id"] != m["id"]:
+        raise HTTPException(403, "주문한 분만 취소할 수 있습니다.")
+    if o["status"] != "paid":
+        raise HTTPException(400, "이미 준비를 시작했거나 끝난 주문은 시설에 전화로 취소를 요청해 주세요.")
+    db.execute("UPDATE service_orders SET status='refunded', updated_at=? WHERE id=?", (db.now(), order_id))
+    db.audit(f"member:{m['id']}", "order.refund_demo", f"order:{order_id}", "")
+    return services.get(order_id)
+
+
+@router.get("/orders/{order_id}/photo.jpg")
+def order_photo(order_id: int, m: dict = Depends(require_member)):
+    o = db.one("SELECT done_photo FROM service_orders WHERE id=? AND contract_id=?", (order_id, m["contract_id"]))
+    if not o or not o["done_photo"]:
+        raise HTTPException(404)
+    return FileResponse(config.MEDIA_DIR / o["done_photo"])

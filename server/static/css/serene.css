@@ -231,3 +231,190 @@ html[data-easy="true"] .home-greet { display: none; }
 @media (max-width: 340px) {
   .top-tools .family-utilities #familyInbox { display: none; }
 }
+
+/* ── 종교별 배경 문양 (2026-10-12): 흐릿하고 아련하게. 무늬는 scripts/make_theme_patterns.py 가 만든 SVG 를 mask 로 써서 강조색으로 칠한다.
+   반복 무늬는 위에서 아래로 옅어지고, 오른쪽 위에 큰 상징 하나가 번진다. 설정 → 배경 문양(끄기 · 은은하게 · 조금 더 또렷하게). */
+html[data-theme="classic"] { --pat-tile: url("/static/images/patterns/tile-classic.svg"); --pat-emblem: url("/static/images/patterns/emblem-classic.svg"); }
+html[data-theme="buddhist"] { --pat-tile: url("/static/images/patterns/tile-buddhist.svg"); --pat-emblem: url("/static/images/patterns/emblem-buddhist.svg"); }
+html[data-theme="catholic"] { --pat-tile: url("/static/images/patterns/tile-catholic.svg"); --pat-emblem: url("/static/images/patterns/emblem-catholic.svg"); }
+html[data-theme="christian"] { --pat-tile: url("/static/images/patterns/tile-christian.svg"); --pat-emblem: url("/static/images/patterns/emblem-christian.svg"); }
+.bg-pattern { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; opacity: .085; transition: opacity .4s ease;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, .55) 45%, rgba(0, 0, 0, .12) 100%);
+  mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, .55) 45%, rgba(0, 0, 0, .12) 100%); }
+.bg-pattern::before { content: ""; position: absolute; inset: -16px; background: var(--accent);
+  -webkit-mask: var(--pat-tile) 0 0 / 300px 300px repeat; mask: var(--pat-tile) 0 0 / 300px 300px repeat; filter: blur(.7px); }
+.bg-pattern::after { content: ""; position: absolute; top: -10vmin; right: -14vmin; width: min(78vmin, 760px); aspect-ratio: 1; background: var(--accent);
+  -webkit-mask: var(--pat-emblem) center / contain no-repeat; mask: var(--pat-emblem) center / contain no-repeat; filter: blur(2px); }
+html[data-pattern="clear"] .bg-pattern { opacity: .16; }
+html[data-pattern="clear"] .bg-pattern::before { filter: blur(.3px); }
+html[data-pattern="off"] .bg-pattern, html[data-easy="true"] .bg-pattern { display: none; }
+main#view, .ink-foot { position: relative; z-index: 1; }
+@media (max-width: 640px) { .bg-pattern::before { -webkit-mask-size: 220px 220px; mask-size: 220px 220px; } .bg-pattern::after { width: 92vmin; right: -30vmin; top: -6vmin; } }
+
+/* ── 바탕 빛 */
+html[data-theme][data-tone="dawn"] { --bg: #f6ece3; --bg-2: #f0e2d6; --surface: #fffaf6; --surface-2: #faefe6; --surface-solid: #fffaf6; --line: #ecd9ca; --line-strong: #d6bda8; }
+html[data-theme][data-tone="mist"] { --bg: #ebefea; --bg-2: #e1e7e0; --surface: #fbfcfa; --surface-2: #f0f3ef; --surface-solid: #fbfcfa; --line: #d9e0d8; --line-strong: #bcc7bb; }
+html[data-tone="dawn"] body { background: radial-gradient(900px 480px at 8% -10%, rgba(255, 196, 160, .45), transparent 62%), radial-gradient(800px 460px at 104% 0%, rgba(var(--glow), .08), transparent 60%), var(--bg); background-attachment: fixed; }
+html[data-tone="mist"] body { background: radial-gradient(900px 480px at 8% -10%, rgba(214, 228, 236, .7), transparent 62%), radial-gradient(800px 460px at 104% 0%, rgba(var(--glow), .07), transparent 60%), var(--bg); background-attachment: fixed; }
+
+/* ── 제목 글꼴(쉬운 화면에서는 기기 글꼴을 그대로 둔다) */
+html[data-theme][data-font="batang"]:not([data-easy="true"]) { --font-serif: "Gowun Batang", "Noto Serif KR", serif; }
+html[data-theme][data-font="gothic"]:not([data-easy="true"]) { --font-serif: "Noto Sans KR", "Malgun Gothic", sans-serif; }
+
+/* ── 글자 크기(이 기기만): 본문 전체를 한 단계씩 키운다 */
+html[data-size="large"] main#view { zoom: 1.1; }
+html[data-size="xlarge"] main#view { zoom: 1.22; }
+
+/* 추모 공간 표지는 고른 강조색을 따른다 */
+html [data-memorial-theme] { --accent: inherit; --gold-2: inherit; --glow: inherit; }
+
+/* ── 설정: 추모 공간 꾸미기 */
+.look-group { margin: 22px 0 0; padding-top: 18px; border-top: 1px solid var(--line); }
+.look-group:first-of-type { border-top: 0; padding-top: 4px; }
+.look-group h3 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; font-size: 17px; }
+.look-group h3 small { font-size: 14px; font-weight: 400; }
+.look-no { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; flex: none; align-self: center; }
+.swatches, .look-choices { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.look-choices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+button.swatch, button.choice, button.swatch:not(:disabled):hover, button.choice:not(:disabled):hover {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 8px 14px; border-radius: var(--r-md);
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); font-size: 15px; font-weight: 500; text-align: left; }
+button.choice, button.choice:not(:disabled):hover { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }
+button.choice small { font-size: 13px; color: var(--muted); font-weight: 400; }
+button.swatch:not(:disabled):hover, button.choice:not(:disabled):hover { border-color: var(--line-strong); background: var(--surface-2); }
+button.swatch.active, button.choice.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; background: var(--surface); }
+.swatch .dot { width: 26px; height: 26px; border-radius: 50%; background: var(--sw); flex: none; box-shadow: 0 0 0 3px var(--surface), 0 0 0 4px var(--line-strong); }
+.choice[data-look="font"][data-value="myeongjo"] b { font-family: "Noto Serif KR", serif; font-weight: 500; }
+.choice[data-look="font"][data-value="batang"] b { font-family: "Gowun Batang", serif; }
+.choice[data-look="font"][data-value="gothic"] b { font-family: "Noto Sans KR", sans-serif; }
+.choice[data-look="size"][data-value="large"] b { font-size: 17px; }
+.choice[data-look="size"][data-value="xlarge"] b { font-size: 19px; }
+.choice[data-look="tone"] b::before { content: ""; display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; border: 1px solid rgba(0, 0, 0, .12); }
+.choice[data-look="tone"][data-value="hanji"] b::before { background: #f3eee4; }
+.choice[data-look="tone"][data-value="dawn"] b::before { background: #f6e1d3; }
+.choice[data-look="tone"][data-value="mist"] b::before { background: #dfe8e3; }
+.look-actions { position: static; bottom: calc(86px + env(safe-area-inset-bottom)); z-index: 3; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  margin: 22px -8px 0; padding: 12px 14px; border-radius: var(--r-md); background: color-mix(in srgb, var(--surface) 94%, transparent);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--line); box-shadow: var(--shadow-soft); }
+.look-actions.dirty { position: sticky; border-color: var(--accent); }   /* 바꾼 것이 있을 때만 화면 아래에 붙는다 */
+.look-actions p { margin: 0; flex: 1 1 220px; }
+.look-actions .row { gap: 8px; }
+.look-actions button { width: auto; }
+@media (min-width: 1024px) { .look-actions { bottom: 16px; } }
+@media (max-width: 640px) { .look-choices { grid-template-columns: 1fr; } button.choice, button.choice:not(:disabled):hover { flex-direction: row; justify-content: space-between; align-items: center; } }
+
+/* ── 추모 제단 (2026-10-12): 고인 사진 아래 판에 꽃·촛불·스티커를 놓는다(js/keepsake.js) */
+.altar-board { position: relative; aspect-ratio: 16 / 10; border-radius: var(--r-md); overflow: hidden; isolation: isolate; touch-action: none;
+  background:
+    radial-gradient(60% 55% at 50% 32%, rgba(255, 236, 200, .55), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 70%, #e9dcc4) 0%, #d9c6a4 64%, #b99b70 64.4%, #a8875b 100%);
+  border: 1px solid var(--line-strong); }
+.altar-board::after { content: ""; position: absolute; left: 0; right: 0; top: 64%; height: 10px; background: linear-gradient(180deg, rgba(60, 40, 20, .25), transparent); pointer-events: none; }
+.altar-portrait { position: absolute; left: 50%; top: 6%; transform: translateX(-50%); width: 24%; display: flex; flex-direction: column; align-items: center; gap: 4px; z-index: 0; }
+.altar-portrait img, .altar-portrait span { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 999px 999px 10px 10px; border: 4px solid #f7efe0;
+  box-shadow: 0 0 0 1px #b99b70, 0 10px 24px -10px rgba(40, 26, 10, .55); background: #efe5d2; display: grid; place-items: center; font-size: 28px; color: var(--muted); }
+.altar-portrait b { font-family: var(--font-serif); font-weight: 500; font-size: clamp(12px, 1.6vw, 15px); color: #3d3020; background: rgba(255, 250, 240, .8); padding: 1px 10px; border-radius: 999px; }
+.altar-items { position: absolute; inset: 0; z-index: 1; }
+.altar-item, button.altar-item, button.altar-item:not(:disabled):hover { position: absolute; width: 13%; min-height: 0; padding: 0; border: 0; background: none; box-shadow: none; border-radius: 8px;
+  transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(var(--sc, 1)); cursor: pointer; }
+.altar-item img { display: block; width: 100%; height: auto; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+button.altar-item:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.altar-ghost { cursor: grab; outline: 2px dashed var(--accent); outline-offset: 4px; z-index: 5; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .3)); touch-action: none; }
+.altar-ghost.dragging { cursor: grabbing; }
+.altar-tray { margin-top: 12px; }
+.altar-tabs { display: flex; margin-bottom: 10px; }
+.altar-tabs button { flex: 1; min-height: 44px; font-size: 15px; }
+.altar-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; }
+button.altar-choice, button.altar-choice:not(:disabled):hover { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 96px; padding: 8px 4px; width: 100%;
+  border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 500; }
+button.altar-choice:not(:disabled):hover { border-color: var(--accent); background: var(--surface-2); }
+.altar-choice img { width: 56px; height: 56px; }
+.altar-place { margin-top: 12px; padding: 14px; border-radius: var(--r-md); border: 1px solid var(--accent); background: var(--surface-2); }
+.place-hint { margin: 0 0 8px; }
+.place-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.place-tools button { width: auto; min-height: 40px; }
+.altar-place input { width: 100%; }
+.altar-detail { display: flex; gap: 16px; align-items: center; }
+.altar-detail img { width: 96px; height: 96px; flex: none; }
+.altar-detail h2 { margin: 0 0 4px; }
+
+/* ── 생전 좋아하신 노래 */
+.song-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 6px; }
+.song { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
+.song.is-visit { border-color: var(--accent); }
+.song button { width: auto; min-height: 40px; }
+.song-t { flex: 1 1 160px; min-width: 0; display: flex; flex-direction: column; }
+.song-t small { font-size: 13px; color: var(--muted); }
+.song-up { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.song-up .form-row { display: grid; gap: 4px; }
+.song-up button { width: auto; justify-self: start; }
+.song-note { font-size: 13px; margin: 0; }
+.music-mini { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0; padding: 14px 16px; }
+.music-mini[hidden], .music-dock[hidden] { display: none; }
+.music-mini .note, .music-dock .note { width: 36px; height: 36px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff; font-size: 18px; }
+.music-mini .t, .music-dock .t { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; line-height: 1.4; }
+.music-mini .t small, .music-dock .t small { font-size: 12px; color: var(--muted); }
+.music-mini .t b, .music-dock .t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-mini button { width: auto; min-height: 40px; }
+.mini-switch { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); flex-basis: 100%; }
+.mini-switch input { width: 18px; height: 18px; }
+.music-dock { position: fixed; z-index: 24; left: 50%; transform: translateX(-50%); bottom: calc(90px + env(safe-area-inset-bottom)); width: min(calc(100% - 20px), 520px);
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 18px; background: color-mix(in srgb, var(--surface) 95%, transparent);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid var(--line); box-shadow: 0 14px 30px -16px rgba(30, 32, 27, .4); }
+.music-dock button { width: auto; min-height: 38px; padding: 0 12px; font-size: 13px; }
+body.has-dock .toast { bottom: calc(160px + env(safe-area-inset-bottom)); }
+body.has-dock main#view { padding-bottom: 96px; }
+@media (min-width: 1024px) { .music-dock { bottom: 20px; left: calc(50% + var(--rail) / 2); } body.has-dock main#view { padding-bottom: 80px; } }
+@media (max-width: 640px) { .altar-board { aspect-ratio: 4 / 3; } .altar-item, button.altar-item, button.altar-item:not(:disabled):hover { width: 17%; } .altar-portrait { width: 24%; top: 5%; } }
+
+/* ── 추모 서비스(유료, 시연 결제) (2026-10-12, js/shop.js) */
+.notice.demo-pay { margin-bottom: 16px; }
+.shop-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 12px; scrollbar-width: none; }
+.shop-chips .chip, .shop-chips .chip:not(:disabled):hover { flex: none; width: auto; min-height: 42px; padding: 0 18px; border-radius: 999px; font-size: 15px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+.shop-chips .chip.active { background: var(--ink-deep); color: var(--ivory); border-color: var(--ink-deep); }
+.shop-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); margin-bottom: 22px; }
+.shop-grid .card { margin: 0; }
+.svc { display: flex; gap: 14px; align-items: flex-start; padding: 18px; }
+.svc-icon { flex: none; width: 72px; height: 72px; border-radius: 16px; background: var(--surface-2); padding: 6px; border: 1px solid var(--line); }
+.svc-icon.sm { width: 52px; height: 52px; border-radius: 12px; padding: 4px; }
+.svc-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.svc-body h3 { margin: 2px 0 4px; font-size: 17px; }
+.svc-body p { margin: 0 0 10px; font-size: 14px; line-height: 1.6; }
+.svc-cat { font-size: 12px; letter-spacing: .08em; color: var(--accent); font-weight: 600; }
+.svc-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.svc-price { font-size: 18px; font-family: var(--font-serif); }
+.svc-price small { font-size: 13px; color: var(--muted); font-family: var(--font-sans); }
+.svc-foot button { width: auto; }
+.order-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.order { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
+.order.refunded, .order.cancelled { opacity: .65; }
+.order-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.order-body .row { gap: 8px; flex-wrap: wrap; }
+.order-steps { display: flex; gap: 0; list-style: none; margin: 6px 0 2px; padding: 0; counter-reset: st; }
+.order-steps li { flex: 1; position: relative; text-align: center; font-size: 12px; color: var(--muted); padding-top: 18px; }
+.order-steps li::before { content: ""; position: absolute; top: 4px; left: 50%; transform: translateX(-50%); width: 10px; height: 10px; border-radius: 50%; background: var(--line-strong); z-index: 1; }
+.order-steps li::after { content: ""; position: absolute; top: 8px; left: -50%; width: 100%; height: 2px; background: var(--line); }
+.order-steps li:first-child::after { display: none; }
+.order-steps li.on { color: var(--ink); font-weight: 600; }
+.order-steps li.on::before, .order-steps li.on::after { background: var(--accent); }
+.order-photo { width: 100%; max-width: 360px; border-radius: var(--r-sm); margin-top: 6px; }
+.gift-tag { font-size: 14px; color: var(--accent); }
+.staff-note { margin: 4px 0 0; font-size: 14px; padding: 8px 10px; background: var(--surface); border-radius: var(--r-sm); border-left: 3px solid var(--accent); }
+.order button { width: auto; justify-self: start; }
+.order-form .order-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 12px; }
+.order-form .order-head h2 { margin: 2px 0 4px; font-size: 21px; }
+.order-form .order-head p { margin: 0; font-size: 14px; }
+.order-form .field { margin-bottom: 12px; }
+.order-form .label { display: block; font-size: 14px; color: var(--muted); }
+.qty { display: flex; align-items: center; gap: 8px; }
+.qty input { width: 80px; text-align: center; }
+.qty button { width: 44px; padding: 0; }
+.pay { border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.pay legend { padding: 0 6px; font-size: 14px; }
+.pay-opt { display: flex; align-items: center; gap: 6px; font-size: 15px; min-height: 40px; }
+.order-total { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 4px; border-top: 1px solid var(--line); margin-top: 6px; }
+.order-total b { font-size: 24px; font-family: var(--font-serif); }
+.demo-ok { font-size: 14px; }
+.paid-done { text-align: center; }
+.paid-mark { display: inline-grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 28px; margin-bottom: 6px; }

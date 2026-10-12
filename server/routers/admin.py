@@ -393,8 +393,11 @@ def deceased_photo(did: int, file: UploadFile = File(...)):
 
 @router.post("/deceased/{did}/media")
 def deceased_media(did: int, kind: str = "photo", caption: str = "", ai_generated: bool = False, file: UploadFile = File(...)):
-    if kind not in {"photo", "video", "voice", "message_video"}:
+    if kind not in {"photo", "video", "voice", "message_video", "music"}:
         raise HTTPException(400, "kind")
+    if kind == "music":   # 생전 좋아하신 노래(가족 화면 참배·추모 공간에서 틂)
+        from .. import music
+        return music.save(did, file.filename or "song.mp3", file.file.read(), caption, file.content_type)
     if kind == "voice":
         r = voice.save_sample(did, file.filename or "sample.mp3", file.file.read(), caption or "관리자 업로드", file.content_type)
         return {"id": r["media_id"], "path": r["path"], "seconds": r["seconds"]}
@@ -967,3 +970,43 @@ def ai_settings_test():
         raise HTTPException(502, f"API 오류 {ex.status_code}: {ex.message}")
     except anthropic.APIConnectionError:
         raise HTTPException(503, "Anthropic API에 연결할 수 없습니다. 인터넷 연결을 확인하세요.")
+
+
+# ---------- 추모 서비스(유료) 주문 처리 (2026-10-12) ----------
+class OrderStatusIn(BaseModel):
+    status: str = Field(pattern="^(preparing|done|cancelled)$")
+    staff_note: str = Field("", max_length=300)
+
+
+@router.get("/orders")
+def orders(status: str = ""):
+    from .. import services
+    q = "SELECT id FROM service_orders" + (" WHERE status=?" if status else "") + " ORDER BY CASE status WHEN 'paid' THEN 0 WHEN 'preparing' THEN 1 ELSE 2 END, id DESC LIMIT 200"
+    rows = [services.get(r["id"]) for r in db.rows(q, (status,) if status else ())]
+    summary = db.one("""SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN status IN ('paid','preparing','done') THEN total END),0) AS sales,
+                        SUM(status='paid') AS waiting, SUM(status='preparing') AS preparing, SUM(status='done') AS done FROM service_orders""")
+    return {"items": rows, "summary": summary, "status_names": services.STATUS}
+
+
+@router.post("/orders/{oid}/status")
+def order_status(oid: int, body: OrderStatusIn):
+    from .. import services
+    return services.set_status(oid, body.status, body.staff_note)
+
+
+@router.post("/orders/{oid}/photo")
+def order_photo(oid: int, file: UploadFile = File(...)):
+    """완료 사진을 올리면 주문을 '완료'로 바꾼다(가족 화면에서 사진을 본다)."""
+    from .. import services
+    if Path(file.filename or "").suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+        raise HTTPException(400, "사진(jpg·png·webp)만 올릴 수 있습니다.")
+    rel = _save_upload(file, "orders")
+    return services.set_status(oid, "done", photo=rel)
+
+
+@router.get("/orders/{oid}/photo.jpg")
+def order_photo_get(oid: int):
+    o = db.one("SELECT done_photo FROM service_orders WHERE id=?", (oid,))
+    if not o or not o["done_photo"]:
+        raise HTTPException(404)
+    return FileResponse(config.MEDIA_DIR / o["done_photo"])

@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS consents (
 );
 CREATE TABLE IF NOT EXISTS media (
   id INTEGER PRIMARY KEY, deceased_id INTEGER NOT NULL REFERENCES deceased(id),
-  kind TEXT NOT NULL,                                        -- photo | video | voice | message_video
+  kind TEXT NOT NULL,                                        -- photo | video | voice | message_video | music(생전 좋아하신 노래)
   path TEXT NOT NULL, caption TEXT DEFAULT '', ai_generated INTEGER DEFAULT 0, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS guestbook (
@@ -140,6 +140,22 @@ CREATE TABLE IF NOT EXISTS tributes (
  member_id INTEGER NOT NULL REFERENCES family_members(id), kind TEXT NOT NULL,
  message TEXT DEFAULT '', created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS service_orders (                -- 추모 서비스(유료) 주문: 헌화·선물·상차림·기도(server/services.py). 결제는 시연 결제.
+ id INTEGER PRIMARY KEY, contract_id INTEGER NOT NULL REFERENCES contracts(id), member_id INTEGER NOT NULL REFERENCES family_members(id),
+ deceased_id INTEGER NOT NULL REFERENCES deceased(id), service TEXT NOT NULL, qty INTEGER NOT NULL DEFAULT 1,
+ unit_price INTEGER NOT NULL, total INTEGER NOT NULL, ritual_id INTEGER REFERENCES rituals(id), deliver_on TEXT,
+ gift_to INTEGER REFERENCES family_members(id), card_message TEXT DEFAULT '', note TEXT DEFAULT '',
+ pay_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'paid',   -- paid | preparing | done | cancelled | refunded
+ receipt TEXT NOT NULL, done_photo TEXT, staff_note TEXT DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS service_orders_contract ON service_orders(contract_id, id);
+CREATE TABLE IF NOT EXISTS altar_items (
+ id INTEGER PRIMARY KEY, deceased_id INTEGER NOT NULL REFERENCES deceased(id),
+ member_id INTEGER NOT NULL REFERENCES family_members(id), item TEXT NOT NULL,   -- 국화·촛불·스티커 등(routers/family.py ALTAR_ITEMS)
+ x REAL NOT NULL, y REAL NOT NULL, rot REAL DEFAULT 0, scale REAL DEFAULT 1,      -- 추모 제단 판 위 자리(0~100%)·기울기·크기
+ message TEXT DEFAULT '', created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS altar_items_deceased ON altar_items(deceased_id, id);
 CREATE TABLE IF NOT EXISTS memorial_guides (
  deceased_id INTEGER PRIMARY KEY REFERENCES deceased(id), tradition TEXT DEFAULT 'classic',
  text TEXT DEFAULT '', updated_at TEXT NOT NULL
@@ -185,6 +201,9 @@ _MIGRATIONS = [
     ("deceased", "face_id", "TEXT DEFAULT ''"),           # 실시간 아바타 얼굴 ID(공급자 측)
     ("deceased", "face_provider", "TEXT DEFAULT ''"),     # simli
     ("deceased", "theme", "TEXT DEFAULT 'classic'"),      # 추모 공간 테마: classic | buddhist | catholic | christian
+    ("deceased", "theme_style", "TEXT DEFAULT ''"),       # 테마 세부(JSON): 강조색·배경 문양·바탕 빛·제목 글꼴
+    ("deceased", "visit_music_id", "INTEGER"),            # 참배(실시간으로 뵙기) 때 트는 노래(media.id, kind='music')
+    ("media", "seconds", "INTEGER"),                      # 노래 길이(초)
     ("rituals", "access", "TEXT DEFAULT 'open'"),         # open(누구나 생중계: 법회·행사) | applied(신청 가족만: 제사)
     ("rituals", "current_order", "INTEGER DEFAULT 0"),    # 지금 봉행 중인 순서 번호(0=시작 전)
 ]

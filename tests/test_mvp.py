@@ -982,3 +982,93 @@ def test_demo_entry_and_redesigned_shell(client):
     assert "prompt(" not in admin_js and 'id="keyForm"' in admin_js
     for page in ("overview", "tasks", "contracts", "deceased", "rituals", "calib", "usage", "aisettings"):
         assert f'data-page="{page}"' in admin
+
+
+def test_theme_style_saved_for_family_and_validated(client):
+    h = {"X-Family-Token": holder_token("이미영")}
+    did = client.get("/api/family/me", headers=h).json()["deceased"][0]["id"]
+    style = {"accent": "3", "pattern": "clear", "tone": "mist", "font": "batang"}
+    r = client.post("/api/family/theme", headers=h, json={"deceased_id": did, "theme": "catholic", "style": style})
+    assert r.status_code == 200 and r.json()["style"] == style
+    d = client.get("/api/family/me", headers=h).json()["deceased"][0]
+    assert d["theme"] == "catholic" and d["theme_style"] == style
+    # 다른 가족(보기·대화 권한)도 같은 모습을 받는다
+    assert client.get("/api/family/me", headers={"X-Family-Token": holder_token("이준호")}).json()["deceased"][0]["theme_style"] == style
+    assert client.post("/api/family/theme", headers=h, json={"deceased_id": did, "theme": "catholic", "style": {**style, "tone": "neon"}}).status_code == 422
+    # 망가진 값이 저장돼 있어도 기본값으로 돌려준다
+    db.execute("UPDATE deceased SET theme_style='{oops' WHERE id=?", (did,))
+    assert client.get("/api/family/me", headers=h).json()["deceased"][0]["theme_style"]["pattern"] == "soft"
+    from pathlib import Path
+    pat = Path(__file__).resolve().parents[1] / "server" / "static" / "images" / "patterns"
+    for t in ("classic", "buddhist", "catholic", "christian"):
+        assert (pat / f"tile-{t}.svg").exists() and (pat / f"emblem-{t}.svg").exists()
+
+
+def _wav(seconds=6):
+    import io, math, struct, wave
+    buf = io.BytesIO(); w = wave.open(buf, "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+    w.writeframes(b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * 440 * i / 16000))) for i in range(16000 * seconds))); w.close()
+    return buf.getvalue()
+
+
+def test_favorite_music_upload_visit_and_roles(client):
+    h = {"X-Family-Token": holder_token("이미영")}
+    did = client.get("/api/family/me", headers=h).json()["deceased"][0]["id"]
+    r = client.post("/api/family/music", headers=h, data={"deceased_id": did, "title": "고향의 봄(시연)"}, files={"file": ("song.wav", _wav(), "audio/wav")})
+    assert r.status_code == 200, r.text
+    mid = r.json()["id"]
+    lst = client.get(f"/api/family/music?deceased_id={did}", headers=h).json()
+    assert any(x["id"] == mid and x["title"] == "고향의 봄(시연)" for x in lst["items"]) and lst["visit_music_id"]
+    assert client.get(f"/api/family/media/{mid}", headers=h).status_code == 200
+    # 노래는 추모 공간 사진 목록에 섞이지 않는다
+    assert all(m["kind"] != "music" for d in client.get("/api/family/memorial", headers=h).json()["deceased"] for m in d["media"])
+    # 보기·대화 가족은 듣기만(올리기·빼기·고르기 불가)
+    h2 = {"X-Family-Token": holder_token("이준호")}
+    assert client.get(f"/api/family/music?deceased_id={did}", headers=h2).json()["can_manage"] is False
+    assert client.post("/api/family/music", headers=h2, data={"deceased_id": did}, files={"file": ("s.wav", _wav(), "audio/wav")}).status_code == 403
+    assert client.put("/api/family/music/visit", headers=h, json={"deceased_id": did, "media_id": mid}).json()["visit_music_id"] == mid
+    assert client.delete(f"/api/family/music/{mid}", headers=h).status_code == 200
+    assert client.get(f"/api/family/music?deceased_id={did}", headers=h).json()["visit_music_id"] != mid
+
+
+def test_altar_items_place_and_remove(client):
+    h, h2 = {"X-Family-Token": holder_token("이미영")}, {"X-Family-Token": holder_token("이준호")}
+    did = client.get("/api/family/me", headers=h).json()["deceased"][0]["id"]
+    r = client.post(f"/api/family/altar/{did}", headers=h2, json={"item": "chrysanthemum-white", "x": 40, "y": 80, "rot": 5, "scale": 1.2, "message": "보고 싶어요"})
+    assert r.status_code == 200
+    aid = r.json()["id"]
+    items = client.get(f"/api/family/altar/{did}", headers=h).json()["items"]
+    me = next(x for x in items if x["id"] == aid)
+    assert me["author"] == "이준호" and me["can_remove"] is True and me["mine"] is False   # 계약자는 정리할 수 있다
+    assert client.post(f"/api/family/altar/{did}", headers=h, json={"item": "bomb", "x": 1, "y": 1}).status_code == 422
+    assert client.post(f"/api/family/altar/{did}", headers=h, json={"item": "heart", "x": 120, "y": 1}).status_code == 422
+    assert client.delete(f"/api/family/altar/item/{aid}", headers=h).status_code == 200
+
+
+def test_paid_services_order_flow_demo_payment(client):
+    h, h2 = {"X-Family-Token": holder_token("이미영")}, {"X-Family-Token": holder_token("이준호")}
+    did = client.get("/api/family/me", headers=h).json()["deceased"][0]["id"]
+    cat = client.get("/api/family/services", headers=h).json()
+    assert {"flower", "gift", "table", "prayer"} <= set(cat["categories"]) and cat["demo"] is True
+    jun = next(m for m in cat["members"] if m["name"] == "이준호")
+    r = client.post("/api/family/orders", headers=h, json={"service": "flower-one", "deceased_id": did, "qty": 3, "gift_to": jun["id"],
+                                                            "card_message": "어머니께", "pay_method": "card", "total": 1})
+    assert r.status_code == 200, r.text
+    o = r.json()
+    assert o["total"] == 30000 and o["status"] == "paid" and o["receipt"].startswith("시연-") and o["gift_to_name"] == "이준호"
+    assert any(x["id"] == o["id"] and x["gift_for_me"] for x in client.get("/api/family/orders", headers=h2).json())
+    # 상차림은 의례가 있어야 한다, 수량·결제 방법 검사
+    assert client.post("/api/family/orders", headers=h, json={"service": "table-full", "deceased_id": did, "pay_method": "card"}).status_code == 400
+    assert client.post("/api/family/orders", headers=h, json={"service": "flower-one", "deceased_id": did, "qty": 11, "pay_method": "card"}).status_code == 422
+    assert client.post("/api/family/orders", headers=h, json={"service": "flower-one", "deceased_id": did, "pay_method": "bitcoin"}).status_code == 400
+    # 직원 처리: 준비 → 완료(헌화는 추모 제단에 흰 국화)
+    before = len(client.get(f"/api/family/altar/{did}", headers=h).json()["items"])
+    assert client.post(f"/api/admin/orders/{o['id']}/status", headers=ADMIN, json={"status": "preparing"}).json()["status"] == "preparing"
+    assert client.post(f"/api/family/orders/{o['id']}/cancel", headers=h).status_code == 400   # 준비 시작 뒤에는 앱에서 취소 불가
+    assert client.post(f"/api/admin/orders/{o['id']}/status", headers=ADMIN, json={"status": "done", "staff_note": "올렸습니다"}).json()["status"] == "done"
+    assert len(client.get(f"/api/family/altar/{did}", headers=h).json()["items"]) == before + 1
+    # 접수 상태의 내 주문은 취소(시연 환불), 남의 주문은 못 함
+    o2 = client.post("/api/family/orders", headers=h, json={"service": "prayer-lamp", "deceased_id": did, "pay_method": "transfer"}).json()
+    assert client.post(f"/api/family/orders/{o2['id']}/cancel", headers=h2).status_code == 403
+    assert client.post(f"/api/family/orders/{o2['id']}/cancel", headers=h).json()["status"] == "refunded"
+    assert client.get("/api/admin/orders", headers=ADMIN).json()["summary"]["sales"] >= 30000

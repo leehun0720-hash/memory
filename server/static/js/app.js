@@ -2,6 +2,8 @@
 import {createCommunity} from './community.js?v=20261012-serene';
 import {mountArt, destroyAll as destroyArt, mountScene, mountVoice, playReaction} from './dream.js?v=20261012-3';
 import {openVoiceRecorder} from './voice-recorder.js?v=20261012-1';
+import {createKeepsake} from './keepsake.js?v=20261012-1';
+import {createShop} from './shop.js?v=20261012-1';
 const qs = new URLSearchParams(location.search);
 // 초대 토큰은 영문·숫자·-·_ 로만 이뤄진다. 메신저에서 복사하며 붙은 한글·공백·따옴표, 링크 전체를 붙여 넣은 경우,
 // '<초대 토큰>' 같은 자리표시를 걸러 낸다. 그대로 요청 머리글에 넣으면 브라우저가 요청을 거부하고(ISO-8859-1 오류),
@@ -66,7 +68,9 @@ function modal(html) {
   document.body.appendChild(bg); bg.querySelector(".modal-close").focus(); return bg;
 }
 
-const state = { me: null, tab: "visit", timers: [] };
+const state = { me: null, tab: "visit", timers: [], focus: null };
+const keepsake = createKeepsake({ api, esc, toast, modal, withToken, fmtDT });   // 추모 제단 · 생전 좋아하신 노래
+const shop = createShop({ api, esc, toast, modal, withToken, fmtDT, fmtD, state, view, go });   // 추모 서비스(유료, 시연 결제)
 // 오류 안내: 무엇이 안 됐는지 + 이유 + 다음 행동(다시 불러오기)
 function failCard(what, e, tab) {
   view.innerHTML = `<div class="card" role="alert"><h2>${esc(what)} 불러오지 못했습니다</h2><p class="muted">${esc(e?.message || "")}</p><p class="muted">연결을 확인한 뒤 다시 불러와 주세요.</p><button class="secondary" type="button" id="failRetry">다시 불러오기</button></div>`;
@@ -83,7 +87,6 @@ const THEMES = [
   ["christian", "기독교", "십자 선"],
 ];
 // 테마마다 바뀌는 것은 상징과 강조색뿐이고, 먹·한지 바탕과 명조 제목은 같다.
-const THEME_FONTS = { classic: "종교 상징 없음 · 창살 선 · 먹 올리브 강조색", buddhist: "연꽃 · 단청 띠 · 주홍 강조색", catholic: "아치 창 십자 선 · 청회색 강조색", christian: "십자 선 · 짙은 청록 강조색" };
 const THEME_META = { classic: "#121410", buddhist: "#121410", catholic: "#121410", christian: "#121410" };
 function applyTheme(t) {
   if (!THEME_META[t]) t = "classic";
@@ -92,6 +95,46 @@ function applyTheme(t) {
   state.theme = t;
 }
 function currentTheme() { return (state.me?.member.role === "manage" ? null : localStorage.getItem("theme_local")) || state.me?.deceased?.[0]?.theme || "classic"; }
+// ---------------- 테마 세부(2026-10-12): 강조색 · 배경 문양 · 바탕 빛 · 제목 글꼴 · 글자 크기 ----------------
+// 강조색은 테마마다 네 가지. 문양·바탕·글꼴은 css/serene.css 가 html 의 data-* 로 바꾼다. 글자 크기는 이 기기에만 저장.
+const ACCENTS = {
+  classic: [["#4b5636", "먹 올리브"], ["#34506b", "쪽빛"], ["#55524b", "먹회색"], ["#7a3b2e", "대추빛"]],
+  buddhist: [["#8f3b2b", "단청 주홍"], ["#94702c", "가사 금빛"], ["#9c4f5d", "연꽃 분홍"], ["#5b3a55", "먹자주"]],
+  catholic: [["#3d4f6b", "청회색"], ["#3b6488", "성모 하늘빛"], ["#6c2e3a", "포도주빛"], ["#86692c", "제단 금빛"]],
+  christian: [["#2f5a55", "짙은 청록"], ["#5a6a2e", "올리브"], ["#2e3f6e", "남색"], ["#7a5234", "나무 갈색"]],
+};
+const LOOK_OPTIONS = {
+  pattern: [["off", "끄기", "바탕을 비워 둡니다"], ["soft", "은은하게", "흐릿하게 비칩니다"], ["clear", "조금 더 또렷하게", "문양이 잘 보입니다"]],
+  tone: [["hanji", "한지", "따뜻한 미색"], ["dawn", "새벽 노을", "옅은 살구빛"], ["mist", "고요한 안개", "맑은 회녹빛"]],
+  font: [["myeongjo", "명조", "단정한 붓글씨 느낌"], ["batang", "부드러운 바탕", "둥글고 다정한 획"], ["gothic", "또렷한 고딕", "가장 읽기 쉬움"]],
+  size: [["normal", "보통", "기본 크기"], ["large", "크게", "한 단계 크게"], ["xlarge", "아주 크게", "두 단계 크게"]],
+};
+const PATTERN_NAME = { classic: "칠보 무늬", buddhist: "연꽃 · 구름", catholic: "장미창 · 백합", christian: "올리브 가지 · 빛" };
+const STYLE_DEFAULT = { accent: "1", pattern: "soft", tone: "hanji", font: "myeongjo" };
+function cleanStyle(x) {
+  const o = { ...STYLE_DEFAULT };
+  if (x && typeof x === "object") {
+    if (["1", "2", "3", "4"].includes(x.accent)) o.accent = x.accent;
+    for (const k of ["pattern", "tone", "font"]) if (LOOK_OPTIONS[k].some(([v]) => v === x[k])) o[k] = x[k];
+  }
+  return o;
+}
+function currentStyle() {
+  let local = null;
+  if (state.me?.member.role !== "manage") { try { local = JSON.parse(localStorage.getItem("style_local") || "null"); } catch {} }
+  return cleanStyle(local || state.me?.deceased?.[0]?.theme_style);
+}
+function textSize() { const v = localStorage.getItem("text_size"); return ["normal", "large", "xlarge"].includes(v) ? v : "normal"; }
+function applyLook(theme, style, size) {
+  applyTheme(theme);
+  const st = cleanStyle(style), root = document.documentElement;
+  const [hex] = (ACCENTS[state.theme] || ACCENTS.classic)[+st.accent - 1];
+  const n = parseInt(hex.slice(1), 16);
+  root.style.setProperty("--accent", hex); root.style.setProperty("--gold-2", hex);
+  root.style.setProperty("--glow", `${n >> 16}, ${(n >> 8) & 255}, ${n & 255}`);
+  root.dataset.pattern = st.pattern; root.dataset.tone = st.tone; root.dataset.font = st.font; root.dataset.size = size || "normal";
+}
+function applySaved() { applyLook(state.me ? currentTheme() : (localStorage.getItem("theme_local") || "classic"), state.me ? currentStyle() : null, textSize()); }
 // '화면 움직임 줄이기'(앱 설정)는 정지 장면, 기기의 움직임 줄이기는 느린 반복 + 멈춤 단추(js/dream.js).
 function motionReduced() { return localStorage.getItem("motion") === "reduce"; }
 function applyMotion() { document.documentElement.dataset.motion = motionReduced() ? "reduce" : ""; }
@@ -118,7 +161,7 @@ function chime() {
 
 // ---------------- 부팅 ----------------
 async function boot() {
-  applyTheme(localStorage.getItem("theme_local") || "classic"); applyMotion();
+  applySaved(); applyMotion();
   if (DEMO_ENTRY || !TOKEN) {
     $("#tabs").classList.add("hidden"); document.body.classList.add("is-entry");
     if (!BAD_LINK && await renderLauncher()) return;
@@ -131,13 +174,13 @@ async function boot() {
     view.innerHTML = `<section class="memorial-hero entry-hero"><div class="memorial-hero-copy"><span class="eyebrow">가족 추모 공간</span><h1>추모 공간을<br>열지 못했습니다.</h1><p>${esc(e.message)}</p><p>초대 링크가 바뀌었을 수 있습니다. 계약하신 가족이나 시설 담당자에게 새 초대 링크를 요청해 주세요.</p><div class="row" style="gap:10px;flex-wrap:wrap"><button class="secondary" type="button" id="retryBoot">다시 열기</button><button class="secondary" type="button" id="forgetBoot">이 기기에 저장된 링크 지우기</button></div></div><div class="hero-art" id="heroArt"></div></section>`;
     $("#tabs").classList.add("hidden"); document.body.classList.add("is-entry"); $("#retryBoot").onclick = () => location.reload(); $("#forgetBoot").onclick = async () => { localStorage.removeItem("family_token"); await fetch("/api/family/session", { method: "DELETE" }).catch(() => {}); location.href = "/"; }; mountArt($("#heroArt"), state.theme, motionReduced()); return;
   }
-  applyTheme(currentTheme());
+  applySaved();
   $("#who").textContent = `${state.me.member.name} 님`;
   $("#who").dataset.initial = String(state.me.member.name || "").slice(-2);
   community.init();
   $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) go(b.dataset.tab); });
   const want = location.hash.slice(1);   // /?t=…#ritual 처럼 탭을 지정해 열 수 있다
-  const routes = ["visit", "memorial", "chat", "ritual", "settings", ...Object.keys(community.pages)];
+  const routes = ["visit", "memorial", "chat", "ritual", "settings", "shop", ...Object.keys(community.pages)];
   go(routes.includes(want) ? want : localStorage.getItem('memorial_easy')==='true'?'easy':'visit');
   window.addEventListener("popstate", () => { const t = location.hash.slice(1) || "visit"; if (t !== state.tab && routes.includes(t)) go(t, false); });
 }
@@ -145,14 +188,14 @@ async function boot() {
 function go(tab, push = true) {
   const url = location.pathname + (tab === "visit" ? "" : "#" + tab);
   if (push && state.tab && state.tab !== tab) history.pushState(null, "", url); else history.replaceState(null, "", url);
-  clearTimers(); stopSpeech(); destroyArt(); state.tab = tab;
+  clearTimers(); stopSpeech(); destroyArt(); if (state.tab === "settings" && tab !== "settings") applySaved(); state.tab = tab;
   document.querySelectorAll("#tabs button").forEach((b) => {
     b.classList.toggle("active", b.dataset.tab === tab);
     if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
   view.dataset.page = tab; document.body.dataset.page = tab;
   view.innerHTML = `<div class="card center"><p class="muted" role="status">화면을 불러오는 중입니다…</p></div>`;
-  const render = ({ visit: renderVisit, memorial: renderMemorial, chat: renderChat, ritual: renderRitual, settings: renderSettings, ...community.pages })[tab];
+  const render = ({ visit: renderVisit, memorial: renderMemorial, chat: renderChat, ritual: renderRitual, settings: renderSettings, shop: shop.page, ...community.pages })[tab];
   Promise.resolve(render()).then(() => {if(state.tab===tab)community.mount(tab);}).catch(e=>failCard("화면을", e, tab));
   window.scrollTo(0, 0);
 }
@@ -222,11 +265,11 @@ async function renderLauncher() {
 // ---------------- 1. 원격 참배 ----------------
 // 첫 화면 '바로 하기' 칸: [이동할 화면, 아이콘 선, 이름, 설명]
 const HOME_QUICK = [
-  ["memorial", '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m20.5 16-5-5-7.5 8"/>', "추모 공간", "사진 · 방명록"],
+  ["memorial#altar", '<path d="M12 13.5V21"/><path d="M12 15.5c-2.5-.2-4.2-1.3-5-3 2.5-.3 4.2.6 5 3zM12 17.5c2.2-.4 3.6-1.5 4.2-3.2-2.2 0-3.6 1-4.2 3.2z"/><circle cx="12" cy="8" r="2"/><path d="M12 3.5a2.3 2.3 0 0 1 2.3 2.4 2.3 2.3 0 0 1 2.4 2.3A2.3 2.3 0 0 1 14.3 10.5 2.3 2.3 0 0 1 12 12.5a2.3 2.3 0 0 1-2.3-2 2.3 2.3 0 0 1-2.4-2.3 2.3 2.3 0 0 1 2.4-2.3A2.3 2.3 0 0 1 12 3.5z"/>', "헌화 · 스티커", "국화·촛불 올리기"],
   ["comfort", '<path d="M12 20s-7-4.4-7-9.5A3.8 3.8 0 0 1 12 8a3.8 3.8 0 0 1 7 2.5C19 15.6 12 20 12 20z"/>', "마음 남기기", "꽃 · 촛불 · 편지"],
   ["chat", '<path d="M4 5.5h16v10.5H9.5L5 19.5V16H4z"/><path d="M8 9.5h8M8 12.5h5"/>', "추모 대화", "인공지능과 기억 나누기"],
   ["ritual", '<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="m10.5 9.5 4 2.5-4 2.5z"/>', "추도식 생중계", "일정 · 실시간 참여"],
-  ["album", '<path d="M4 6.5h6l2 2h8v10H4z"/><path d="M8 14.5h8"/>', "가족 앨범", "함께 채우는 기억"],
+  ["shop", '<path d="M4.5 9.5h15l-1.2 10h-12.6z"/><path d="M8.5 9.5V7a3.5 3.5 0 0 1 7 0v2.5"/><path d="M12 13.2c-.9-1.1-2.8-.6-2.8.9 0 1.3 1.6 2.3 2.8 3 1.2-.7 2.8-1.7 2.8-3 0-1.5-1.9-2-2.8-.9z"/>', "추모 서비스", "헌화 · 선물 · 상차림"],
   ["calendar", '<rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>', "함께 참배 약속", "기일 · 가족 일정"],
 ];
 async function renderVisit() {
@@ -251,13 +294,16 @@ async function renderVisit() {
         <button id="liveBtn" class="live-cta" type="button">${liveLabel}</button>
         <p class="live-note">사진은 10초마다 새로 찍힙니다. 현장에 다른 참배객이 계시면 실시간 영상은 잠시 멈추고 사진으로 보여 드립니다.</p>
         <nav class="quick-grid" aria-label="자주 쓰는 기능">${HOME_QUICK.map(([route, icon, label, sub]) => `<button type="button" class="quick" data-go="${route}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg><b>${label}</b><small>${sub}</small></button>`).join("")}</nav>
+        <div class="card music-mini" id="homeMusic" hidden></div>
         <div class="card next-up" id="nextUp" hidden></div>
       </aside>
     </div>`;
   mountArt($("#heroArt"), state.theme, motionReduced());
-  view.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => go(b.dataset.go));
+  view.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => { const [route, focus] = b.dataset.go.split("#"); state.focus = focus || null; go(route); });
   $("#snap").onclick = () => { if (!live.on) go("memorial"); };   // 화면 속 봉안함을 누르면 추모 공간
   $("#chimeBtn").onclick = () => { localStorage.setItem("chime", chimeEnabled() ? "0" : "1"); const on = chimeEnabled(); $("#chimeBtn").classList.toggle("on", on); $("#chimeBtn").textContent = `종소리 ${on ? "켬" : "끔"}`; if (on) chime(); };
+  let visitSong = null;   // 참배 때 함께 흐를 노래(계약자가 정함)
+  keepsake.homeMusic($("#homeMusic"), d, () => { state.focus = "music"; go("memorial"); }).then((x) => { visitSong = x; });
   api("/api/family/memorial").then((m) => {   // 다가오는 기일·추도식 한 건
     const r = m.upcoming?.[0], box = $("#nextUp");
     if (!r || !box) return;
@@ -291,6 +337,7 @@ async function renderVisit() {
     if (!live.on) return; live.on = false; clearInterval(live.timer);
     viewer.classList.remove("live"); live.scene?.destroy(); live.scene = null; clearTimeout(live.title); $("#titleCard").hidden = true;
     $("#liveBtn").disabled = false; $("#liveBtn").innerHTML = liveLabel;
+    keepsake.onLiveEnd();
     showSnapshot(); if (msg) toast(msg);
   }
   $("#liveBtn").onclick = async () => {
@@ -308,7 +355,7 @@ async function renderVisit() {
       img.onload = () => { if (img.naturalWidth) snap.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`; };
       snap.innerHTML = ""; snap.classList.remove("reveal"); snap.classList.add("live"); snap.appendChild(img); snap.insertAdjacentHTML("beforeend", `<span class="badge live">실시간</span>`);
       img.src = withToken(`/api/family/live/stream?sid=${r.session_id}`);
-      chime();
+      chime(); keepsake.onLiveStart(visitSong);
       $("#liveBtn").disabled = true; $("#liveBtn").textContent = `실시간으로 뵙는 중입니다 · ${left}초 남음`;
       live.timer = every(() => { const b = $("#liveBtn"); if (!b) { clearInterval(live.timer); return; } left--; if (left <= 0) endLive("실시간 보기가 끝났습니다."); else b.textContent = `실시간으로 뵙는 중입니다 · ${left}초 남음`; }, 1000);
     } catch (e) { $("#liveBtn").disabled = false; $("#liveBtn").innerHTML = liveLabel; toast(`실시간 영상을 열지 못했습니다. ${e.message}`, 4500); }
@@ -335,13 +382,21 @@ async function renderMemorial() {
     </div></article>`).join("");
   const upcoming = data.upcoming.length ? data.upcoming.map((r) => `<div class="ritual"><span class="when">${esc(fmtDT(r.scheduled_at))}</span> ${esc(r.title)}</div>`).join("") : `<p class="muted">아직 예정된 추도식이 없습니다. 시설에 일정을 문의해 주세요.</p>`;
   const guest = data.guestbook.length ? data.guestbook.map((g) => `<div class="guest"><span class="who">${esc(g.author)}</span><span class="when">${esc(fmtDT(g.created_at))}</span><div>${esc(g.message)}</div></div>`).join("") : `<p class="muted">아직 남긴 글이 없습니다. 위 칸에 첫 마음을 남겨 주세요.</p>`;
+  const d0 = data.deceased[0];
   view.innerHTML = `${cards}
+    ${d0 ? `<section class="card altar-card" id="altar" aria-label="추모 제단"><p class="muted" role="status">추모 제단을 차리는 중입니다…</p></section>
+    <section class="card music-card" id="music" aria-label="생전 좋아하신 노래"><p class="muted" role="status">노래 목록을 불러오는 중입니다…</p></section>` : ""}
     <div class="card"><h3>다가오는 기일·추도식</h3>${upcoming}<button class="secondary small" style="margin-top:8px" id="toRitual">일정 전체 보기</button></div>
     <div class="card"><h3>가족 방명록</h3>
       <div class="field"><label for="gbMsg">가족에게, 그리고 ${esc(data.deceased[0]?.name || "고인")} 님께 남길 말</label><textarea id="gbMsg" aria-describedby="gbHelp"></textarea><small class="muted" id="gbHelp">남긴 글은 가족 모두가 봅니다.</small></div>
       <button id="gbSend">방명록에 남기기</button>
       <div style="margin-top:12px">${guest}</div></div>`;
   $("#toRitual").onclick = () => go("ritual");
+  if (d0) {
+    const d0me = state.me.deceased.find((x) => x.id === d0.id) || d0;
+    Promise.all([keepsake.mountAltar($("#altar"), { ...d0, has_photo: d0.has_photo ?? d0me.has_photo }), keepsake.mountMusic($("#music"), d0)])
+      .then(() => { if (state.focus) { document.getElementById(state.focus)?.scrollIntoView({ block: "start" }); state.focus = null; } });
+  }
   view.querySelectorAll("[data-to-album]").forEach((b) => b.onclick = () => go("album"));
   $("#gbSend").onclick = async () => {
     const b = $("#gbSend"), t = $("#gbMsg").value.trim();
@@ -608,6 +663,7 @@ function runChat(sess, d) {
       if (!silent && r.closing) { add("them", r.closing); say(r.closing); }
       add("sys", `오늘의 대화 요약: ${r.summary || "(요약 없음)"}`);
     } catch {}
+    if (!$("#endBtn")) return;   // 대화가 끝나기 전에 다른 화면으로 옮겼으면 고칠 단추가 없다
     $("#mic").disabled = $("#send").disabled = $("#txt").disabled = true;
     setTimeout(() => { try { sess._avatar?.stop("대화 종료"); } catch {} }, 8000);   // 마지막 인사가 끝난 뒤 아바타 종료
     $("#endBtn").textContent = "대화 처음 화면으로"; $("#endBtn").onclick = () => go("chat");
@@ -654,7 +710,7 @@ async function renderRitual() {
         ${r.access === "applied" && !r.my_participation && me.member.role !== "view" ? `<button class="small secondary" data-join="${r.id}">제례 참여 신청</button>` : ""}
         ${r.is_live_window && r.stream_url ? `<a class="btn small secondary" href="${esc(r.stream_url)}" target="_blank" rel="noopener">외부 중계 열기 (새 창)</a>` : ""}
         ${r.replay_url ? `<a class="btn small secondary" href="${esc(r.replay_url)}" target="_blank" rel="noopener">다시 보기 (새 창)</a>` : ""}
-        <button class="small secondary" data-offer="${r.id}">공양·헌화 신청</button>
+        <button class="small secondary" data-offer="${r.id}">상차림·헌화 주문</button>
       </div>
     </div>`).join("") || `<p class="muted">아직 예정된 추도식이 없습니다. 시설에 일정을 문의해 주세요.</p>`;
   const past = rituals.filter((r) => r.is_past).slice(-5).reverse().map((r) => `<div class="ritual"><span class="muted">${esc(fmtDT(r.scheduled_at))}</span> ${esc(r.title)} ${r.replay_url ? `<a class="text-link" href="${esc(r.replay_url)}" target="_blank" rel="noopener">다시 보기</a>` : ""}</div>`).join("");
@@ -665,7 +721,7 @@ async function renderRitual() {
     <div class="page-heading"><span class="eyebrow">원격 추도식</span><h1>추도식 일정과 생중계</h1><p class="muted">법회·추모식은 누구나, 제례는 참여를 신청한 가족만 생중계를 봅니다. 생중계는 봉행 30분 전부터 열리고, 화면에서 현장에 한마디를 남기거나 합장·헌화 마음을 보낼 수 있습니다.</p></div>
     <div class="card"><h2>다가오는 일정</h2>${items}</div>
     ${past ? `<div class="card"><h3>지난 일정</h3>${past}</div>` : ""}
-    <div class="card"><h3>내 공양·헌화 신청</h3>${myOff}<button class="secondary" style="margin-top:10px" id="offerAny">공양·헌화·기도 신청하기</button></div>`;
+    <div class="card"><h3>내 공양·헌화 신청</h3>${myOff}<button class="secondary" style="margin-top:10px" id="offerAny">추모 서비스 보기 (헌화·선물·상차림)</button></div>`;
   view.querySelectorAll("[data-live]").forEach((b) => b.onclick = () => openRitualLive(rituals.find((r) => r.id === +b.dataset.live)));
   view.querySelectorAll("[data-join]").forEach((b) => b.onclick = () => {
     const r = rituals.find((x) => x.id === +b.dataset.join);
@@ -693,8 +749,10 @@ async function renderRitual() {
       catch (e) { b.disabled = false; b.textContent = "신청하기"; toast(`신청을 저장하지 못했습니다. ${e.message}`, 5000); }
     };
   };
-  view.querySelectorAll("[data-offer]").forEach((b) => b.onclick = () => openOffer(+b.dataset.offer));
-  $("#offerAny").onclick = () => openOffer(null);
+  // 유료 추모 서비스 화면으로(의례별 단추는 상차림 분류 + 그 의례를 미리 골라 둔다). 옛 신청 창(openOffer)은 남겨 둔다.
+  view.querySelectorAll("[data-offer]").forEach((b) => b.onclick = () => { state.shopPreset = { category: "table", ritual_id: +b.dataset.offer }; go("shop"); });
+  $("#offerAny").onclick = () => go("shop");
+  void openOffer;
 }
 
 // 틱톡 라이브처럼: 전체 화면 영상 + 지금 봉행 중인 고인 정보 + 가족 메시지가 아래에서 올라오고 + 합장·촛불·헌화 반응이 떠오른다.
@@ -747,6 +805,9 @@ function openRitualLive(r) {
 }
 
 // ---------------- 5. 가족 초대·설정(작별 포함) ----------------
+function lookChoices(key) {
+  return `<div class="look-choices" role="group">${LOOK_OPTIONS[key].map(([v, name, sub]) => `<button type="button" class="choice" data-look="${key}" data-value="${v}" aria-pressed="false"><b>${name}</b><small>${sub}</small></button>`).join("")}</div>`;
+}
 async function renderSettings() {
   const me = state.me; let members, history;
   try { [members, history] = await Promise.all([api("/api/family/members"), api("/api/family/chat/history")]); } catch (e) { failCard("설정을", e, "settings"); return; }
@@ -755,11 +816,15 @@ async function renderSettings() {
   const cur = currentTheme();
   view.innerHTML = `
     <div class="page-heading settings-heading"><span class="eyebrow">설정</span><h1>마음에 맞게, 편안하게</h1><p class="muted">추모 공간의 모습과 가족, 알림을 정합니다.</p></div>
-    <div class="card theme-settings"><h2>추모 공간 꾸미기</h2><p class="muted" style="margin-top:0">종교에 맞는 상징과 색을 고른 뒤 적용해 주세요. 바탕과 글꼴은 같고 상징과 강조색만 바뀝니다. ${canManage ? "가족 모두의 화면에 함께 적용됩니다." : "이 기기에서만 바뀝니다."}</p>
-      <div class="theme-grid">${THEMES.map(([id, name, desc]) => `<button class="tile ${cur === id ? "active" : ""}" data-theme="${id}" aria-pressed="${cur === id}"><span class="theme-thumb" aria-hidden="true"></span><span class="sw" aria-hidden="true"></span><span>${name}<small>${desc}</small></span></button>`).join("")}</div>
-      <div class="theme-preview" id="themePreview" data-preview-theme="${cur}" aria-label="테마 미리보기"><span class="preview-symbol" aria-hidden="true"></span><span class="serif">소중한 기억이 머무는 곳</span><small id="themePreviewName">${THEMES.find(t => t[0] === cur)?.[1] || "전통"} 테마 미리보기</small><span class="preview-fonts" id="themePreviewFonts">${THEME_FONTS[cur] || THEME_FONTS.classic}</span></div>
-      <p class="muted" id="themeStatus" role="status">현재 ${THEMES.find(t => t[0] === cur)?.[1] || "전통"} 테마가 적용되어 있습니다.</p>
-      <button id="applyThemeBtn" disabled>적용 중인 테마</button>
+    <div class="card theme-settings"><h2>추모 공간 꾸미기</h2><p class="muted" style="margin-top:0">고르는 대로 이 화면 전체에 미리 보입니다. 마음에 들면 아래 <b>적용하기</b>를 눌러 주세요. ${canManage ? "상징·색·문양·바탕·글꼴은 가족 모두의 화면에 함께 적용됩니다." : "이 기기에서만 바뀝니다."} 글자 크기는 언제나 이 기기에만 적용됩니다.</p>
+      <section class="look-group" aria-labelledby="lookTheme"><h3 id="lookTheme"><span class="look-no">1</span>종교 상징</h3>
+        <div class="theme-grid">${THEMES.map(([id, name, desc]) => `<button class="tile ${cur === id ? "active" : ""}" type="button" data-theme="${id}" aria-pressed="${cur === id}"><span class="theme-thumb" aria-hidden="true"></span><span class="sw" aria-hidden="true"></span><span>${name}<small>${desc}</small></span></button>`).join("")}</div></section>
+      <section class="look-group" aria-labelledby="lookAccent"><h3 id="lookAccent"><span class="look-no">2</span>강조색 <small class="muted">단추·제목 선·상징의 색</small></h3><div class="swatches" id="accentRow" role="group" aria-labelledby="lookAccent"></div></section>
+      <section class="look-group" aria-labelledby="lookPattern"><h3 id="lookPattern"><span class="look-no">3</span>배경 문양 <small class="muted" id="patternName"></small></h3>${lookChoices("pattern")}</section>
+      <section class="look-group" aria-labelledby="lookTone"><h3 id="lookTone"><span class="look-no">4</span>바탕 빛</h3>${lookChoices("tone")}</section>
+      <section class="look-group" aria-labelledby="lookFont"><h3 id="lookFont"><span class="look-no">5</span>제목 글꼴</h3>${lookChoices("font")}</section>
+      <section class="look-group" aria-labelledby="lookSize"><h3 id="lookSize"><span class="look-no">6</span>글자 크기 <small class="muted">이 기기만</small></h3>${lookChoices("size")}</section>
+      <div class="look-actions"><p class="muted" id="themeStatus" role="status">지금 모습이 적용되어 있습니다.</p><div class="row"><button class="secondary" type="button" id="resetLookBtn" disabled>되돌리기</button><button type="button" id="applyThemeBtn" disabled>적용 중</button></div></div>
       <div class="row between motion-row" style="margin-top:12px"><span class="muted">화면 움직임(첫 화면·촛불·후광 장면)</span><button class="small ${motionReduced() ? "ghost" : "secondary"}" id="motionBtn" aria-pressed="${motionReduced()}">${motionReduced() ? "정지 화면 · 누르면 움직입니다" : window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "느리게 움직임(기기 설정) · 누르면 멈춥니다" : "움직임 켬 · 누르면 정지 화면"}</button></div></div>
     <div class="card"><h2>가족</h2>
       ${members.map((m) => `<div class="list-item"><div><b>${esc(m.name)}</b> <span class="muted">${esc(m.relation)}</span>${m.is_minor ? '<span class="pill">미성년</span>' : ""}</div><span class="pill">${roleName[m.role]}</span></div>`).join("")}
@@ -772,47 +837,51 @@ async function renderSettings() {
     <div class="card"><h3>내 정보</h3><p>${esc(me.member.name)} · ${esc(me.member.relation)} · ${roleName[me.member.role]}</p><p class="muted">계약자 ${esc(me.contract.holder_name)} · 봉안함 ${esc(me.niche?.code || "-")} · ${me.contract.plan === "premium" ? "프리미엄" : "기본"}</p>
       <button class="secondary small" id="logout">이 기기에서 나가기</button></div>`;
   $("#motionBtn").onclick = () => { localStorage.setItem("motion", motionReduced() ? "" : "reduce"); applyMotion(); go("settings"); };
-  let selectedTheme = cur, savedTheme = cur, savingTheme = false;
+  // 고른 값(sel)은 화면 전체에 바로 미리 보이고, 적용하기를 눌러야 저장된다(saved). 다른 화면으로 가면 저장된 모습으로 돌아간다(go).
+  const saved = { theme: cur, ...currentStyle(), size: textSize() };
+  let sel = { ...saved }, savingTheme = false;
   const themeTiles = [...view.querySelectorAll(".tile")];
-  const applyButton = $("#applyThemeBtn"), themeStatus = $("#themeStatus"), preview = $("#themePreview");
-  const themeName = (id) => THEMES.find(t => t[0] === id)?.[1] || "전통";
-  themeTiles.forEach((tile) => tile.onclick = () => {
-    if (savingTheme) return;
-    selectedTheme = tile.dataset.theme;
-    themeTiles.forEach((item) => {
-      item.classList.toggle("active", item === tile);
-      item.setAttribute("aria-pressed", String(item === tile));
-    });
-    preview.dataset.previewTheme = selectedTheme;
-    $("#themePreviewFonts").textContent = THEME_FONTS[selectedTheme];
-    $("#themePreviewName").textContent = `${themeName(selectedTheme)} 테마 미리보기`;
-    applyButton.disabled = selectedTheme === savedTheme;
-    applyButton.textContent = selectedTheme === savedTheme ? "적용 중인 테마" : `${themeName(selectedTheme)} 테마 적용하기`;
-    themeStatus.textContent = selectedTheme === savedTheme ? `현재 ${themeName(savedTheme)} 테마가 적용되어 있습니다.` : "미리보기입니다. 적용하기를 누르면 저장됩니다.";
-  });
+  const applyButton = $("#applyThemeBtn"), resetButton = $("#resetLookBtn"), themeStatus = $("#themeStatus");
+  const themeName = (id) => THEMES.find(t => t[0] === id)?.[1] || "일반";
+  const same = () => ["theme", "accent", "pattern", "tone", "font", "size"].every((k) => sel[k] === saved[k]);
+  function paint() {
+    applyLook(sel.theme, sel, sel.size);
+    themeTiles.forEach((t) => { const on = t.dataset.theme === sel.theme; t.classList.toggle("active", on); t.setAttribute("aria-pressed", String(on)); });
+    $("#accentRow").innerHTML = (ACCENTS[sel.theme] || ACCENTS.classic).map(([hex, name], i) => `<button type="button" class="swatch ${sel.accent === String(i + 1) ? "active" : ""}" data-accent="${i + 1}" aria-pressed="${sel.accent === String(i + 1)}" style="--sw:${hex}"><span class="dot" aria-hidden="true"></span>${name}</button>`).join("");
+    $("#accentRow").querySelectorAll("[data-accent]").forEach((b) => b.onclick = () => { if (!savingTheme) { sel.accent = b.dataset.accent; paint(); } });
+    view.querySelectorAll("[data-look]").forEach((b) => { const on = sel[b.dataset.look] === b.dataset.value; b.classList.toggle("active", on); b.setAttribute("aria-pressed", String(on)); });
+    $("#patternName").textContent = `${themeName(sel.theme)}: ${PATTERN_NAME[sel.theme] || ""}`;
+    const dirty = !same();
+    view.querySelector(".look-actions").classList.toggle("dirty", dirty);
+    applyButton.disabled = !dirty || savingTheme; resetButton.disabled = !dirty || savingTheme;
+    applyButton.textContent = dirty ? "적용하기" : "적용 중";
+    themeStatus.textContent = dirty ? "미리 보는 중입니다. 적용하기를 눌러야 저장됩니다." : "지금 모습이 적용되어 있습니다.";
+  }
+  themeTiles.forEach((tile) => tile.onclick = () => { if (!savingTheme) { sel.theme = tile.dataset.theme; paint(); } });
+  view.querySelectorAll("[data-look]").forEach((b) => b.onclick = () => { if (!savingTheme) { sel[b.dataset.look] = b.dataset.value; paint(); } });
+  resetButton.onclick = () => { sel = { ...saved }; paint(); };
   applyButton.onclick = async () => {
-    if (savingTheme || selectedTheme === savedTheme) return;
-    savingTheme = true; applyButton.disabled = true;
-    themeTiles.forEach(tile => tile.disabled = true);
-    applyButton.textContent = "적용하는 중…";
+    if (savingTheme || same()) return;
+    savingTheme = true; paint(); applyButton.textContent = "적용하는 중…";
+    const style = { accent: sel.accent, pattern: sel.pattern, tone: sel.tone, font: sel.font };
     try {
       if (canManage) {
-        if (!me.deceased[0]) throw new Error("고인 등록 후 테마를 적용할 수 있습니다.");
-        await api("/api/family/theme", { method: "POST", body: { deceased_id: me.deceased[0].id, theme: selectedTheme } });
-        me.deceased[0].theme = selectedTheme;
-        localStorage.removeItem("theme_local");
-      } else { localStorage.setItem("theme_local", selectedTheme); }
-      savedTheme = selectedTheme; applyTheme(savedTheme);
-      themeStatus.textContent = `${themeName(savedTheme)} 테마를 ${canManage ? "가족의 추모 공간에" : "이 기기에"} 적용했습니다.`;
-      applyButton.textContent = "적용 완료";
+        if (!me.deceased[0]) throw new Error("고인 등록 후 꾸밀 수 있습니다.");
+        const r = await api("/api/family/theme", { method: "POST", body: { deceased_id: me.deceased[0].id, theme: sel.theme, style } });
+        me.deceased[0].theme = sel.theme; me.deceased[0].theme_style = r.style || style;
+        localStorage.removeItem("theme_local"); localStorage.removeItem("style_local");
+      } else { localStorage.setItem("theme_local", sel.theme); localStorage.setItem("style_local", JSON.stringify(style)); }
+      localStorage.setItem("text_size", sel.size);
+      Object.assign(saved, sel);
+      savingTheme = false; paint();
+      themeStatus.textContent = `${themeName(sel.theme)} 테마와 세부 모습을 ${canManage ? "가족의 추모 공간에" : "이 기기에"} 적용했습니다.`;
       toast(themeStatus.textContent);
     } catch (e) {
-      themeStatus.textContent = `테마를 적용하지 못했습니다. ${e.message}`;
-      applyButton.disabled = false; applyButton.textContent = "다시 적용하기";
-    } finally {
-      savingTheme = false; themeTiles.forEach(tile => tile.disabled = false);
+      savingTheme = false; paint();
+      themeStatus.textContent = `적용하지 못했습니다. ${e.message}`;
     }
   };
+  paint();
   $("#logout").onclick = () => {
     const m = modal(`<h2>이 기기에서 나갈까요?</h2><p>나가면 이 기기에서는 초대 링크를 다시 눌러야 들어올 수 있습니다. 가족 기록은 지워지지 않습니다.</p><div class="modal-actions"><button class="secondary" type="button" data-cancel>머무르기</button><button type="button" data-ok>나가기</button></div>`);
     $("[data-cancel]", m).onclick = () => m.querySelector(".modal-close").click();

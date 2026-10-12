@@ -21,7 +21,7 @@ const toast = (m) => { let el = $(".toast"); if (!el) { el = document.createElem
 const modal = (html) => { const bg = document.createElement("div"); bg.className = "modal-bg"; bg.style.alignItems = "center"; bg.innerHTML = `<div class="modal" style="border-radius:16px;max-width:720px">${html}</div>`; bg.addEventListener("click", (e) => e.target === bg && bg.remove()); document.body.appendChild(bg); return bg; };
 
 let booted = false;
-const PAGES = ["overview", "tasks", "calib", "contracts", "deceased", "rituals", "usage", "aisettings"];
+const PAGES = ["overview", "tasks", "calib", "contracts", "deceased", "rituals", "orders", "usage", "aisettings"];
 async function boot() {
   // 키가 없어도 먼저 시도한다: 이 브라우저에 관리자 쿠키(ma)가 남아 있으면 키를 다시 묻지 않는다.
   try { await api("/api/admin/overview"); }
@@ -62,7 +62,7 @@ function go(p, push = true) {
   document.querySelector(`aside button[data-page="${p}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   page.innerHTML = '<p class="muted" role="status">화면을 불러오는 중입니다…</p>';
   window.scrollTo(0, 0);
-  Promise.resolve(({ overview, tasks, calib, contracts, deceased, rituals, usage, aisettings })[p]()).catch((e) => {
+  Promise.resolve(({ overview, tasks, calib, contracts, deceased, rituals, orders, usage, aisettings })[p]()).catch((e) => {
     page.innerHTML = `<div class="card" role="alert"><h2>화면을 불러오지 못했습니다</h2><p>${esc(e.message)}</p><p class="muted">서버 연결을 확인한 뒤 다시 불러와 주세요.</p><button class="small secondary" id="pageRetry">다시 불러오기</button></div>`;
     $("#pageRetry").onclick = () => go(p, false);
   });
@@ -433,6 +433,49 @@ async function usage() {
     <div class="card"><h3>실시간 보기</h3><table><tr><th>시작</th><th>가족</th><th>봉안함</th><th>종료</th></tr>${u.live_sessions.map((l) => `<tr><td>${fmt(l.started_at)}</td><td>${esc(l.member_name)}</td><td>${esc(l.code)}</td><td>${fmt(l.expires_at)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">아직 실시간 보기 기록이 없습니다.</td></tr>'}</table></div>
     <div class="card"><h3>접근 기록(관리자 열람 포함)</h3><table>${u.audit.map((a) => `<tr><td class="muted">${fmt(a.created_at)}</td><td>${esc(a.actor)}</td><td>${esc(a.action)}</td><td>${esc(a.target)}</td><td class="muted">${esc(a.detail)}</td></tr>`).join("")}</table></div>`;
   page.querySelectorAll("[data-status]").forEach((s) => s.onchange = async () => { await api(`/api/admin/offerings/${s.dataset.status}/status`, { method: "POST", body: { status: s.value } }); toast("상태를 바꿨습니다."); });
+}
+
+// ---------------- 추모 서비스(유료) 주문: 헌화·선물·상차림·기도 (2026-10-12, 시연 결제) ----------------
+async function orders(filter = "") {
+  const r = await api(`/api/admin/orders${filter ? `?status=${filter}` : ""}`);
+  const won = (n) => `${Number(n || 0).toLocaleString("ko-KR")}원`;
+  const s = r.summary || {};
+  const tabs = [["", "전체"], ["paid", "접수 대기"], ["preparing", "준비 중"], ["done", "완료"], ["refunded", "취소·환불"]];
+  page.innerHTML = `<h1>유료 서비스 주문</h1><p class="muted">가족이 주문한 봉안함 헌화·선물·제사 상차림·기도입니다. 결제는 시연 결제라 실제 청구가 없습니다. 준비를 시작하면 ‘준비 중’, 끝나면 완료 사진을 올려 주세요(가족 화면에 사진이 보이고, 헌화는 온라인 추모 제단에도 흰 국화가 놓입니다).</p>
+    <div class="kpi" style="margin:14px 0"><div class="card"><div class="muted">접수 대기</div><div class="n">${s.waiting || 0}</div></div><div class="card"><div class="muted">준비 중</div><div class="n">${s.preparing || 0}</div></div><div class="card"><div class="muted">완료</div><div class="n">${s.done || 0}</div></div><div class="card"><div class="muted">시연 매출(취소 제외)</div><div class="n" style="font-size:22px">${won(s.sales)}</div></div></div>
+    <div class="toolbar">${tabs.map(([k, v]) => `<button type="button" class="small ${k === filter ? "" : "secondary"}" data-filter="${k}">${v}</button>`).join("")}</div>
+    <div class="card"><table><tr><th>주문</th><th>가족 · 고인</th><th>서비스</th><th>일정</th><th>금액</th><th>전할 말 · 요청</th><th>상태 · 처리</th></tr>
+      ${r.items.map((o) => `<tr><td>${fmt(o.created_at)}<div class="muted mono">${esc(o.receipt)}</div></td>
+        <td>${esc(o.member_name)}${o.gift_to_name ? ` → <b>${esc(o.gift_to_name)}</b> <span class="tag">선물</span>` : ""}<div class="muted">${esc(o.holder_name)} 계약 · ${esc(o.deceased_name)} 님</div></td>
+        <td><b>${esc(o.service_name)}</b><div class="muted">${esc(o.category_name)} · ${o.qty}${esc(o.unit)} · ${esc(o.pay_method_name)}</div></td>
+        <td>${o.ritual_title ? `${esc(o.ritual_title)}<div class="muted">${fmt(o.ritual_at)}</div>` : esc(o.deliver_on || "가까운 날")}</td>
+        <td>${won(o.total)}</td>
+        <td>${o.card_message ? `<div>“${esc(o.card_message)}”</div>` : ""}<div class="muted" style="white-space:pre-wrap">${esc(o.note)}</div></td>
+        <td><span class="tag ${o.status === "done" ? "on" : o.status === "paid" ? "busy" : ["refunded", "cancelled"].includes(o.status) ? "off" : ""}">${esc(o.status_name)}</span>
+          ${["paid", "preparing"].includes(o.status) ? `<div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${o.status === "paid" ? `<button class="small secondary" data-st="${o.id}" data-v="preparing">준비 시작</button>` : ""}
+            <label class="btn small secondary" style="cursor:pointer">완료 사진 올리기<input type="file" accept="image/jpeg,image/png,image/webp" data-photo="${o.id}" hidden></label>
+            <button class="small ghost" data-st="${o.id}" data-v="done">사진 없이 완료</button><button class="small ghost" data-st="${o.id}" data-v="cancelled">취소</button></div>` : ""}
+          ${o.has_photo ? `<a class="muted" href="/api/admin/orders/${o.id}/photo.jpg" target="_blank" rel="noopener">완료 사진 보기</a>` : ""}${o.staff_note ? `<div class="muted">메모: ${esc(o.staff_note)}</div>` : ""}</td></tr>`).join("") || '<tr><td colspan="7" class="muted">아직 들어온 주문이 없습니다. 가족 화면 → 추모 서비스에서 시연 주문을 해 보세요.</td></tr>'}</table></div>`;
+  page.querySelectorAll("[data-filter]").forEach((b) => b.onclick = () => orders(b.dataset.filter));
+  page.querySelectorAll("[data-st]").forEach((b) => b.onclick = async () => {
+    const v = b.dataset.v;
+    if (v === "cancelled" && !sure("이 주문을 취소합니다(시연이라 실제 환불은 없습니다).")) return;
+    let note = "";
+    if (v === "done" || v === "preparing") {
+      note = await new Promise((done) => {
+        const m = modal(`<h2>${v === "done" ? "완료로 바꾸기" : "준비 시작"}</h2><label for="stNote">가족에게 보일 메모 <span class="muted">(선택, 300자)</span></label><textarea id="stNote" maxlength="300" style="width:100%;min-height:80px" placeholder="예: 오늘 오전 봉안함 앞에 올렸습니다."></textarea><div class="row" style="gap:8px;margin-top:12px;justify-content:flex-end"><button class="small secondary" data-x>그만두기</button><button class="small" data-y>바꾸기</button></div>`);
+        m.querySelector("[data-x]").onclick = () => { m.remove(); done(null); };
+        m.querySelector("[data-y]").onclick = () => { const t = m.querySelector("#stNote").value.trim(); m.remove(); done(t); };
+      });
+      if (note === null) return;
+    }
+    try { await api(`/api/admin/orders/${b.dataset.st}/status`, { method: "POST", body: { status: v, staff_note: note } }); toast("주문 상태를 바꿨습니다."); orders(filter); } catch (e) { toast(e.message); }
+  });
+  page.querySelectorAll("[data-photo]").forEach((inp) => inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    const fd = new FormData(); fd.append("file", f);
+    try { await api(`/api/admin/orders/${inp.dataset.photo}/photo`, { method: "POST", body: fd }); toast("완료 사진을 올리고 주문을 완료로 바꿨습니다."); orders(filter); } catch (e) { toast(e.message); }
+  });
 }
 
 // ---------------- AI 설정 (API 키) ----------------
