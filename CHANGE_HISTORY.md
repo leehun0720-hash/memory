@@ -3,6 +3,15 @@
 이 문서는 사용자의 요청으로 프로젝트 루트에 저장합니다. 다음 작업을 시작할 때 이 문서와 `docs/ALIMTALK.md`를 먼저 읽고, 실제 코드와 Git 상태를 확인해 주세요. 자격 증명이나 초대 토큰은 이 문서에 적지 않습니다.
 
 
+## 2026-10-12 — 시연 카메라 · 몽환적 실사 Lottie · 디자인 개편 (브랜치 `design/memorial-brand`)
+
+- **시연 카메라**(`server/demo_camera.py`): 현장 웹캠이 없으면 윤회당 봉안실·법당 사진으로 ‘시연 화면’을 만들어 원격 참배 사진·실시간 보기·제사 생중계를 시연. 관리자 현황에서 자동·항상·끔. 시연 카메라가 도는 카메라의 의례는 시연 모드처럼 중계 창이 열림. 표시는 화면 오른쪽 위 ‘시연 화면 · 시각’ + 유족 앱 ‘시연 화면’.
+- **바로가기 주소**: `/?t=…#ritual`, `/admin?key=…#aisettings` 처럼 탭 지정이 이제 유지됨(토큰·키만 주소에서 지움).
+- **움직임 교체**: `css/app.css` 의 @keyframes 21종과 사용처, `js/brand.js`, `lottie/candle-light.json`·`lotus-family.json`, 정적 대체 그림 2장, `scripts/make_memorial_lottie.py` 삭제. 새 생성기 `scripts/make_dream_lottie.py` → `static/lottie/dream/`(장면 11개 + webp 18장, 약 1.9MB), 재생기 `js/dream.js`, 자리·빛 `css/dream.css`. 자세한 장면 구성은 README ‘화면 디자인’.
+- **디자인**: 첫 화면을 장면이 판 전체를 채우는 먹색 그늘 위 글로, 참배 액자를 먹색으로, 대화를 밤의 성소 판(금빛 아치)으로, 바탕에 새벽빛 번짐. 브랜드 기준(먹·한지·명조·알약 버튼·위쪽 진한 선)은 유지.
+- **시연 고인 사진**: 김옥순 님 = 인공지능 생성 가상 인물 초상(`static/images/demo/portrait-fictional.jpg`, 그림 안에 표시). 기존 데이터의 ‘사진 자리’ 그림만 서버 시작 때 교체(`seed.refresh_demo_photos`).
+- **테스트**: 시연 카메라, 장면 파일·키프레임 제거, 사진 교체 검사 추가 → 49개 통과. 윈도우에서 사진 파일을 읽는 중 바꿔 끼우기가 실패하던 경합을 고침(임시 파일 이름 분리 + 재시도).
+
 ## 2026-10-11 — 기억과 돌봄 브랜드 디자인 적용 (브랜치 `design/memorial-brand`)
 
 `runiq-memory-suite/BRAND-GUIDE.md`에 맞춰 가족 화면·관리자 콘솔·현장 화면의 색·글꼴·모양·문구를 바꿨습니다. 기능·API·권한·저장 방식은 바꾸지 않았습니다.

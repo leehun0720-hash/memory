@@ -1,6 +1,6 @@
 // 관리자 콘솔. ?key=관리자키 로 열면 키를 기억한다.
 const qs = new URLSearchParams(location.search);
-if (qs.get("key")) { sessionStorage.setItem("admin_key", qs.get("key")); history.replaceState(null, "", location.pathname); }
+if (qs.get("key")) { sessionStorage.setItem("admin_key", qs.get("key")); history.replaceState(null, "", location.pathname + location.hash); }   // 키만 지우고 #페이지 지정은 남긴다
 let KEY = sessionStorage.getItem("admin_key") || "";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -62,8 +62,11 @@ async function overview() {
       </div>
       <div class="card"><h3>카메라</h3><table><tr><th>이름</th><th>종류</th><th>장치</th><th>봉안 자리 수</th><th>상태</th><th>참배객</th><th>초당 장면</th><th>마지막 신호</th></tr>
         ${o.cameras.map((cm) => `<tr><td>${esc(cm.name)}<div class="muted">${esc(cm.room_name)}</div></td><td>${cm.kind === "wall" ? "벽면" : "제례"}</td><td>#${cm.device_index}</td><td>${cm.niche_count}</td>
-          <td>${cm.online ? '<span class="tag on">연결됨</span>' : '<span class="tag off">끊김</span>'}</td><td>${cm.occupied ? `<span class="tag busy">사람 ${cm.persons}명 · 송출 중단</span>` : '<span class="tag">없음</span>'}</td><td>${cm.fps}${cm.blurry ? `<div class="tag off" title="윈도우 설정 → Bluetooth 및 장치 → 카메라 → 이 카메라 → Windows 스튜디오 효과 → 배경 효과 끄기">영상 흐림 의심 (선명도 ${cm.sharpness}) → 윈도우 카메라 배경 효과 끄기</div>` : (cm.sharpness >= 0 ? `<div class="muted" style="font-size:11px">선명도 ${cm.sharpness}</div>` : "")}</td><td class="muted">${fmt(cm.last_seen_at)}</td></tr>`).join("")}</table>
+          <td>${cm.online ? (cm.demo ? '<span class="tag on" title="현장 웹캠 대신 서버가 윤회당 사진으로 만든 화면">시연 화면</span>' : '<span class="tag on">연결됨</span>') : '<span class="tag off">끊김</span>'}</td><td>${cm.occupied ? `<span class="tag busy">사람 ${cm.persons}명 · 송출 중단</span>` : '<span class="tag">없음</span>'}</td><td>${cm.fps}${cm.blurry ? `<div class="tag off" title="윈도우 설정 → Bluetooth 및 장치 → 카메라 → 이 카메라 → Windows 스튜디오 효과 → 배경 효과 끄기">영상 흐림 의심 (선명도 ${cm.sharpness}) → 윈도우 카메라 배경 효과 끄기</div>` : (cm.sharpness >= 0 ? `<div class="muted" style="font-size:11px">선명도 ${cm.sharpness}</div>` : "")}</td><td class="muted">${fmt(cm.last_seen_at)}</td></tr>`).join("")}</table>
         <p class="muted" style="margin-top:8px">현장 프로그램이 꺼져 있으면 <span class="mono">python -m edge.agent</span> 로 실행하세요.</p></div>
+      <div class="card"><h3>시연 카메라 <span class="muted">(현장 웹캠 없이 원격 참배·생중계를 보여 줄 때)</span></h3>
+        <div class="toolbar" role="group" aria-label="시연 카메라">${[["auto", "자동 (웹캠이 없을 때만)"], ["on", "항상 시연 화면"], ["off", "끔"]].map(([k, label]) => `<button class="small ${o.demo_camera === k ? "" : "secondary"}" data-demo-cam="${k}" aria-pressed="${o.demo_camera === k}">${label}</button>`).join("")}</div>
+        <p class="muted" style="font-size:13px">현장 웹캠(현장 프로그램)이 연결되지 않으면 서버가 윤회당 봉안실·법당 사진으로 '시연 화면'을 만들어 사진 갱신, 실시간 보기, 제사 생중계를 그대로 시연합니다. 화면과 유족 앱에 <b>시연 화면</b>이라고 표시되며 실제 현장 중계가 아닙니다. 실제 웹캠이 연결되면 '자동'에서는 웹캠 화면이 우선합니다.</p></div>
       <div class="card"><h3>시연 모드 <span class="muted">(노트북 시연용 · 실제 운용 전에 반드시 운용 모드로)</span></h3>
         <div class="toolbar"><button class="small ${o.live_protect ? "" : "danger"}" id="liveProtect">참배객 감지: ${o.live_protect ? "켬 (운용)" : "끔 (시연)"}</button>
           <button class="small ${o.blur_outside ? "" : "danger"}" id="blurToggle">옆 자리 가리기: ${o.blur_outside ? "켬 (운용)" : "끔 (시연·전체 화면 선명)"}</button>
@@ -73,6 +76,7 @@ async function overview() {
         <div class="toolbar"><button class="small" id="chkAll">지금 점검</button><span class="muted">Claude 키·크레딧, ElevenLabs 키·권한 3개를 한 번에 확인합니다.</span></div>
         <div id="chkOut" class="stack" style="font-size:14px"></div></div>`;
     $("#chkAll").onclick = runAllChecks;
+    page.querySelectorAll("[data-demo-cam]").forEach((b) => b.onclick = async () => { try { await api("/api/admin/settings/demo-camera", { method: "PUT", body: { mode: b.dataset.demoCam } }); toast(`시연 카메라: ${b.textContent}`); render(); } catch (e) { toast(e.message); } });
     const setLive = async (protect, blur, msg) => { try { await api("/api/admin/settings/live", { method: "PUT", body: { protect, blur } }); toast(msg); render(); } catch (e) { toast(e.message); } };
     $("#liveProtect").onclick = () => setLive(!o.live_protect, o.blur_outside, o.live_protect ? "참배객 감지를 껐습니다(시연)." : "참배객 감지를 켰습니다(운용).");
     $("#blurToggle").onclick = () => setLive(o.live_protect, !o.blur_outside, o.blur_outside ? "옆 자리 가리기를 껐습니다(시연·전체 화면 선명). 현장 프로그램에 1초 안에 반영됩니다." : "옆 자리 가리기를 켰습니다(운용).");

@@ -1,6 +1,8 @@
 """시연 데이터. `python -m server.seed` 로 실행. 이미 데이터가 있으면 건드리지 않는다(--reset 으로 초기화)."""
 import hashlib
+import shutil
 import sys
+from pathlib import Path
 from datetime import datetime, timedelta
 
 from PIL import Image, ImageDraw
@@ -46,6 +48,35 @@ def _portrait(path, initials: str, color: tuple[int, int, int]) -> None:
     img.save(path, quality=90)
 
 
+# 시연 고인(김옥순) 사진: 인공지능 생성 가상 인물 초상(그림 안에 '인공지능 생성 가상 인물' 표시). scripts/make_dream_lottie.py 가 만든다.
+DEMO_PORTRAIT = Path(__file__).parent / "static" / "images" / "demo" / "portrait-fictional.jpg"
+
+
+def _is_placeholder(path: Path) -> bool:
+    """_portrait() 로 그린 '사진 자리' 그림인지(한지색 600×600, 가운데 비어 있음)."""
+    try:
+        with Image.open(path) as im:
+            if im.size != (600, 600):
+                return False
+            px = im.convert("RGB")
+            return all(sum(abs(a - b) for a, b in zip(px.getpixel(xy), (245, 241, 232))) < 24 for xy in ((8, 8), (300, 100), (592, 592)))
+    except OSError:
+        return False
+
+
+def refresh_demo_photos() -> int:
+    """이미 만든 시연 데이터의 김옥순 님 '사진 자리' 그림만 가상 인물 초상으로 바꾼다. 실제로 올린 사진은 건드리지 않는다."""
+    if not DEMO_PORTRAIT.exists():
+        return 0
+    n = 0
+    for d in db.rows("SELECT id, photo_path FROM deceased WHERE name='김옥순' AND photo_path LIKE 'photos/seed_%'"):
+        target = config.MEDIA_DIR / d["photo_path"]
+        if target.exists() and _is_placeholder(target):
+            shutil.copyfile(DEMO_PORTRAIT, target)
+            n += 1
+    return n
+
+
 def run(reset: bool = False, quiet: bool = False) -> None:
     if quiet:
         global print
@@ -89,7 +120,11 @@ def run(reset: bool = False, quiet: bool = False) -> None:
                        (cid, name, relation, role, tok, minor, db.now()))
         name, honorific, birth, death, card, ai = dec
         photo_rel = f"photos/seed_{cid}.jpg"
-        _portrait(config.MEDIA_DIR / photo_rel, photo_initials, color)
+        if name == "김옥순" and DEMO_PORTRAIT.exists():
+            (config.MEDIA_DIR / photo_rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(DEMO_PORTRAIT, config.MEDIA_DIR / photo_rel)
+        else:
+            _portrait(config.MEDIA_DIR / photo_rel, photo_initials, color)
         did = db.execute(
             """INSERT INTO deceased(contract_id, name, honorific, birth_date, death_date, photo_path, memory_card, ai_enabled, created_at)
                VALUES (?,?,?,?,?,?,?,?,?)""", (cid, name, honorific, birth, death, photo_rel, card, ai, db.now()))

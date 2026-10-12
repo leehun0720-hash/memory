@@ -13,8 +13,16 @@ def _demo_mode() -> bool:
     return db.get_setting("live_ignore_occupied") == "1"
 
 
+def _always_live(camera_id: int | None) -> bool:
+    """시연 모드이거나 그 카메라가 서버의 시연 카메라(현장 웹캠 없음)로 돌고 있으면, 카메라 일정의 중계 창을 날짜와 상관없이 연다."""
+    if camera_id is None:
+        return False
+    cam = state.camera(camera_id)
+    return _demo_mode() or (cam.online and cam.virtual)
+
+
 def _live_open(r: dict) -> bool:
-    return _in_window(r["scheduled_at"]) or (r.get("camera_id") is not None and _demo_mode())
+    return _in_window(r["scheduled_at"]) or _always_live(r.get("camera_id"))
 
 
 def _in_window(scheduled_at: str, before_min: int = 30, after_h: int = 3) -> bool:

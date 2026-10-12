@@ -26,13 +26,19 @@ async def lifespan(_: FastAPI):
         from . import seed
         seed.run(quiet=True)
         logging.getLogger(__name__).info("AUTO_SEED: 시연 데이터를 만들었습니다.")
+    from .seed import refresh_demo_photos
+    if refresh_demo_photos():
+        logging.getLogger(__name__).info("시연 고인 사진을 인공지능 생성 가상 인물 초상으로 바꿨습니다.")
     from .notifications import run
+    from .demo_camera import camera as demo_camera
+    demo_camera.start()   # 현장 웹캠이 없으면 서버가 시연 화면을 만들어 원격 참배·생중계를 시연한다
     stop = asyncio.Event()
     worker = asyncio.create_task(run(stop))
     try:
         yield
     finally:
         stop.set()
+        demo_camera.stop()
         await worker
 
 
@@ -47,7 +53,7 @@ app.include_router(community.router)
 def _page(name: str) -> HTMLResponse:
     """정적 HTML을 내보내되 js/css 주소에 수정 시각을 붙여 브라우저 캐시가 옛 파일을 쓰지 않게 한다."""
     html = (STATIC / name).read_text(encoding="utf-8")
-    for rel in ("css/app.css", "css/family.css", "css/community.css", "css/warm.css", "js/community.js", "js/app.js", "js/admin.js", "js/screen.js"):
+    for rel in ("css/app.css", "css/family.css", "css/community.css", "css/warm.css", "css/dream.css", "js/community.js", "js/app.js", "js/admin.js", "js/screen.js"):
         f = STATIC / rel
         if f.exists():
             html = html.replace(f"/static/{rel}", f"/static/{rel}?v={int(f.stat().st_mtime)}")

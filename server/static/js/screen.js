@@ -1,4 +1,5 @@
 // 현장 화면(/screen?ritual=ID&key=관리자키): 제례 공간 TV에 띄운다. 영상 + 지금 순서 + 봉행 순서 + 가족 메시지·반응.
+import { playReaction } from "./dream.js?v=20261012-3";
 const qs = new URLSearchParams(location.search);
 const KEY = qs.get("key") || sessionStorage.getItem("admin_key") || "";
 const RID = +qs.get("ritual");
@@ -11,7 +12,7 @@ let since = 0, rseq = -1, tts = false;
 const counts = {};
 $("#ttsBtn").onclick = () => { tts = !tts; $("#ttsBtn").textContent = `가족 메시지 읽어 주기 · ${tts ? "켜짐" : "꺼짐"}`; $("#ttsBtn").setAttribute("aria-pressed", String(tts)); if (tts) speak("가족 메시지를 읽어 드립니다."); };
 function speak(text) { try { const u = new SpeechSynthesisUtterance(text); u.lang = "ko-KR"; u.rate = 0.95; speechSynthesis.speak(u); } catch {} }
-function float(emoji) { const i = document.createElement("i"); i.textContent = emoji; i.style.left = (10 + Math.random() * 70) + "%"; i.style.setProperty("--dx", (Math.random() * 80 - 40) + "px"); $("#fx").appendChild(i); setTimeout(() => i.remove(), 2900); }
+function float(emoji) { playReaction($("#fx"), emoji); }   // 합장·촛불·헌화·마음 Lottie
 function addMsg(m) {
   const d = document.createElement("div"); d.className = `live-msg ${m.sender === "site" ? "site" : ""} ${m.kind === "notice" ? "notice" : ""}`;
   d.innerHTML = `<b>${esc(m.author)}</b> ${esc(m.message)}`; const box = $("#msgs"); box.appendChild(d); while (box.children.length > 7) box.firstChild.remove();

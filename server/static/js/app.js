@@ -1,9 +1,9 @@
 // 유족 웹앱. 초대 링크(/?t=토큰)로 열리며 설치가 필요 없다.
 import {createCommunity} from './community.js?v=20261011-brand';
-import {mountArt, destroyArt} from './brand.js?v=20261011';
+import {mountArt, destroyAll as destroyArt, mountScene, mountVoice, playReaction} from './dream.js?v=20261012-3';
 const qs = new URLSearchParams(location.search);
 const TOKEN = qs.get("t") || localStorage.getItem("family_token");
-if (qs.get("t")) { localStorage.setItem("family_token", qs.get("t")); history.replaceState(null, "", location.pathname); }
+if (qs.get("t")) { localStorage.setItem("family_token", qs.get("t")); history.replaceState(null, "", location.pathname + location.hash); }   // 토큰만 지우고 #탭 지정은 남긴다
 
 const $ = (s, el = document) => el.querySelector(s);
 const view = $("#view");
@@ -70,7 +70,8 @@ function applyTheme(t) {
   state.theme = t;
 }
 function currentTheme() { return (state.me?.member.role === "manage" ? null : localStorage.getItem("theme_local")) || state.me?.deceased?.[0]?.theme || "classic"; }
-function motionReduced() { return localStorage.getItem("motion") === "reduce" || window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+// '화면 움직임 줄이기'(앱 설정)는 정지 장면, 기기의 움직임 줄이기는 느린 반복 + 멈춤 단추(js/dream.js).
+function motionReduced() { return localStorage.getItem("motion") === "reduce"; }
 function applyMotion() { document.documentElement.dataset.motion = motionReduced() ? "reduce" : ""; }
 
 // ---------------- 종소리(범종 느낌, 외부 파일 없이 합성) ----------------
@@ -160,9 +161,8 @@ async function renderVisit() {
       <div class="row between" style="margin-bottom:10px"><h2 style="margin:0">${esc(d ? d.name + " 님" : "우리 가족")} <small class="muted niche-code">봉안함 ${esc(me.niche.code)}</small></h2></div>
       <div class="viewer" id="viewer">
         <div class="snapshot" id="snap"><div class="placeholder">사진을 불러오는 중…</div></div>
-        <div class="veil"><div class="pane l"></div><div class="pane r"></div></div>
-        <div class="candle l"></div><div class="candle r"></div><div class="smoke"></div>
-        <div class="title-card">${esc(d ? d.name + " 님을 뵙습니다" : "가족을 뵙습니다")}</div>
+        <div class="offering-layer" id="offering"></div>
+        <div class="title-card" id="titleCard" hidden>${esc(d ? d.name + " 님을 뵙습니다" : "가족을 뵙습니다")}</div>
       </div>
       <div class="status-line"><span id="camStatus" role="status"><span class="dot"></span>카메라 상태를 확인하는 중입니다…</span><span class="row" style="gap:8px"><span id="snapAt"></span><button class="chime-toggle ${chimeEnabled() ? "on" : ""}" id="chimeBtn">종소리 ${chimeEnabled() ? "켬" : "끔"}</button></span></div>
     </div>
@@ -175,7 +175,7 @@ async function renderVisit() {
   $("#toMemorial").onclick = () => go("memorial");
   $("#snap").onclick = () => { if (!live.on) go("memorial"); };   // 화면 속 봉안함을 누르면 추모 공간
   $("#chimeBtn").onclick = () => { localStorage.setItem("chime", chimeEnabled() ? "0" : "1"); const on = chimeEnabled(); $("#chimeBtn").classList.toggle("on", on); $("#chimeBtn").textContent = `종소리 ${on ? "켬" : "끔"}`; if (on) chime(); };
-  const live = { on: false, timer: null };
+  const live = { on: false, timer: null, scene: null, title: null };
   let firstShown = false;
 
   const snap = $("#snap"), viewer = $("#viewer");
@@ -186,6 +186,7 @@ async function renderVisit() {
       $("#camStatus").innerHTML = (s.camera_online
         ? (s.occupied && !demo ? `<span class="dot busy"></span>현장에 참배객이 계십니다` : `<span class="dot on"></span>카메라 연결됨`)
         : `<span class="dot"></span>현장 카메라가 꺼져 있습니다`) + (demo ? ' <span class="pill" title="참배객 감지를 꺼 둔 상태">시연 모드</span>' : "")
+        + (s.demo_camera ? ' <span class="pill demo-cam" title="현장 웹캠 대신 윤회당 봉안실 사진으로 만든 시연 화면입니다. 실제 현장 중계가 아닙니다.">시연 화면</span>' : "")
         + (s.blurry ? ' <span class="pill" style="color:var(--danger)" title="윈도우 설정 → 카메라 → Windows 스튜디오 효과 → 배경 효과 끄기">카메라 영상 흐림</span>' : "");
       $("#snapAt").textContent = s.last_snapshot_at ? `사진 ${ago(s.last_snapshot_at)}` : "사진 없음";
       if (live.on && s.occupied && !demo) endLive("현장에 참배객이 계셔서 사진 화면으로 바꿨습니다.");
@@ -199,7 +200,7 @@ async function renderVisit() {
   }
   function endLive(msg) {
     if (!live.on) return; live.on = false; clearInterval(live.timer);
-    viewer.classList.remove("live", "open", "curtain");
+    viewer.classList.remove("live"); live.scene?.destroy(); live.scene = null; clearTimeout(live.title); $("#titleCard").hidden = true;
     $("#liveBtn").disabled = false; $("#liveBtn").innerHTML = liveLabel;
     showSnapshot(); if (msg) toast(msg);
   }
@@ -209,17 +210,16 @@ async function renderVisit() {
     try {
       const r = await api("/api/family/live/start", { method: "POST" });
       live.on = true; let left = r.seconds;
-      // 극적 연출: 막이 내린 상태에서 종소리와 함께 막이 열리고, 영상이 안개 속에서 또렷해지며 촛불·향이 켜진다.
-      viewer.classList.remove("open", "live"); viewer.classList.add("curtain");
+      // 연출: 종소리와 함께 양쪽 촛불과 향 연기 장면(Lottie offering)이 영상 위에 밝아지고, 잠시 '○○ 님을 뵙습니다'를 보여 준다.
+      viewer.classList.add("live");
+      live.scene = mountScene($("#offering"), "offering", { label: "실시간 영상 양쪽에 촛불이 흔들리고 향 연기가 오르는 그림" });
+      $("#titleCard").hidden = false; live.title = setTimeout(() => { const t = $("#titleCard"); if (t) t.hidden = true; }, 4500);
       const img = new Image();
       img.onerror = () => endLive("실시간 영상이 끊겼습니다. 사진으로 보여 드립니다.");
       img.onload = () => { if (img.naturalWidth) snap.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`; };
       snap.innerHTML = ""; snap.classList.remove("reveal"); snap.classList.add("live"); snap.appendChild(img); snap.insertAdjacentHTML("beforeend", `<span class="badge live">실시간</span>`);
       img.src = withToken(`/api/family/live/stream?sid=${r.session_id}`);
       chime();
-      void viewer.offsetWidth;   // 막(display:none→block)의 초기 위치를 먼저 그리게 해서 열리는 전환이 실제로 보이게 한다
-      setTimeout(() => { if (live.on) viewer.classList.add("open", "live"); }, 500);
-      setTimeout(() => { if (live.on) viewer.classList.remove("curtain"); }, 4200);
       $("#liveBtn").disabled = true; $("#liveBtn").textContent = `실시간으로 뵙는 중입니다 · ${left}초 남음`;
       live.timer = every(() => { const b = $("#liveBtn"); if (!b) { clearInterval(live.timer); return; } left--; if (left <= 0) endLive("실시간 보기가 끝났습니다."); else b.textContent = `실시간으로 뵙는 중입니다 · ${left}초 남음`; }, 1000);
     } catch (e) { $("#liveBtn").disabled = false; $("#liveBtn").innerHTML = liveLabel; toast(`실시간 영상을 열지 못했습니다. ${e.message}`, 4500); }
@@ -447,16 +447,13 @@ function runChat(sess, d) {
     <div class="notice ai" role="note" style="text-align:center">인공지능이 만든 음성·영상입니다 · 실제 고인이 아닙니다</div>
     <div class="chat-wrap">
       <div class="shrine" id="stage">
-        <div class="shrine-halo"></div>
+        <div class="shrine-scene" id="shrineScene"></div>
         <div class="shrine-frame"><div class="shrine-inner">
-          <div class="backdrop"></div>
-          ${sess.photo_url ? `<img src="${withToken(sess.photo_url)}" alt="">` : `<div class="no-photo" aria-hidden="true">◯</div>`}
+          ${sess.photo_url ? `<img src="${withToken(sess.photo_url)}" alt="${esc(d.name)} 님의 사진">` : `<div class="no-photo" aria-hidden="true">◯</div>`}
           <video id="avatarVideo" autoplay playsinline></video>
-          <div class="rays"></div><div class="mist"></div>
         </div></div>
-        <div class="shrine-particles"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         <div class="shrine-caption"><span class="live-badge" id="liveBadge">인공지능 사진 아바타</span>
-          <div class="voice-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="voice-scene" id="voiceScene" aria-hidden="true"></div>
           <div class="voice-tag" id="voiceTag">${sess.voice_available ? "가족이 등록한 목소리로 만든 인공지능 음성" : "기본 인공지능 음성"}${sess.avatar_available ? " · 실시간 아바타 연결 중…" : ""}</div></div>
       </div>
       <div class="chat-head" style="margin:6px 0 4px">
@@ -478,8 +475,13 @@ function runChat(sess, d) {
   tick(); every(() => { if (!ended && left > 0) { left--; tick(); if (left === 60) add("sys", "1분 뒤에 인사하고 마칩니다."); } }, 1000);
 
   const stage = $("#stage");
+  mountScene($("#shrineScene"), "shrine", { label: "고인 사진 둘레에 후광과 안개, 빛망울이 머무는 그림", credit: false });
+  const voiceUI = mountVoice($("#voiceScene"));
+  // 말하기·듣기 상태(stage 의 speaking·listening 표시)를 음성 장면에 그대로 옮긴다
+  new MutationObserver(() => voiceUI.set(stage.classList.contains("listening") ? "listening" : stage.classList.contains("speaking") ? "speaking" : "idle"))
+    .observe(stage, { attributes: true, attributeFilter: ["class"] });
   const say = (text, onend) => speakAs(sess, text, () => { stage.classList.remove("speaking"); onend?.(); }, () => stage.classList.add("speaking"));
-  // 첫 인사는 초상이 안개 속에서 나타난 뒤에 시작한다(등장 연출과 겹치지 않게).
+  // 첫 인사는 후광 장면이 밝아진 뒤(약 3초)에 시작한다.
   const greet = () => setTimeout(() => { add("them", sess.greeting); say(sess.greeting); }, 2600);
   // 실시간 아바타(A등급): 연결되면 사진 대신 영상. 실패하면 조용히 사진 아바타로.
   if (sess.avatar_available) {
@@ -628,7 +630,7 @@ function openRitualLive(r) {
   video.onerror = () => setTimeout(() => { if (el.isConnected) video.src = src(); }, 3000);
   let since = 0, rseq = -1, ended = false;
   const addMsg = (m) => { const d = document.createElement("div"); d.className = `live-msg ${m.sender === "site" ? "site" : ""} ${m.kind === "notice" ? "notice" : ""}`; d.innerHTML = `<b>${esc(m.author)}</b>${esc(m.message)}`; msgs.appendChild(d); while (msgs.children.length > 8) msgs.firstChild.remove(); };
-  const float = (emoji) => { const i = document.createElement("i"); i.textContent = emoji; i.style.left = (10 + Math.random() * 70) + "%"; i.style.setProperty("--dx", (Math.random() * 60 - 30) + "px"); fx.appendChild(i); setTimeout(() => i.remove(), 2600); };
+  const float = (emoji) => playReaction(fx, emoji);   // 합장·촛불·헌화·마음 Lottie(한 번 재생)
   async function poll() {
     if (!el.isConnected) return;
     let d; try { d = await api(`/api/family/rituals/${r.id}/live?since=${since}&rseq=${rseq}`); } catch (e) { return; }
@@ -669,7 +671,7 @@ async function renderSettings() {
       <div class="theme-preview" id="themePreview" data-preview-theme="${cur}" aria-label="테마 미리보기"><span class="preview-symbol" aria-hidden="true"></span><span class="serif">소중한 기억이 머무는 곳</span><small id="themePreviewName">${THEMES.find(t => t[0] === cur)?.[1] || "전통"} 테마 미리보기</small><span class="preview-fonts" id="themePreviewFonts">${THEME_FONTS[cur] || THEME_FONTS.classic}</span></div>
       <p class="muted" id="themeStatus" role="status">현재 ${THEMES.find(t => t[0] === cur)?.[1] || "전통"} 테마가 적용되어 있습니다.</p>
       <button id="applyThemeBtn" disabled>적용 중인 테마</button>
-      <div class="row between motion-row" style="margin-top:12px"><span class="muted">화면 움직임(첫 화면 그림·전환 연출)</span><button class="small ${motionReduced() ? "ghost" : "secondary"}" id="motionBtn" ${window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 'disabled aria-label="기기 설정에 따라 움직임을 줄였습니다"' : ""}>${window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "기기 설정으로 줄였습니다" : motionReduced() ? "움직임 줄임 · 누르면 켭니다" : "움직임 켬 · 누르면 줄입니다"}</button></div></div>
+      <div class="row between motion-row" style="margin-top:12px"><span class="muted">화면 움직임(첫 화면·촛불·후광 장면)</span><button class="small ${motionReduced() ? "ghost" : "secondary"}" id="motionBtn" aria-pressed="${motionReduced()}">${motionReduced() ? "정지 화면 · 누르면 움직입니다" : window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "느리게 움직임(기기 설정) · 누르면 멈춥니다" : "움직임 켬 · 누르면 정지 화면"}</button></div></div>
     <div class="card"><h2>가족</h2>
       ${members.map((m) => `<div class="list-item"><div><b>${esc(m.name)}</b> <span class="muted">${esc(m.relation)}</span>${m.is_minor ? '<span class="pill">미성년</span>' : ""}</div><span class="pill">${roleName[m.role]}</span></div>`).join("")}
       ${canManage ? `<button class="secondary" style="margin-top:12px" id="inviteBtn">가족 초대 링크 만들기</button>` : `<p class="muted" style="margin-top:8px">가족 초대는 계약자(${esc(me.contract.holder_name)} 님)가 할 수 있습니다. 초대가 필요하면 계약자에게 요청해 주세요.</p>`}

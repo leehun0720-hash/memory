@@ -10,7 +10,7 @@ from .. import config, db, face, voice
 from ..ai.avatar import SimliAvatar  # 기본 얼굴 목록
 from ..deps import require_member, require_role
 from ..state import state
-from .edge import _in_window, _live_open, _demo_mode
+from .edge import _always_live, _in_window, _live_open, _demo_mode
 
 router = APIRouter(prefix="/api/family", tags=["family"])
 
@@ -45,7 +45,7 @@ def me(m: dict = Depends(require_member)):
         "member": {"id": m["id"], "name": m["name"], "relation": m["relation"], "role": m["role"], "is_minor": bool(m["is_minor"])},
         "contract": {"id": m["contract_id"], "holder_name": m["holder_name"], "plan": m["plan"]},
         "niche": {"id": m["niche_id"], "code": m["niche_code"]} if m["niche_id"] else None,
-        "camera": {"online": cam.online, "occupied": cam.occupied} if cam else None,
+        "camera": {"online": cam.online, "occupied": cam.occupied, "demo": cam.online and cam.virtual} if cam else None,
         "deceased": _deceased_for(m["contract_id"]),
         "live_seconds": config.LIVE_SECONDS,
         "chat_max_minutes": config.CHAT_MAX_MINUTES,
@@ -92,6 +92,7 @@ def niche_status(m: dict = Depends(require_member)):
         "live_protect": _live_protect(),
         "blurry": cam.online and 0 <= cam.sharpness < 40,
         "camera_online": cam.online,
+        "demo_camera": cam.online and cam.virtual,   # 서버가 윤회당 사진으로 만든 시연 화면(실제 현장 중계 아님)
         "occupied": cam.occupied,
         "live_until": live["expires_at"] if live else None,
     }
@@ -214,7 +215,7 @@ def rituals(m: dict = Depends(require_member)):
         except ValueError:
             r["is_live_window"] = False
             r["is_past"] = False
-        if r["camera_id"] is not None and _demo_mode():      # 시연 모드: 카메라 일정은 언제나 중계 중
+        if _always_live(r["camera_id"]):      # 시연 모드·시연 카메라: 카메라 일정은 언제나 중계 중
             r["is_live_window"], r["is_past"] = True, False
         r["has_camera"] = r["camera_id"] is not None and state.camera(r["camera_id"]).online
         r["access"] = r.get("access") or "open"

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from .. import config, db, face, voice
+from .. import config, db, demo_camera, face, voice
 from ..ai import factory
 from ..deps import require_admin
 from ..state import state
@@ -69,7 +69,7 @@ def overview():
     for c in cams:
         st = state.camera(c["id"])
         c.update(online=st.online, occupied=st.occupied, persons=st.persons, fps=round(st.fps, 1), sharpness=round(st.sharpness, 1),
-                 blurry=st.online and 0 <= st.sharpness < 40)
+                 blurry=st.online and 0 <= st.sharpness < 40, demo=st.online and st.virtual)
         c["niche_count"] = db.one("SELECT COUNT(*) AS n FROM niches WHERE camera_id=?", (c["id"],))["n"]
     counts = {
         "contracts": db.one("SELECT COUNT(*) AS n FROM contracts")["n"],
@@ -81,7 +81,24 @@ def overview():
         "live_today": db.one("SELECT COUNT(*) AS n FROM live_sessions WHERE started_at >= date('now')")["n"],
     }
     return {"cameras": cams, "counts": counts, "facility": db.one("SELECT * FROM facilities ORDER BY id LIMIT 1"),
-            "live_protect": db.get_setting("live_ignore_occupied") != "1", "blur_outside": db.get_setting("blur_outside") != "0"}
+            "live_protect": db.get_setting("live_ignore_occupied") != "1", "blur_outside": db.get_setting("blur_outside") != "0",
+            "demo_camera": demo_camera.mode()}
+
+
+class DemoCameraIn(BaseModel):
+    mode: str = Field(pattern="^(auto|on|off)$")   # auto=현장 카메라가 없을 때만 · on=항상 시연 화면 · off=끔
+
+
+@router.get("/settings/demo-camera")
+def demo_camera_get():
+    return {"mode": demo_camera.mode()}
+
+
+@router.put("/settings/demo-camera")
+def demo_camera_put(body: DemoCameraIn):
+    db.set_setting("demo_camera", body.mode)
+    db.audit("admin", "settings.demo_camera", "camera", body.mode)
+    return demo_camera_get()
 
 
 class LiveSettingsIn(BaseModel):

@@ -1,0 +1,97 @@
+{
+ "entry-classic": {
+  "intro": 45,
+  "loop": [
+   45,
+   765
+  ],
+  "still": 103,
+  "poster": "bg-classic.webp",
+  "credit": "인공지능 생성 이미지",
+  "label": "몽환적인 추모 장면이 아주 천천히 움직이는 그림"
+ },
+ "entry-buddhist": {
+  "intro": 45,
+  "loop": [
+   45,
+   765
+  ],
+  "still": 103,
+  "poster": "bg-buddhist-dusk.webp",
+  "credit": "사진: 지장대사 윤회당 · 연꽃: 인공지능 생성 이미지",
+  "label": "몽환적인 추모 장면이 아주 천천히 움직이는 그림"
+ },
+ "entry-catholic": {
+  "intro": 45,
+  "loop": [
+   45,
+   765
+  ],
+  "still": 103,
+  "poster": "bg-catholic.webp",
+  "credit": "인공지능 생성 이미지",
+  "label": "몽환적인 추모 장면이 아주 천천히 움직이는 그림"
+ },
+ "entry-christian": {
+  "intro": 45,
+  "loop": [
+   45,
+   765
+  ],
+  "still": 103,
+  "poster": "bg-christian.webp",
+  "credit": "인공지능 생성 이미지",
+  "label": "몽환적인 추모 장면이 아주 천천히 움직이는 그림"
+ },
+ "offering": {
+  "intro": 60,
+  "loop": [
+   60,
+   420
+  ],
+  "still": 100,
+  "poster": null,
+  "credit": "촛불·연기: 인공지능 생성 이미지",
+  "label": "봉안함 사진 양쪽에 촛불이 흔들리고 가운데 향 연기가 오르는 그림"
+ },
+ "shrine": {
+  "intro": 90,
+  "loop": [
+   90,
+   570
+  ],
+  "still": 120,
+  "poster": null,
+  "credit": "",
+  "label": "고인 사진 둘레에 후광과 안개, 빛망울이 머무는 그림"
+ },
+ "voice": {
+  "segments": {
+   "speaking": [
+    0,
+    30
+   ],
+   "listening": [
+    30,
+    90
+   ],
+   "idle": [
+    90,
+    91
+   ]
+  },
+  "still": 90
+ },
+ "reaction-hands": {
+  "once": true
+ },
+ "reaction-candle": {
+  "once": true
+ },
+ "reaction-flower": {
+  "once": true
+ },
+ "reaction-heart": {
+  "once": true
+ }
+}

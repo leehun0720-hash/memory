@@ -8,6 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("LLM_PROVIDER", "mock")
+os.environ.setdefault("DEMO_CAMERA", "off")   # 시연 카메라는 test_demo_camera_* 에서만 직접 돌린다
 
 from server import config, db  # noqa: E402
 from server.ai import safety  # noqa: E402
@@ -644,3 +645,77 @@ def test_start_now_assigns_camera_and_demo_mode_keeps_live(client):
     assert mine["is_live_window"] and not mine["is_past"]
     assert r["camera_id"] in client.get("/api/edge/config", headers=EDGE).json()["ritual_live_camera_ids"]
     client.put("/api/admin/settings/live", headers=ADMIN, json={"protect": True})
+
+
+# ---------- 시연 카메라(현장 웹캠 없이 원격 참배·생중계 시연) ----------
+
+def test_demo_camera_feeds_snapshot_live_and_ritual(client):
+    import time
+    from server.demo_camera import DemoCamera
+    from server.state import state
+    tok = {"X-Family-Token": holder_token()}
+    cam_id = db.one("SELECT camera_id FROM niches WHERE code='A-1-2'")["camera_id"]
+    state.cameras.pop(cam_id, None)
+    db.set_setting("demo_camera", "auto")
+    try:
+        cam = DemoCamera()
+        cam.tick(time.time())
+        st = client.get("/api/family/niche/status", headers=tok).json()
+        assert st["camera_online"] and st["demo_camera"] and st["last_snapshot_at"]
+        snap = client.get("/api/family/niche/snapshot.jpg", headers=tok)
+        assert snap.status_code == 200 and snap.content[:2] == bytes([0xFF, 0xD8])
+        assert client.post("/api/family/live/start", headers=tok).status_code == 200
+        before = state.live_frames.get(db.one("SELECT id FROM niches WHERE code='A-1-2'")["id"])
+        cam.tick(time.time())
+        after = state.live_frames.get(db.one("SELECT id FROM niches WHERE code='A-1-2'")["id"])
+        assert after is not None and (before is None or after.seq > before.seq)
+        # 진행 중인 제례(시드: '지금 진행 중인 시연 법회')의 제례 카메라도 시연 화면을 받는다
+        ritual_cam = db.one("SELECT id FROM cameras WHERE kind='ritual'")["id"]
+        assert state.live_frames.get(-ritual_cam) is not None
+        # 실제 현장 프로그램이 연결되면 auto 모드의 시연 카메라는 비켜 선다
+        client.post(f"/api/edge/cameras/{cam_id}/status", headers=EDGE, data={"occupied": "false", "persons": 0, "fps": 10})
+        cam.tick(time.time())
+        assert cam_id not in cam.active
+        assert client.get("/api/family/niche/status", headers=tok).json()["demo_camera"] is False
+        assert client.put("/api/admin/settings/demo-camera", headers=ADMIN, json={"mode": "off"}).json()["mode"] == "off"
+        assert client.get("/api/admin/overview", headers=ADMIN).json()["demo_camera"] == "off"
+    finally:
+        db.set_setting("demo_camera", "off")
+
+
+# ---------- 몽환 Lottie 장면(2026-10-12): 움직임은 Lottie 만, 장면 파일은 생성기로 ----------
+
+def test_dream_scenes_are_generated_lottie_and_css_has_no_keyframes():
+    import json, re
+    static = ROOT / "server" / "static"
+    scenes = json.loads((static / "lottie" / "dream" / "scenes.json").read_text(encoding="utf-8"))
+    names = [f"entry-{t}" for t in ("classic", "buddhist", "catholic", "christian")] + ["offering", "shrine", "voice"] + \
+            [f"reaction-{k}" for k in ("hands", "candle", "flower", "heart")]
+    for name in names:
+        assert name in scenes
+        data = json.loads((static / "lottie" / "dream" / f"{name}.json").read_text(encoding="utf-8"))
+        assert data["fr"] == 30 and data["layers"]
+        for a in data["assets"]:
+            if "p" in a:   # 이미지 레이어는 모두 webp 로, 실제 파일이 있어야 한다
+                assert a["p"].endswith(".webp") and (static / "lottie" / "dream" / "img" / a["p"]).is_file()
+    # 반복 구간이 있는 장면은 정지 장면이 그 안에 있다(앱 '움직임 줄이기' → 정지 화면)
+    for name in ("entry-buddhist", "offering", "shrine"):
+        a, b = scenes[name]["loop"]
+        assert a <= scenes[name]["still"] < b
+    # 인공지능 생성 이미지가 든 장면은 화면에 표시한다
+    assert "인공지능 생성" in scenes["entry-classic"]["credit"] and "윤회당" in scenes["entry-buddhist"]["credit"]
+    # 예전 CSS 움직임(키프레임)은 모두 걷어냈다
+    for css in (static / "css").glob("*.css"):
+        assert not re.search(r"@keyframes", css.read_text(encoding="utf-8")), css.name
+    assert not (static / "js" / "brand.js").exists()
+
+
+def test_demo_portrait_replaces_only_seed_placeholder(client, tmp_path):
+    from server import seed
+    d = db.one("SELECT photo_path FROM deceased WHERE name='김옥순'")
+    p = config.MEDIA_DIR / d["photo_path"]
+    assert p.exists() and not seed._is_placeholder(p)            # 새 시연 데이터는 처음부터 가상 인물 초상
+    seed._portrait(p, "", (0, 0, 0))                               # 예전 '사진 자리' 그림이었다면
+    assert seed._is_placeholder(p)
+    assert seed.refresh_demo_photos() == 1 and not seed._is_placeholder(p)
+    assert seed.refresh_demo_photos() == 0                         # 실제(또는 이미 바꾼) 사진은 건드리지 않음

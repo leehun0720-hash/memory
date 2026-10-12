@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/css/dream.css">
 <style>
   /* 제례 공간의 TV·모니터용 전체 화면. 왼쪽 영상, 오른쪽 순서·가족 메시지. */
   body { padding: 0; overflow: hidden; height: 100vh; }
@@ -16,7 +17,7 @@
   .scr-video .top { position: absolute; top: 0; left: 0; right: 0; padding: 18px 22px; display: flex; gap: 12px; align-items: center; background: linear-gradient(180deg, rgba(0,0,0,.7), transparent); }
   .scr-video .top .t { font-family: var(--font-serif); font-size: 26px; font-weight: 700; color: var(--gold-2); flex: 1; }
   .scr-video .fx { position: absolute; right: 0; bottom: 0; width: 40%; height: 70%; pointer-events: none; overflow: hidden; }
-  .scr-video .fx i { position: absolute; bottom: 0; font-style: normal; font-size: 44px; animation: float-up 2.8s ease-out forwards; }
+  .scr-video .fx .dream-reaction { width: 160px; height: 320px; }
   .scr-side { display: flex; flex-direction: column; padding: 22px 24px; gap: 16px; min-height: 0; border-left: 1px solid var(--line); }
   .scr-now { background: linear-gradient(180deg, rgba(var(--glow), .18), var(--surface)); border: 1px solid var(--line-strong); border-radius: 18px; padding: 18px 20px; text-align: center; }
   .scr-now .k { color: var(--gold); font-weight: 700; letter-spacing: 2px; font-size: 14px; }
