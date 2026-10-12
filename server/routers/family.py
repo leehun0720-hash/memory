@@ -447,7 +447,7 @@ def farewell(body: FarewellIn, m: dict = Depends(require_member)):
 
 # ---------- 목소리 등록 (유족 앱에서 직접 · 생전 기록 포함) ----------
 
-VOICE_KINDS = {"lifetime_record": "생전 기록(본인 녹음)", "voice": "고인 음성 자료(가족 동의)"}
+VOICE_KINDS = voice.VOICE_KINDS
 
 
 @router.get("/voice")

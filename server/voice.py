@@ -42,6 +42,7 @@ MAX_SECONDS = 300                # 공급자에 보내는 한 파일의 최대 �
 MIN_FILE_SECONDS = 3             # 파일 하나가 이보다 짧으면 소리가 거의 없는 것으로 본다
 MIN_SECONDS = 15                 # 등록에 쓰는 자료 전체 길이의 최소값(여러 파일을 합쳐서)
 MIME = {".mp3": "audio/mpeg"}
+VOICE_KINDS = {"lifetime_record": "생전 기록(본인 녹음)", "voice": "고인 음성 자료(가족 동의)"}
 
 
 def _duration(path: Path) -> float | None:

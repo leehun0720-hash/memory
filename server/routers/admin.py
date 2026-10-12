@@ -5,7 +5,7 @@ import re
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -839,6 +839,39 @@ def tts_settings_test():
 
 
 # ---------- 고인 음성 등록(복제) — 공통 로직은 server/voice.py ----------
+
+@router.post("/deceased/{did}/voice/upload")
+async def voice_upload(did: int, kind: str = Form("voice"), agree: bool = Form(False), signer_name: str = Form(""), relation: str = Form(""),
+                       note: str = Form(""), build: bool = Form(True), file: list[UploadFile] = File(...)):
+    """관리자 콘솔 목소리 등록 창: 실시간 녹음·음성/영상 파일(여러 개·여러 형식) → mp3 자료 저장.
+    음성 사용(또는 생전 기록) 동의서가 없으면 이 창에서 받은 서명자·관계로 함께 기록한다(종이 동의서는 시설이 보관).
+    음성 복제가 켜져 있으면 저장한 자료(최근 5개)로 바로 목소리를 만든다."""
+    d = db.one("SELECT id, name FROM deceased WHERE id=?", (did,))
+    if not d:
+        raise HTTPException(404, "고인 정보를 찾을 수 없습니다.")
+    if kind not in voice.VOICE_KINDS:
+        raise HTTPException(400, "동의 종류를 골라 주세요.")
+    if not file or len(file) > 10:
+        raise HTTPException(400, "음성 자료는 한 번에 1~10개까지 올릴 수 있습니다.")
+    has_consent = db.one("SELECT id FROM consents WHERE deceased_id=? AND kind IN ('voice','lifetime_record') AND revoked_at IS NULL", (did,))
+    if not has_consent:
+        if not agree or not signer_name.strip():
+            raise HTTPException(400, "음성 사용 동의서가 없습니다. 동의한 분의 이름(과 관계)을 적고 '동의를 받았습니다'에 표시해 주세요.")
+        db.execute("INSERT INTO consents(deceased_id, signer_name, relation, kind, signed_at, note) VALUES (?,?,?,?,?,?)",
+                   (did, signer_name.strip()[:40], relation.strip()[:20], kind, db.now(), f"관리자 콘솔 목소리 등록 창에서 확인 · {voice.VOICE_KINDS[kind]}"))
+        db.audit("admin", "consent.create", f"deceased:{did}", kind)
+    base = note.strip() or "관리자 콘솔 녹음·업로드"
+    saved = []
+    for f in file:
+        data = await f.read()
+        saved.append(voice.save_sample(did, f.filename or "recording.webm", data, f"{base} · {f.filename or '녹음'}", f.content_type))
+    secs = round(sum(x["seconds"] or 0 for x in saved)) or None
+    if not build or not voice.provider_ready():
+        return {"ok": True, "pending": True, "files": len(saved), "seconds": secs,
+                "message": "음성 자료를 저장했습니다." + ("" if voice.provider_ready() else " 음성 복제(ElevenLabs)가 꺼져 있어 목소리는 아직 만들지 않았습니다. 인공지능 설정에서 키를 넣은 뒤 '음성 등록'을 눌러 주세요.")}
+    r = voice.register(did, "admin")
+    return {"ok": True, "pending": False, "files": r["files"], "seconds": r.get("seconds") or secs, "provider": r["provider"]}
+
 
 @router.post("/deceased/{did}/voice/register")
 def voice_register(did: int):

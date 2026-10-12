@@ -1,3 +1,4 @@
+import { openVoiceRecorder } from "./voice-recorder.js?v=20261012-1";
 // 관리자 콘솔. ?key=관리자키 로 열면 키를 기억한다.
 const qs = new URLSearchParams(location.search);
 if (qs.get("key")) { sessionStorage.setItem("admin_key", qs.get("key")); history.replaceState(null, "", location.pathname + location.hash); }   // 키만 지우고 #페이지 지정은 남긴다
@@ -271,7 +272,8 @@ async function deceasedForm(did, contractId) {
     <div style="margin-top:8px">${x.photo_path ? `<img src="/api/admin/deceased/${did}/photo.jpg?key=${encodeURIComponent(KEY)}&_=${Date.now()}" class="portrait">` : '<span class="muted">대표 사진 없음</span>'}
       ${x.media.map((md) => `<div class="list-item"><span>${({ photo: "사진", video: "영상", voice: "음성", message_video: "영상 메시지" })[md.kind] || esc(md.kind)} · ${esc(md.caption)} ${md.ai_generated ? '<span class="ai-tag">인공지능 제작</span>' : ""}</span><button class="small ghost" data-delmedia="${md.id}">삭제</button></div>`).join("")}</div>
     <h3 style="margin-top:16px">복제 음성 <span class="muted">(음성 자료 + 음성 사용 동의서가 있어야 등록됩니다)</span></h3>
-    <div class="row" style="flex-wrap:wrap">${x.voice_id ? `<span class="tag on">등록됨 · ${esc(x.voice_provider)} · <span class="mono">${esc(x.voice_id.slice(0, 8))}…</span></span><button class="small secondary" id="vPreview">미리 듣기</button><button class="small ghost" id="vDelete">음성 삭제</button>` : `<span class="tag">미등록</span><button class="small secondary" id="vRegister">음성 등록 (ElevenLabs)</button>`}<span id="vOut" class="muted"></span></div>
+    <div class="row" style="flex-wrap:wrap">${x.voice_id ? `<span class="tag on">등록됨 · ${esc(x.voice_provider)} · <span class="mono">${esc(x.voice_id.slice(0, 8))}…</span></span><button class="small secondary" id="vPreview">미리 듣기</button><button class="small ghost" id="vDelete">음성 삭제</button>` : `<span class="tag">미등록</span><button class="small secondary" id="vRegister">저장한 자료로 음성 등록</button>`}<button class="small" id="vUpload">목소리 녹음 · 파일 올리기</button><span id="vOut" class="muted"></span></div>
+    <p class="muted" style="font-size:13px;margin:4px 0 0">음성 자료 ${x.media.filter((md) => md.kind === "voice").length}개 저장됨. 실시간 녹음이나 음성·영상 파일(여러 개, mp3·m4a·wav·영상 등)을 올리면 mp3 로 바꿔 합친 뒤 바로 등록합니다. 동의서가 없으면 같은 창에서 동의한 분을 기록합니다.</p>
     <audio id="vAudio" controls style="display:none;margin-top:6px;width:100%"></audio>
     <h3 style="margin-top:16px">실시간 아바타 얼굴 <span class="muted">(대표 사진 + 초상 사용 동의서가 있어야 등록됩니다)</span></h3>
     <div class="row" style="flex-wrap:wrap">${x.face_id ? `<span class="tag on">등록됨 · ${esc(x.face_provider)} · <span class="mono">${esc(x.face_id.slice(0, 8))}…</span></span><button class="small ghost" id="fDelete">얼굴 삭제</button>` : `<span class="tag">미등록</span><button class="small secondary" id="fRegister">사진으로 얼굴 만들기</button>`}<span id="fOut" class="muted"></span></div>
@@ -290,6 +292,12 @@ async function deceasedForm(did, contractId) {
     m.querySelectorAll("[data-revoke]").forEach((b) => b.onclick = async () => { if (confirm("동의서를 철회하면 되돌릴 수 없고, 이 동의가 필요한 기능(대화·음성·얼굴)이 바로 닫힙니다. 철회할까요?")) { await api(`/api/admin/consents/${b.dataset.revoke}/revoke`, { method: "POST" }); m.remove(); deceasedForm(did, contractId); } });
     const vOut = (msg, ok) => { const el = $("#vOut", m); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };
     if ($("#vRegister", m)) $("#vRegister", m).onclick = async () => { vOut("등록 중… (1분 안팎)", true); $("#vRegister", m).disabled = true; try { const r = await api(`/api/admin/deceased/${did}/voice/register`, { method: "POST" }); toast(`음성을 등록했습니다 (${r.files}개 파일)`); m.remove(); deceasedForm(did, contractId); } catch (e) { vOut("실패: " + e.message, false); $("#vRegister", m).disabled = false; } };
+    $("#vUpload", m).onclick = () => openVoiceRecorder({
+      modal, toast, title: `${x.name} 님 목소리 녹음 · 파일 올리기`, minSeconds: 15, maxMB: 100, providerReady: true,
+      consentFields: !x.consents.some((k) => !k.revoked_at && (k.kind === "voice" || k.kind === "lifetime_record")),
+      upload: { url: `/api/admin/deceased/${did}/voice/upload`, headers: { "X-Admin-Key": KEY } },
+      onDone: () => { m.remove(); deceasedForm(did, contractId); },
+    });
     if ($("#vDelete", m)) $("#vDelete", m).onclick = async () => { if (sure("복제 음성을 삭제하면 공급자 쪽 데이터도 함께 지우며")) { await api(`/api/admin/deceased/${did}/voice`, { method: "DELETE" }); m.remove(); deceasedForm(did, contractId); } };
     if ($("#vPreview", m)) $("#vPreview", m).onclick = async () => { vOut("합성 중…", true); try { const r = await fetch(`/api/admin/deceased/${did}/voice/preview`, { method: "POST", headers: { "X-Admin-Key": KEY } }); if (!r.ok) throw new Error((await r.json()).detail); const a = $("#vAudio", m); a.src = URL.createObjectURL(await r.blob()); a.style.display = "block"; a.play(); vOut("", true); } catch (e) { vOut("실패: " + e.message, false); } };
     const fOut = (msg, ok) => { const el = $("#fOut", m); el.textContent = msg; el.style.color = ok ? "#1e7a45" : "var(--danger)"; };

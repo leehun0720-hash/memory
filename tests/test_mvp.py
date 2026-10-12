@@ -784,3 +784,31 @@ def test_voice_samples_many_formats_and_pending(client, monkeypatch):
                          files={"file": ("망가진.m4a", b"\x00not-audio" * 800, "audio/mp4")})
     assert broken.status_code == 400 and "소리를 읽지 못" in broken.json()["detail"]
     client.delete(f"/api/family/voice/{did}", headers=tok)
+
+
+def test_admin_voice_upload_records_consent_and_builds(client, monkeypatch):
+    """관리자 콘솔 '목소리 녹음 · 파일 올리기': 동의서가 없으면 이름을 받아 기록하고, 자료를 mp3 로 저장해 바로 등록한다."""
+    import pytest as _pt
+    from server import voice as vmod
+    from server.ai.tts import ElevenLabsTTS
+    if not vmod.FFMPEG:
+        _pt.skip("ffmpeg 없음")
+    monkeypatch.setattr(ElevenLabsTTS, "add_voice", lambda self, name, files, description="": "voice_admin_1")
+    monkeypatch.setattr(ElevenLabsTTS, "delete_voice", lambda self, voice_id: None)
+    client.put("/api/admin/settings/ai", headers=ADMIN, json={"api_key": None, "provider": "mock", "model": "claude-opus-5",
+                                                              "elevenlabs_api_key": "sk_test00000000000000000000000000", "tts_provider": "auto", "tts_model": "eleven_multilingual_v2"})
+    did = db.one("SELECT id FROM deceased WHERE name='김옥순'")["id"]
+    db.execute("UPDATE consents SET revoked_at=? WHERE deceased_id=? AND kind IN ('voice','lifetime_record')", (db.now(), did))
+    db.execute("DELETE FROM media WHERE deceased_id=? AND kind='voice'", (did,))
+    up = lambda data: client.post(f"/api/admin/deceased/{did}/voice/upload", headers=ADMIN, data=data,
+                                  files=[("file", ("녹음 1.m4a", _convert(fake_wav(9), ".m4a"), "audio/mp4")), ("file", ("녹음 2.webm", _convert(fake_wav(9), ".webm"), "audio/webm"))])
+    r = up({"kind": "voice", "agree": "true"})                       # 동의서도, 서명자도 없음
+    assert r.status_code == 400 and "동의" in r.json()["detail"]
+    r = up({"kind": "voice", "agree": "true", "signer_name": "이미영", "relation": "큰딸"})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["pending"] is False and j["files"] == 2 and j["seconds"] >= 15
+    assert db.one("SELECT voice_id FROM deceased WHERE id=?", (did,))["voice_id"] == "voice_admin_1"
+    c = db.one("SELECT signer_name, relation, kind FROM consents WHERE deceased_id=? AND kind='voice' AND revoked_at IS NULL", (did,))
+    assert c == {"signer_name": "이미영", "relation": "큰딸", "kind": "voice"}
+    client.delete(f"/api/admin/deceased/{did}/voice", headers=ADMIN)
