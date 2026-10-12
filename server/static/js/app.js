@@ -2,8 +2,24 @@
 import {createCommunity} from './community.js?v=20261011-brand';
 import {mountArt, destroyAll as destroyArt, mountScene, mountVoice, playReaction} from './dream.js?v=20261012-3';
 const qs = new URLSearchParams(location.search);
-const TOKEN = qs.get("t") || localStorage.getItem("family_token");
-if (qs.get("t")) { localStorage.setItem("family_token", qs.get("t")); history.replaceState(null, "", location.pathname + location.hash); }   // 토큰만 지우고 #탭 지정은 남긴다
+// 초대 토큰은 영문·숫자·-·_ 로만 이뤄진다. 메신저에서 복사하며 붙은 한글·공백·따옴표, 링크 전체를 붙여 넣은 경우,
+// '<초대 토큰>' 같은 자리표시를 걸러 낸다. 그대로 요청 머리글에 넣으면 브라우저가 요청을 거부하고(ISO-8859-1 오류),
+// 저장된 값 때문에 '다시 열기'도 계속 실패하기 때문이다.
+function cleanToken(v) {
+  if (!v) return "";
+  let s = String(v).trim();
+  const at = s.lastIndexOf("t=");
+  if (at >= 0) s = s.slice(at + 2);
+  const m = s.match(/^[A-Za-z0-9_-]+/);
+  return m && m[0].length >= 8 && m[0].length <= 128 ? m[0] : "";
+}
+const rawLinkToken = qs.get("t");
+const linkToken = cleanToken(rawLinkToken);
+const BAD_LINK = rawLinkToken !== null && !linkToken;          // 주소에 t= 는 있는데 쓸 수 있는 토큰이 아님
+const storedToken = localStorage.getItem("family_token");
+if (storedToken && !cleanToken(storedToken)) localStorage.removeItem("family_token");   // 예전에 저장된 망가진 값은 지운다
+const TOKEN = linkToken || (BAD_LINK ? "" : cleanToken(storedToken));
+if (rawLinkToken !== null) { if (linkToken) localStorage.setItem("family_token", linkToken); history.replaceState(null, "", location.pathname + location.hash); }   // 토큰만 지우고 #탭 지정은 남긴다
 
 const $ = (s, el = document) => el.querySelector(s);
 const view = $("#view");
@@ -14,7 +30,9 @@ const ago = (iso) => { if (!iso) return "아직 없음"; const s = Math.max(0, (
 
 async function api(path, opts = {}) {
   const headers = { "X-Family-Token": TOKEN || "", ...(opts.body && !(opts.body instanceof FormData) ? { "Content-Type": "application/json" } : {}) };
-  const r = await fetch(path, { ...opts, headers, body: opts.body && !(opts.body instanceof FormData) ? JSON.stringify(opts.body) : opts.body });
+  let r;
+  try { r = await fetch(path, { ...opts, headers, body: opts.body && !(opts.body instanceof FormData) ? JSON.stringify(opts.body) : opts.body }); }
+  catch { throw new Error("서버에 연결하지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요."); }
   if (!r.ok) { let msg = r.statusText; try { msg = (await r.json()).detail || msg; } catch {} throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg)); }
   if (r.status === 204) return null;
   return r.json();
@@ -99,15 +117,20 @@ async function boot() {
   applyTheme(localStorage.getItem("theme_local") || "classic"); applyMotion();
   if (!TOKEN) {
     $("#tabs").classList.add("hidden");
-    if (await renderLauncher()) return;
+    if (!BAD_LINK && await renderLauncher()) return;
+    if (BAD_LINK) {
+      view.innerHTML = `<section class="memorial-hero entry-hero"><div class="memorial-hero-copy"><span class="eyebrow">가족 추모 공간</span><h1>초대 링크를<br>확인해 주세요.</h1><p>주소의 초대 링크 부분이 올바르지 않습니다. 받은 링크를 앞뒤 글자 없이 그대로 눌러 주세요. 링크는 <b>/?t=</b> 뒤에 영문과 숫자가 이어진 모양입니다.</p><p>관리자 콘솔의 ‘계약·가족’에서 초대 링크를 다시 복사할 수 있습니다.</p></div><div class="hero-art" id="heroArt"></div></section>`;
+      mountArt($("#heroArt"), state.theme, motionReduced());
+      return;
+    }
     view.innerHTML = `<section class="memorial-hero entry-hero"><div class="memorial-hero-copy"><span class="eyebrow">가족 추모 공간</span><h1>초대 링크로<br>들어와 주세요.</h1><p>계약하신 가족에게 받은 카카오톡 초대 링크를 누르면 바로 열립니다. 링크가 없으면 시설 담당자에게 초대를 요청해 주세요.</p></div><div class="hero-art" id="heroArt"></div></section>`;
     mountArt($("#heroArt"), state.theme, motionReduced());
     return;
   }
   try { state.me = await api("/api/family/me"); }
   catch (e) {
-    view.innerHTML = `<section class="memorial-hero entry-hero"><div class="memorial-hero-copy"><span class="eyebrow">가족 추모 공간</span><h1>추모 공간을<br>열지 못했습니다.</h1><p>${esc(e.message)}</p><p>초대 링크가 바뀌었을 수 있습니다. 계약하신 가족이나 시설 담당자에게 새 초대 링크를 요청해 주세요.</p><button class="secondary" type="button" id="retryBoot">다시 열기</button></div><div class="hero-art" id="heroArt"></div></section>`;
-    $("#tabs").classList.add("hidden"); $("#retryBoot").onclick = () => location.reload(); mountArt($("#heroArt"), state.theme, motionReduced()); return;
+    view.innerHTML = `<section class="memorial-hero entry-hero"><div class="memorial-hero-copy"><span class="eyebrow">가족 추모 공간</span><h1>추모 공간을<br>열지 못했습니다.</h1><p>${esc(e.message)}</p><p>초대 링크가 바뀌었을 수 있습니다. 계약하신 가족이나 시설 담당자에게 새 초대 링크를 요청해 주세요.</p><div class="row" style="gap:10px;flex-wrap:wrap"><button class="secondary" type="button" id="retryBoot">다시 열기</button><button class="secondary" type="button" id="forgetBoot">이 기기에 저장된 링크 지우기</button></div></div><div class="hero-art" id="heroArt"></div></section>`;
+    $("#tabs").classList.add("hidden"); $("#retryBoot").onclick = () => location.reload(); $("#forgetBoot").onclick = () => { localStorage.removeItem("family_token"); location.href = "/"; }; mountArt($("#heroArt"), state.theme, motionReduced()); return;
   }
   applyTheme(currentTheme());
   $("#who").textContent = `${state.me.member.name} 님`;
