@@ -1,0 +1,8 @@
+{
+  "name": "yunhoedang-memorial-railway-config",
+  "private": true,
+  "description": "Railway 인프라 설정(.railway/railway.ts) 작성용. 앱 빌드와는 무관하며 Railway 업로드에서 제외한다.",
+  "devDependencies": {
+    "railway": "3.13.1"
+  }
+}

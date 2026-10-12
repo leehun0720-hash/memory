@@ -177,6 +177,20 @@ tests/test_mvp.py  29개 테스트: python -m pytest -q
 
 SQLite 한 파일을 쓰므로 인스턴스는 1개로 둡니다(여러 개로 늘리면 기록이 갈라집니다).
 
+#### 인프라 설정 파일: `.railway/railway.ts` (2026-10-12, `railway.json` 대체)
+
+`railway.json`(Config as Code)은 2026-12-01 까지만 지원되어 `.railway/railway.ts`(Infrastructure as Code)로 옮겼습니다. `railway config pull` 로 지금 Railway 의 볼륨(`memorial-volume` → `/data`)·변수(값은 `preserve()` 로 Railway 에만 둠)를 가져오고, 빌드(Railpack)·시작 명령·상태 확인(`/health`, 120초)·재시작(실패 시 5회)·인스턴스 1개를 옮겼습니다. SDK(`railway` npm 패키지, Railway 공식)는 `.railway/` 안에만 설치합니다(앱 빌드가 Node 로 바뀌지 않게, `.railwayignore` 로 업로드 제외).
+
+```powershell
+cd .railway; npm install; cd ..          # 처음 한 번
+# 윈도우에서는 SDK 가 CLI 버전을 확인할 때 실제 railway.exe 경로가 필요합니다(npm 으로 설치한 CLI 는 .cmd 껍데기라서).
+$env:_ = "$env:APPDATA\npm\node_modules\@railway\cli\bin\railway.exe"
+& $env:_ config plan      # 바뀔 내용만 보여 줌. 'destroy' 가 0 이 아니면 적용하지 마세요(볼륨 삭제 = 기록 삭제).
+& $env:_ config apply     # 확인 후 적용
+```
+
+적용이 끝나 `config plan` 이 "already up to date" 로 나오면 `railway.json` 을 지웁니다(그 전에 지우면 시작 명령·상태 확인·재시작 정책이 빠집니다). `railpack.json` 은 Railpack 빌드 설정이라 그대로 둡니다.
+
 Vercel에 올릴 때 환경변수: `AUTO_SEED=1`(시작 시 시연 데이터), `SEED_SALT=아무문자열`(초대 링크 고정), `ADMIN_KEY`, `EDGE_KEY`. API 키는 배포 뒤 관리자 콘솔에서 넣되, 서버리스는 재시작 시 사라지므로 `ANTHROPIC_API_KEY`·`ELEVENLABS_API_KEY`를 환경변수로 넣는 편이 낫습니다. 진입점은 `pyproject.toml`의 `[tool.vercel] entrypoint`.
 
 ## 제사 생중계 (틱톡 라이브식 쌍방향)

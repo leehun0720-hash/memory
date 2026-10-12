@@ -11,3 +11,5 @@ __pycache__/
 .claude/
 edge/
 *.log
+# Railway 인프라 설정 작성용 폴더(.railway/railway.ts, SDK). 앱 실행에는 필요 없다.
+.railway/
