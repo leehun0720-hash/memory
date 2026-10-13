@@ -180,7 +180,7 @@ async function boot() {
   community.init();
   $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) go(b.dataset.tab); });
   const want = location.hash.slice(1);   // /?t=…#ritual 처럼 탭을 지정해 열 수 있다
-  const routes = ["visit", "memorial", "chat", "ritual", "settings", "shop", ...Object.keys(community.pages)];
+  const routes = ["visit", "memorial", "chat", "ritual", "settings", "shop", "policy", ...Object.keys(community.pages)];
   go(routes.includes(want) ? want : localStorage.getItem('memorial_easy')==='true'?'easy':'visit');
   window.addEventListener("popstate", () => { const t = location.hash.slice(1) || "visit"; if (t !== state.tab && routes.includes(t)) go(t, false); });
 }
@@ -195,7 +195,7 @@ function go(tab, push = true) {
   });
   view.dataset.page = tab; document.body.dataset.page = tab;
   view.innerHTML = `<div class="card center"><p class="muted" role="status">화면을 불러오는 중입니다…</p></div>`;
-  const render = ({ visit: renderVisit, memorial: renderMemorial, chat: renderChat, ritual: renderRitual, settings: renderSettings, shop: shop.page, ...community.pages })[tab];
+  const render = ({ visit: renderVisit, memorial: renderMemorial, chat: renderChat, ritual: renderRitual, settings: renderSettings, shop: shop.page, policy: renderPolicy, ...community.pages })[tab];
   Promise.resolve(render()).then(() => {if(state.tab===tab)community.mount(tab);}).catch(e=>failCard("화면을", e, tab));
   window.scrollTo(0, 0);
 }
@@ -289,6 +289,7 @@ async function renderVisit() {
           <div class="title-card" id="titleCard" hidden>${esc(d ? d.name + " 님을 뵙습니다" : "가족을 뵙습니다")}</div>
         </div>
         <div class="status-line"><span id="camStatus" role="status"><span class="dot"></span>카메라 상태를 확인하는 중입니다…</span><span class="row" style="gap:8px"><span id="snapAt"></span><button class="chime-toggle ${chimeEnabled() ? "on" : ""}" id="chimeBtn" type="button">종소리 ${chimeEnabled() ? "켬" : "끔"}</button></span></div>
+        <p class="cam-note muted">사진은 봉안함마다 최신 한 장만 두고 새 사진이 오면 지워집니다. 영상은 저장하지 않습니다. <button type="button" class="link-btn" data-go="policy">촬영 · 보관 안내</button></p>
       </section>
       <aside class="home-side" aria-label="바로 하기">
         <button id="liveBtn" class="live-cta" type="button">${liveLabel}</button>
@@ -554,11 +555,13 @@ async function renderChat() {
   const me = state.me; const list = me.deceased;
   const eligible = list.filter((d) => d.chat_available);
   if (me.member.role === "view") { view.innerHTML = `<div class="card"><h2>기념일 대화</h2><p class="muted">대화는 계약하신 가족의 허락이 필요합니다. 계약자(${esc(me.contract.holder_name)} 님)에게 대화 허용을 요청해 주세요.</p><button class="secondary" type="button" id="toMemorial">추모 공간으로 가기</button></div>`; $("#toMemorial").onclick = () => go("memorial"); return; }
+  const held = list.find((d) => d.ai_enabled && d.consent_valid && d.family_hold?.length);
+  if (!eligible.length && held) { view.innerHTML = `<div class="card"><h2>기념일 대화</h2><p class="muted">${esc(held.name)} 님과의 대화는 가족 합의가 아직 되지 않아 열리지 않습니다. 보류한 가족: <b>${esc(held.family_hold.join(", "))}</b> 님.</p><p class="muted">가족 중 한 분이라도 보류하면 열리지 않습니다. 보류는 언제든 거둘 수 있습니다.</p><button class="secondary" type="button" data-go="settings">설정에서 가족 합의 보기</button></div>`; view.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => go(b.dataset.go)); return; }
   if (!eligible.length) { view.innerHTML = `<div class="card"><h2>기념일 대화</h2><p class="muted">아직 대화 기능이 열려 있지 않습니다.</p><p class="muted">시설 상담 직원과 30분가량 이야기를 나누어 <b>기억 카드</b>를 만들고 직계가족 동의서를 등록하면 열립니다. 대화 기능은 선택 사항이며, 언제든 닫을 수 있습니다. 시설 담당자에게 문의해 주세요.</p><button class="secondary" type="button" id="toMemorial">추모 공간으로 가기</button></div>`; $("#toMemorial").onclick = () => go("memorial"); return; }
   const options = eligible.map((d) => `<option value="${d.id}">${esc(d.name)} 님${d.honorific ? ` (${esc(d.honorific)})` : ""}</option>`).join("");
   const first = eligible[0];
   view.innerHTML = `
-    <div class="notice ai" role="note">이 화면의 목소리와 답변은 인공지능이 만든 것입니다. 실제 고인이 아닙니다.</div>
+    <div class="notice ai" role="note">이 화면의 목소리와 답변은 인공지능이 만든 것입니다. 실제 고인이 아닙니다. 대화 원문은 저장하지 않고 요약만 남깁니다. <button type="button" class="link-btn" data-go="policy">안심 안내</button></div>
     <div class="card hero" style="margin-top:12px;text-align:left">
       <span class="eyebrow">인공지능 추모 대화</span>
       <h2>기념일 대화</h2>
@@ -804,6 +807,60 @@ function openRitualLive(r) {
   el.querySelectorAll("[data-react]").forEach((b) => b.onclick = () => { float(b.dataset.react); api(`/api/family/rituals/${r.id}/reactions`, { method: "POST", body: { emoji: b.dataset.react } }).then((x) => { if (x?.seq) rseq = Math.max(rseq, x.seq); }).catch(() => {}); });
 }
 
+// ---------------- 인공지능 대화 가족 합의 (2026-10-13) ----------------
+// 시뮬레이션에서 "계약자 혼자 결정하는 구조가 불편하다"는 반응이 나와, 가족 누구나 동의·보류를 남기고 한 분이라도 보류하면 대화가 열리지 않게 했다.
+const STANCE = { agree: ["동의", "ok"], hold: ["보류", "warn"], none: ["아직 정하지 않음", ""] };
+async function renderConsensusCard() {
+  const box = $("#consensusCard"), d = state.me.deceased[0];
+  if (!box) return;
+  if (!d) { box.innerHTML = `<h2>인공지능 대화 가족 합의</h2><p class="muted">고인 정보가 등록되면 가족 합의를 남길 수 있습니다.</p>`; return; }
+  let c; try { c = await api(`/api/family/ai-consensus?deceased_id=${d.id}`); } catch (e) { box.innerHTML = `<h2>인공지능 대화 가족 합의</h2><p class="muted">${esc(e.message)}</p>`; return; }
+  if (!box.isConnected) return;
+  const me = c.members.find((x) => x.is_me) || { stance: "none", note: "" };
+  const status = !c.consent_valid ? ["동의서 없음", "시설에 등록된 직계가족 동의서가 아직 없어 대화가 열리지 않습니다."]
+    : c.held_by.length ? ["보류 중", `${c.held_by.join(", ")} 님이 보류해 대화가 열리지 않습니다.`] : ["열림", "가족 모두가 보류하지 않아 대화를 열 수 있습니다."];
+  box.innerHTML = `<div class="row between"><h2 style="margin:0">인공지능 대화 가족 합의</h2><span class="pill ${c.open ? "ok" : ""}">${status[0]}</span></div>
+    <p class="muted" style="margin:6px 0 10px">${esc(c.rule)}</p><p class="consensus-status">${esc(status[1])}</p>
+    <ul class="stance-list">${c.members.map((x) => `<li><b>${esc(x.name)}</b> <span class="muted">${esc(x.relation)}${x.is_me ? " · 나" : ""}</span><span class="stance ${STANCE[x.stance][1]}">${STANCE[x.stance][0]}</span>${x.note ? `<small class="muted">“${esc(x.note)}”</small>` : ""}</li>`).join("")}</ul>
+    <div class="stance-form"><span class="label">내 입장</span><div class="seg stance-seg" role="group">${["agree", "hold", "none"].map((k) => `<button type="button" data-stance="${k}" class="${me.stance === k ? "active" : ""}" aria-pressed="${me.stance === k}">${STANCE[k][0]}</button>`).join("")}</div>
+      <input id="stanceNote" maxlength="200" placeholder="가족에게 남길 이유 (선택)" value="${esc(me.note || "")}"></div>`;
+  box.querySelectorAll("[data-stance]").forEach((b) => b.onclick = async () => {
+    try {
+      await api("/api/family/ai-consensus", { method: "PUT", body: { deceased_id: d.id, stance: b.dataset.stance, note: $("#stanceNote", box).value.trim() } });
+      state.me = await api("/api/family/me"); toast(`내 입장을 '${STANCE[b.dataset.stance][0]}'으로 남겼습니다.`); renderConsensusCard();
+    } catch (e) { toast(e.message, 4000); }
+  });
+}
+
+// ---------------- 안심 안내 (2026-10-13): 서버 설정값에서 읽은 사실만 보여 준다 ----------------
+async function renderPolicy() {
+  let p; try { p = await api("/api/family/policy"); } catch (e) { failCard("안심 안내를", e, "policy"); return; }
+  const won = (n) => `${Number(n).toLocaleString("ko-KR")}원`;
+  const cats = {}; p.paid.forEach((s) => (cats[s.category_name] ||= []).push(s));
+  view.innerHTML = `<div class="page-heading"><span class="eyebrow">안심 안내</span><h1>무엇을 찍고, 무엇을 남기고, 언제 지우는지</h1><p class="muted">가족이 걱정하실 만한 점을 먼저 적었습니다. 아래 내용은 서버 설정값을 그대로 읽어 보여 드립니다.</p></div>
+    <section class="card policy" id="camera"><h2>봉안함 카메라 · 사진</h2><ul class="facts">
+      <li><b>사진</b> ${p.camera.snapshot_interval}초마다 한 장을 찍어 가족 화면에 보여 드립니다.</li>
+      <li><b>보관</b> 봉안함마다 <b>최신 한 장만</b> 서버에 두고, 새 사진이 오면 바로 지워집니다. 사진을 모아 두지 않습니다.</li>
+      <li><b>실시간 보기</b> 한 번에 ${p.camera.live_seconds}초이며, 영상은 <b>저장하지 않습니다</b>.</li>
+      <li><b>다른 참배객</b> ${p.camera.protect_visitors ? "현장에 다른 분이 계시면 실시간 영상을 멈추고 사진만 보여 드립니다." : "<span class='warn-text'>지금은 시연을 위해 참배객 감지가 꺼져 있습니다(운용 전에 켭니다).</span>"}</li>
+      <li><b>현장 안내문</b> ${p.camera.notice_posted ? "봉안실 입구와 봉안함 앞에 촬영 안내문을 두었습니다(시설 확인)." : "<span class='warn-text'>시설이 현장 촬영 안내문 게시를 아직 확인하지 않았습니다.</span>"}</li></ul></section>
+    <section class="card policy" id="ai"><h2>인공지능 추모 대화</h2><ul class="facts">
+      <li><b>표시</b> 모든 답과 목소리에 ‘인공지능’이 표시됩니다. 실제 고인이 아닙니다.</li>
+      <li><b>여는 조건</b> ${esc(p.ai.rule)}</li>
+      <li><b>기록</b> 대화 원문은 저장하지 않고 요약만 남깁니다. 한 번에 ${p.ai.max_minutes}분입니다.</li>
+      <li><b>사람에게 넘기는 경우</b> ${p.ai.handoff_kinds.join(" · ")} 이야기가 나오면 고인 역할을 멈추고 안내로 바꿉니다. 위기 신호가 보이면 ${esc(p.ai.crisis_line)}를 안내합니다.</li></ul></section>
+    <section class="card policy" id="delete"><h2>자료 삭제</h2><ul class="facts">
+      <li><b>작별 절차</b> 계약자가 설정 → 대화 기능 작별에서 닫으면 복제 음성·얼굴·기억 카드가 지워지고, ‘삭제’를 고르면 음성 자료와 대화 요약도 함께 지워집니다.</li>
+      <li><b>다른 가족</b> 계약자나 시설 담당자에게 요청하시면 됩니다. 내가 놓은 제단 아이템은 직접 치울 수 있습니다.</li>
+      <li><b>이 기기</b> 설정 → ‘이 기기에서 나가기’를 누르면 저장된 초대 링크가 지워집니다.</li></ul></section>
+    <section class="card policy" id="price"><h2>요금</h2><p class="free-note"><b>기본 기능은 추가 요금 없이</b> 계약 안에서 이용합니다.</p><ul class="facts">${p.free.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
+      <p class="muted">아래는 <b>원할 때만 고르는 선택 유료 서비스</b>입니다(시연 결제 · 가격은 예시). 헌화나 상차림을 주문하지 않아도 위 기능은 모두 쓸 수 있습니다.</p>
+      ${Object.entries(cats).map(([cat, items]) => `<h3>${esc(cat)}</h3><table class="price-table">${items.map((s) => `<tr><td>${esc(s.name)}</td><td class="num">${won(s.price)} / ${esc(s.unit)}</td></tr>`).join("")}</table>`).join("")}
+      <div class="row" style="gap:8px;margin-top:12px"><button type="button" class="secondary" data-go="shop">추모 서비스 보기</button></div></section>`;
+  view.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => go(b.dataset.go));
+  if (state.focus) { document.getElementById(state.focus)?.scrollIntoView({ block: "start" }); state.focus = null; }
+}
+
 // ---------------- 5. 가족 초대·설정(작별 포함) ----------------
 function lookChoices(key) {
   return `<div class="look-choices" role="group">${LOOK_OPTIONS[key].map(([v, name, sub]) => `<button type="button" class="choice" data-look="${key}" data-value="${v}" aria-pressed="false"><b>${name}</b><small>${sub}</small></button>`).join("")}</div>`;
@@ -826,6 +883,8 @@ async function renderSettings() {
       <section class="look-group" aria-labelledby="lookSize"><h3 id="lookSize"><span class="look-no">6</span>글자 크기 <small class="muted">이 기기만</small></h3>${lookChoices("size")}</section>
       <div class="look-actions"><p class="muted" id="themeStatus" role="status">지금 모습이 적용되어 있습니다.</p><div class="row"><button class="secondary" type="button" id="resetLookBtn" disabled>되돌리기</button><button type="button" id="applyThemeBtn" disabled>적용 중</button></div></div>
       <div class="row between motion-row" style="margin-top:12px"><span class="muted">화면 움직임(첫 화면·촛불·후광 장면)</span><button class="small ${motionReduced() ? "ghost" : "secondary"}" id="motionBtn" aria-pressed="${motionReduced()}">${motionReduced() ? "정지 화면 · 누르면 움직입니다" : window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "느리게 움직임(기기 설정) · 누르면 멈춥니다" : "움직임 켬 · 누르면 정지 화면"}</button></div></div>
+    <div class="card" id="consensusCard"><h2>인공지능 대화 가족 합의</h2><p class="muted" role="status">가족의 입장을 불러오는 중입니다…</p></div>
+    <div class="card trust-card"><h2>안심 안내</h2><p class="muted">무엇을 찍고, 무엇을 저장하고, 언제 지우는지, 그리고 무엇이 무료이고 무엇이 선택 유료인지 한 화면에 정리했습니다.</p><button class="secondary" type="button" data-go="policy">안심 안내 보기</button></div>
     <div class="card"><h2>가족</h2>
       ${members.map((m) => `<div class="list-item"><div><b>${esc(m.name)}</b> <span class="muted">${esc(m.relation)}</span>${m.is_minor ? '<span class="pill">미성년</span>' : ""}</div><span class="pill">${roleName[m.role]}</span></div>`).join("")}
       ${canManage ? `<button class="secondary" style="margin-top:12px" id="inviteBtn">가족 초대 링크 만들기</button>` : `<p class="muted" style="margin-top:8px">가족 초대는 계약자(${esc(me.contract.holder_name)} 님)가 할 수 있습니다. 초대가 필요하면 계약자에게 요청해 주세요.</p>`}
@@ -887,7 +946,8 @@ async function renderSettings() {
     $("[data-cancel]", m).onclick = () => m.querySelector(".modal-close").click();
     $("[data-ok]", m).onclick = async () => { localStorage.removeItem("family_token"); await fetch("/api/family/session", { method: "DELETE" }).catch(() => {}); location.href = "/"; };
   };
-  renderVoiceCard(); renderFaceCard();
+  renderVoiceCard(); renderFaceCard(); renderConsensusCard();
+  view.querySelectorAll(".trust-card [data-go]").forEach((b) => b.onclick = () => go(b.dataset.go));
   $("#inviteBtn") && ($("#inviteBtn").onclick = () => {
     const m = modal(`<h2>가족 초대</h2><p class="muted">만든 링크를 카카오톡으로 보내 주세요. 링크를 누르면 바로 열립니다.</p>
       <div class="field"><label for="ivName">이름</label><input id="ivName"></div>

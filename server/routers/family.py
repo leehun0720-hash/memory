@@ -30,6 +30,12 @@ def _style_of(raw) -> dict:
         return ThemeStyle().model_dump()
 
 
+def _held_by(deceased_id: int) -> list[dict]:
+    """인공지능 대화를 '보류'한(아직 접속이 살아 있는) 가족."""
+    return db.rows("""SELECT f.id, f.name FROM ai_family_stances s JOIN family_members f ON f.id=s.member_id
+                      WHERE s.deceased_id=? AND s.stance='hold' AND f.revoked_at IS NULL ORDER BY f.id""", (deceased_id,))
+
+
 def _deceased_for(contract_id: int) -> list[dict]:
     rows = db.rows("SELECT * FROM deceased WHERE contract_id=? ORDER BY id", (contract_id,))
     for d in rows:
@@ -37,7 +43,8 @@ def _deceased_for(contract_id: int) -> list[dict]:
         d["consent_valid"] = db.one(
             "SELECT id FROM consents WHERE deceased_id=? AND kind='ai_chat' AND revoked_at IS NULL", (d["id"],)
         ) is not None
-        d["chat_available"] = bool(d["ai_enabled"]) and d["consent_valid"]
+        d["family_hold"] = [r["name"] for r in _held_by(d["id"])]   # 대화를 보류한 가족(한 분이라도 있으면 열리지 않음)
+        d["chat_available"] = bool(d["ai_enabled"]) and d["consent_valid"] and not d["family_hold"]
         d["days_since_death"] = _days_since(d["death_date"])
         d["has_voice"] = bool(d.get("voice_id"))
         d["has_face"] = bool(d.get("face_id"))
@@ -509,6 +516,8 @@ def farewell(body: FarewellIn, m: dict = Depends(require_member)):
                 if p.exists():
                     p.unlink()
             conn.execute("DELETE FROM media WHERE deceased_id=? AND kind IN ('voice','message_video')", (d["id"],))
+            conn.execute("DELETE FROM chat_sessions WHERE deceased_id=?", (d["id"],))   # 대화 요약도 함께 지운다
+        conn.execute("DELETE FROM ai_family_stances WHERE deceased_id=?", (d["id"],))
     if body.last_words.strip():
         db.execute("INSERT INTO guestbook(contract_id, member_id, author, message, created_at) VALUES (?,?,?,?,?)",
                    (m["contract_id"], m["id"], m["name"], f"[작별 인사] {body.last_words.strip()}", db.now()))
@@ -870,3 +879,71 @@ def order_photo(order_id: int, m: dict = Depends(require_member)):
     if not o or not o["done_photo"]:
         raise HTTPException(404)
     return FileResponse(config.MEDIA_DIR / o["done_photo"])
+
+
+# ---------- 인공지능 대화 가족 합의 (2026-10-13) ----------
+# 시뮬레이션에서 "계약자 혼자 결정하는 구조가 불편하다"는 반응이 나와, 가족 누구나 '동의'·'보류'를 남기고 한 분이라도 보류하면 대화가 열리지 않게 했다.
+AI_RULE = "인공지능 추모 대화는 시설에 등록한 직계가족 동의서가 있고, 가족 중 누구도 '보류'하지 않을 때만 열립니다. 보류는 언제든 남기거나 거둘 수 있습니다."
+
+
+class StanceIn(BaseModel):
+    deceased_id: int
+    stance: Literal["agree", "hold", "none"]
+    note: str = Field("", max_length=200)
+
+
+@router.get("/ai-consensus")
+def ai_consensus(deceased_id: int, m: dict = Depends(require_member)):
+    d = _own_deceased(deceased_id, m)
+    rows = db.rows("""SELECT f.id, f.name, f.relation, f.role, s.stance, s.note, s.updated_at FROM family_members f
+                      LEFT JOIN ai_family_stances s ON s.member_id=f.id AND s.deceased_id=?
+                      WHERE f.contract_id=? AND f.revoked_at IS NULL ORDER BY f.id""", (d["id"], m["contract_id"]))
+    for r in rows:
+        r["stance"] = r["stance"] or "none"
+        r["is_me"] = r["id"] == m["id"]
+    held = [r["name"] for r in rows if r["stance"] == "hold"]
+    consent = db.one("SELECT id FROM consents WHERE deceased_id=? AND kind='ai_chat' AND revoked_at IS NULL", (d["id"],)) is not None
+    return {"deceased_id": d["id"], "members": rows, "held_by": held, "consent_valid": consent,
+            "open": consent and not held, "rule": AI_RULE}
+
+
+@router.put("/ai-consensus")
+def ai_consensus_set(body: StanceIn, m: dict = Depends(require_member)):
+    d = _own_deceased(body.deceased_id, m)
+    if body.stance == "none":
+        db.execute("DELETE FROM ai_family_stances WHERE deceased_id=? AND member_id=?", (d["id"], m["id"]))
+    else:
+        db.execute("""INSERT INTO ai_family_stances(deceased_id, member_id, stance, note, updated_at) VALUES (?,?,?,?,?)
+                      ON CONFLICT(deceased_id, member_id) DO UPDATE SET stance=excluded.stance, note=excluded.note, updated_at=excluded.updated_at""",
+                   (d["id"], m["id"], body.stance, body.note.strip(), db.now()))
+    db.audit(f"member:{m['id']}", "ai.stance", f"deceased:{d['id']}", body.stance)
+    return ai_consensus(d["id"], m)
+
+
+# ---------- 안심 안내: 무엇을 찍고, 무엇을 저장하고, 언제 지우는지 (2026-10-13) ----------
+# 화면 문구가 코드와 어긋나지 않도록 설정값에서 사실을 읽어 준다(js/app.js renderPolicy).
+@router.get("/policy")
+def policy(m: dict = Depends(require_member)):
+    from .. import services
+    from ..ai import safety
+    return {
+        "camera": {
+            "snapshot_interval": config.SNAPSHOT_INTERVAL,       # 초마다 사진 한 장
+            "live_seconds": config.LIVE_SECONDS,                 # 실시간 보기 한 번의 길이
+            "keeps_latest_only": True,                           # 봉안함마다 최신 사진 1장만 서버에 두고 새 사진이 오면 덮어쓴다
+            "records_video": False,                              # 실시간 영상은 저장하지 않는다
+            "protect_visitors": _live_protect(),                 # 현장에 다른 참배객이 있으면 실시간 영상을 멈춘다
+            "notice_posted": db.get_setting("camera_notice") == "1",   # 시설이 현장에 촬영 안내문을 게시했다고 확인함
+        },
+        "ai": {
+            "max_minutes": config.CHAT_MAX_MINUTES,
+            "stores_transcript": False,                          # 대화 원문은 저장하지 않고 요약만 남긴다
+            "crisis_line": safety.CRISIS_LINE,
+            "handoff_kinds": ["위기 신호(자해·자살 언급)", "유산·재산", "치료·약", "소송·법률"],   # 고인 역할을 멈추고 안내로 바꾸는 경우
+            "rule": AI_RULE,
+        },
+        "free": ["원격 참배(봉안함 사진 · 실시간 보기)", "추도식 · 법회 생중계와 반응", "추모 공간 · 방명록 · 추모 제단 · 가족 앨범",
+                 "인공지능 추모 대화(동의서 · 가족 합의 후)", "생전 좋아하신 노래", "가족 초대 · 일정 · 알림"],
+        "paid": services.catalog(),
+        "delete": {"farewell_by": "계약자", "voice_face_deleted": True, "summary_deleted_on_delete": True},
+    }

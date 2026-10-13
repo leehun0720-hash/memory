@@ -22,7 +22,9 @@ export function createShop({ api, esc, toast, modal, withToken, fmtDT, fmtD, sta
     view.innerHTML = `<div class="page-heading"><span class="eyebrow">추모 서비스</span><h1>마음을 대신 전해 드립니다</h1>
       <p class="muted">봉안함 헌화, 선물, 제사 상차림을 시설 직원이 정성껏 준비하고 사진으로 알려 드립니다.</p></div>
       <div class="notice demo-pay" role="note"><b>시연 결제</b> · 가격은 예시이며 실제 결제·청구가 일어나지 않습니다. 카드 번호 같은 결제 정보는 받지 않습니다.</div>
+      <p class="free-line"><b>헌화·상차림을 주문하지 않아도</b> 원격 참배, 추도식 생중계, 추모 공간, 인공지능 대화는 추가 요금 없이 이용합니다. 아래는 원할 때만 고르는 선택 서비스입니다. <button type="button" class="link-btn" data-policy>안심 안내 · 요금표</button></p>
       <div id="shopBody" aria-live="polite"><p class="muted" role="status">서비스를 불러오는 중입니다…</p></div>`;
+    view.querySelector("[data-policy]").onclick = () => { state.focus = "price"; go("policy"); };
     let cat, orders;
     try { [cat, orders] = await Promise.all([loadCatalog(), api("/api/family/orders")]); }
     catch (e) { $("#shopBody").innerHTML = `<div class="card" role="alert"><p>${esc(e.message)}</p></div>`; return; }

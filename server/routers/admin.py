@@ -104,7 +104,7 @@ def overview():
     }
     return {"cameras": cams, "counts": counts, "facility": db.one("SELECT * FROM facilities ORDER BY id LIMIT 1"),
             "live_protect": db.get_setting("live_ignore_occupied") != "1", "blur_outside": db.get_setting("blur_outside") != "0",
-            "demo_camera": demo_camera.mode()}
+            "demo_camera": demo_camera.mode(), "camera_notice": db.get_setting("camera_notice") == "1"}
 
 
 class DemoCameraIn(BaseModel):
@@ -121,6 +121,23 @@ def demo_camera_put(body: DemoCameraIn):
     db.set_setting("demo_camera", body.mode)
     db.audit("admin", "settings.demo_camera", "camera", body.mode)
     return demo_camera_get()
+
+
+class CameraNoticeIn(BaseModel):
+    posted: bool
+
+
+@router.get("/settings/camera-notice")
+def camera_notice_get():
+    return {"posted": db.get_setting("camera_notice") == "1"}
+
+
+@router.put("/settings/camera-notice")
+def camera_notice_put(body: CameraNoticeIn):
+    """봉안실 입구·봉안함 앞에 촬영 안내문을 두었는지 시설이 확인한다. 가족 화면 '안심 안내'에 그대로 보인다."""
+    db.set_setting("camera_notice", "1" if body.posted else "0")
+    db.audit("admin", "settings.camera_notice", "camera", "posted" if body.posted else "not_posted")
+    return camera_notice_get()
 
 
 class LiveSettingsIn(BaseModel):

@@ -75,6 +75,10 @@ def start(body: StartIn, m: dict = Depends(require_member)):
         raise HTTPException(403, "이 분과의 대화 기능은 아직 열려 있지 않습니다. 시설 담당자에게 문의해 주세요.")
     if not db.one("SELECT id FROM consents WHERE deceased_id=? AND kind='ai_chat' AND revoked_at IS NULL", (d["id"],)):
         raise HTTPException(403, "유효한 가족 동의서가 없어 대화를 열 수 없습니다. 시설 담당자에게 동의서 등록을 요청해 주세요.")
+    held = db.rows("""SELECT f.name FROM ai_family_stances s JOIN family_members f ON f.id=s.member_id
+                      WHERE s.deceased_id=? AND s.stance='hold' AND f.revoked_at IS NULL""", (d["id"],))
+    if held:
+        raise HTTPException(403, f"가족 합의가 아직 되지 않아 대화를 열 수 없습니다({', '.join(r['name'] for r in held)} 님 보류). 설정 → 인공지능 대화 가족 합의를 확인해 주세요.")
     if not body.acknowledged_ai:
         raise HTTPException(400, "인공지능 안내를 읽고 확인란에 표시해 주세요.")
     if m["is_minor"] and not body.guardian_present:

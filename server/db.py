@@ -140,6 +140,11 @@ CREATE TABLE IF NOT EXISTS tributes (
  member_id INTEGER NOT NULL REFERENCES family_members(id), kind TEXT NOT NULL,
  message TEXT DEFAULT '', created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ai_family_stances (            -- 인공지능 대화 가족 합의(2026-10-13): 가족 한 분이라도 '보류'면 대화가 열리지 않는다
+ deceased_id INTEGER NOT NULL REFERENCES deceased(id), member_id INTEGER NOT NULL REFERENCES family_members(id),
+ stance TEXT NOT NULL,                                       -- agree(동의) | hold(보류)
+ note TEXT DEFAULT '', updated_at TEXT NOT NULL, PRIMARY KEY(deceased_id, member_id)
+);
 CREATE TABLE IF NOT EXISTS service_orders (                -- 추모 서비스(유료) 주문: 헌화·선물·상차림·기도(server/services.py). 결제는 시연 결제.
  id INTEGER PRIMARY KEY, contract_id INTEGER NOT NULL REFERENCES contracts(id), member_id INTEGER NOT NULL REFERENCES family_members(id),
  deceased_id INTEGER NOT NULL REFERENCES deceased(id), service TEXT NOT NULL, qty INTEGER NOT NULL DEFAULT 1,

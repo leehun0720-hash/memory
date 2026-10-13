@@ -1072,3 +1072,30 @@ def test_paid_services_order_flow_demo_payment(client):
     assert client.post(f"/api/family/orders/{o2['id']}/cancel", headers=h2).status_code == 403
     assert client.post(f"/api/family/orders/{o2['id']}/cancel", headers=h).json()["status"] == "refunded"
     assert client.get("/api/admin/orders", headers=ADMIN).json()["summary"]["sales"] >= 30000
+
+
+def test_family_consensus_gates_ai_chat_and_policy_facts(client):
+    h, h2 = {"X-Family-Token": holder_token("이미영")}, {"X-Family-Token": holder_token("이준호")}
+    did = client.get("/api/family/me", headers=h).json()["deceased"][0]["id"]
+    c = client.get(f"/api/family/ai-consensus?deceased_id={did}", headers=h).json()
+    assert c["open"] is True and c["held_by"] == [] and any(x["is_me"] for x in c["members"])
+    # 보기·대화 권한 가족도 보류를 남길 수 있고, 한 분이라도 보류하면 대화가 열리지 않는다
+    r = client.put("/api/family/ai-consensus", headers=h2, json={"deceased_id": did, "stance": "hold", "note": "어머니가 원치 않으셨을 것 같아요"})
+    assert r.status_code == 200 and r.json()["held_by"] == ["이준호"] and r.json()["open"] is False
+    me = client.get("/api/family/me", headers=h).json()["deceased"][0]
+    assert me["family_hold"] == ["이준호"] and me["chat_available"] is False
+    r = client.post("/api/family/chat/start", headers=h, json={"deceased_id": did, "occasion": "평소", "acknowledged_ai": True})
+    assert r.status_code == 403 and "이준호" in r.json()["detail"]
+    # 보류를 거두면 다시 열린다
+    assert client.put("/api/family/ai-consensus", headers=h2, json={"deceased_id": did, "stance": "agree"}).json()["open"] is True
+    assert client.get("/api/family/me", headers=h).json()["deceased"][0]["chat_available"] is True
+    assert client.put("/api/family/ai-consensus", headers=h2, json={"deceased_id": did, "stance": "maybe"}).status_code == 422
+    # 안심 안내는 설정값을 그대로 읽는다
+    p = client.get("/api/family/policy", headers=h).json()
+    assert p["camera"]["snapshot_interval"] == config.SNAPSHOT_INTERVAL and p["camera"]["keeps_latest_only"] is True and p["camera"]["records_video"] is False
+    assert p["ai"]["stores_transcript"] is False and "109" in p["ai"]["crisis_line"] and len(p["free"]) >= 5 and len(p["paid"]) >= 10
+    assert p["camera"]["notice_posted"] is False
+    assert client.put("/api/admin/settings/camera-notice", headers=ADMIN, json={"posted": True}).json()["posted"] is True
+    assert client.get("/api/family/policy", headers=h).json()["camera"]["notice_posted"] is True
+    assert client.get("/api/admin/overview", headers=ADMIN).json()["camera_notice"] is True
+    assert client.get("/api/family/policy").status_code == 401

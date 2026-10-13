@@ -418,3 +418,30 @@ body.has-dock main#view { padding-bottom: 96px; }
 .demo-ok { font-size: 14px; }
 .paid-done { text-align: center; }
 .paid-mark { display: inline-grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 28px; margin-bottom: 6px; }
+
+/* ── 안심 안내 · 가족 합의 (2026-10-13) */
+.link-btn, .link-btn:not(:disabled):hover { display: inline; width: auto; min-height: 0; padding: 0; margin: 0; border: 0; background: none; box-shadow: none;
+  color: var(--accent); font: inherit; font-size: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.cam-note { margin: 10px 4px 0; font-size: 13px; line-height: 1.6; }
+.free-line { margin: 0 0 16px; padding: 12px 14px; border-radius: var(--r-sm); background: var(--surface-2); border-left: 3px solid var(--accent); font-size: 15px; line-height: 1.6; }
+.policy h2 { margin-top: 0; }
+.policy .facts { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 8px; }
+.policy .facts li { padding: 10px 14px; border-radius: var(--r-sm); background: var(--surface-2); line-height: 1.65; font-size: 15px; }
+.policy .facts li > b:first-child { display: inline-block; min-width: 7.5em; color: var(--accent); }
+.policy .warn-text { color: var(--danger); }
+.policy .free-note { margin: 0 0 10px; font-size: 16px; }
+.policy h3 { margin: 16px 0 6px; font-size: 15px; color: var(--muted); }
+.price-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.price-table td { padding: 8px 6px; border-bottom: 1px solid var(--line); }
+.price-table td.num { text-align: right; white-space: nowrap; font-family: var(--font-serif); }
+.consensus-status { margin: 0 0 10px; font-size: 15px; }
+.stance-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 6px; }
+.stance-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
+.stance-list li small { flex-basis: 100%; }
+.stance { margin-left: auto; font-size: 13px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--muted); }
+.stance.ok { background: #e3eee5; color: var(--ok); border-color: #bcd3c2; }
+.stance.warn { background: #f6e6e1; color: var(--danger); border-color: #e3c2b8; }
+.stance-form .label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+.stance-seg { display: flex; margin-bottom: 8px; }
+.stance-seg button { flex: 1; min-height: 46px; font-size: 15px; }
+.stance-form input { width: 100%; }
