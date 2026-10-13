@@ -322,7 +322,7 @@ async function renderVisit() {
       $("#camStatus").innerHTML = (s.camera_online
         ? (s.occupied && !demo ? `<span class="dot busy"></span>현장에 참배객이 계십니다` : `<span class="dot on"></span>카메라 연결됨`)
         : `<span class="dot"></span>현장 카메라가 꺼져 있습니다`) + (demo ? ' <span class="pill" title="참배객 감지를 꺼 둔 상태">시연 모드</span>' : "")
-        + (s.demo_camera ? ' <span class="pill demo-cam" title="현장 웹캠 대신 윤회당 봉안실 사진으로 만든 시연 화면입니다. 실제 현장 중계가 아닙니다.">시연 화면</span>' : "")
+        + (s.demo_camera ? ' <span class="pill demo-cam" title="현장 웹캠 대신 여해원 봉안실 사진으로 만든 시연 화면입니다. 실제 현장 중계가 아닙니다.">시연 화면</span>' : "")
         + (s.blurry ? ' <span class="pill" style="color:var(--danger)" title="윈도우 설정 → 카메라 → Windows 스튜디오 효과 → 배경 효과 끄기">카메라 영상 흐림</span>' : "");
       $("#snapAt").textContent = s.last_snapshot_at ? `사진 ${ago(s.last_snapshot_at)}` : "사진 없음";
       if (live.on && s.occupied && !demo) endLive("현장에 참배객이 계셔서 사진 화면으로 바꿨습니다.");

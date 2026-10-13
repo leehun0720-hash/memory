@@ -148,7 +148,7 @@ def niche_status(m: dict = Depends(require_member)):
         "live_protect": _live_protect(),
         "blurry": cam.online and 0 <= cam.sharpness < 40,
         "camera_online": cam.online,
-        "demo_camera": cam.online and cam.virtual,   # 서버가 윤회당 사진으로 만든 시연 화면(실제 현장 중계 아님)
+        "demo_camera": cam.online and cam.virtual,   # 서버가 여해원 사진으로 만든 시연 화면(실제 현장 중계 아님)
         "occupied": cam.occupied,
         "live_until": live["expires_at"] if live else None,
     }

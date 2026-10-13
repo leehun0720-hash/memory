@@ -720,7 +720,7 @@ def test_dream_scenes_are_generated_lottie_and_css_has_no_keyframes():
         a, b = scenes[name]["loop"]
         assert a <= scenes[name]["still"] < b
     # 인공지능 생성 이미지가 든 장면은 화면에 표시한다
-    assert "인공지능 생성" in scenes["entry-classic"]["credit"] and "윤회당" in scenes["entry-buddhist"]["credit"]
+    assert "인공지능 생성" in scenes["entry-classic"]["credit"] and "여해원" in scenes["entry-buddhist"]["credit"]
     # 예전 CSS 움직임(키프레임)은 모두 걷어냈다
     for css in (static / "css").glob("*.css"):
         assert not re.search(r"@keyframes", css.read_text(encoding="utf-8")), css.name
@@ -736,6 +736,17 @@ def test_demo_portrait_replaces_only_seed_placeholder(client, tmp_path):
     assert seed._is_placeholder(p)
     assert seed.refresh_demo_photos() == 1 and not seed._is_placeholder(p)
     assert seed.refresh_demo_photos() == 0                         # 실제(또는 이미 바꾼) 사진은 건드리지 않음
+
+
+def test_demo_facility_renamed_to_yeohaewon(client):
+    from server import seed
+    fid = db.one("SELECT id FROM facilities LIMIT 1")["id"]
+    assert db.one("SELECT name FROM facilities WHERE id=?", (fid,))["name"] == "여수 지장대사 여해원"
+    db.execute("UPDATE facilities SET name='여수 지장대사 윤회당' WHERE id=?", (fid,))   # 예전 시연 데이터라면
+    assert seed.rename_demo_facility() == 1
+    assert db.one("SELECT name FROM facilities WHERE id=?", (fid,))["name"] == "여수 지장대사 여해원"
+    db.execute("UPDATE facilities SET name='관리자가 정한 이름' WHERE id=?", (fid,))
+    assert seed.rename_demo_facility() == 0                       # 직접 바꾼 이름은 그대로
 
 
 

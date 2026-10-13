@@ -1,7 +1,7 @@
 """몽환적 실사 Lottie 장면 만들기 (2026-10-12).
 
 사용: 저장소 루트에서  python scripts/make_dream_lottie.py [원본 이미지 폴더]
-  원본 폴더 기본값: ../_assets/dream-2026-10-12  (yoonhd/ = 윤회당 제공 사진, generated/ = 인공지능 생성 이미지)
+  원본 폴더 기본값: ../_assets/dream-2026-10-12  (yoonhd/ = 여해원 제공 사진, generated/ = 인공지능 생성 이미지)
 
 만드는 파일 (server/static/ 아래, 같은 입력이면 항상 같은 결과):
   lottie/dream/img/*.webp            장면에 쓰는 사진·꽃·촛불·연기·안개·빛망울 (Lottie 이미지 레이어, assetsPath 로 경로 지정)
@@ -348,7 +348,7 @@ ENTRY = {
     "classic": {"bg": ["bg-classic"], "fg": "fg-chrysanthemum", "mirror": False, "glow": (0.24, 0.18),
                 "credit": "인공지능 생성 이미지"},
     "buddhist": {"bg": ["bg-buddhist-dusk", "bg-buddhist-night"], "fg": "fg-lotus", "mirror": False, "glow": (0.62, 0.30),
-                 "credit": "사진: 지장대사 윤회당 · 연꽃: 인공지능 생성 이미지"},
+                 "credit": "사진: 지장대사 여해원 · 연꽃: 인공지능 생성 이미지"},
     "catholic": {"bg": ["bg-catholic"], "fg": "fg-lily", "mirror": False, "glow": (0.55, 0.12),
                  "credit": "인공지능 생성 이미지"},
     "christian": {"bg": ["bg-christian"], "fg": "fg-lily", "mirror": True, "glow": (0.30, 0.10),

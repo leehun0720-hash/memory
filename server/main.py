@@ -39,7 +39,9 @@ async def lifespan(_: FastAPI):
         from . import seed
         seed.run(quiet=True)
         logging.getLogger(__name__).info("AUTO_SEED: 시연 데이터를 만들었습니다.")
-    from .seed import refresh_demo_photos
+    from .seed import refresh_demo_photos, rename_demo_facility
+    if rename_demo_facility():
+        logging.getLogger(__name__).info("시연 시설 이름을 '여수 지장대사 여해원'으로 바꿨습니다.")
     if refresh_demo_photos():
         logging.getLogger(__name__).info("시연 고인 사진을 인공지능 생성 가상 인물 초상으로 바꿨습니다.")
     from .notifications import run

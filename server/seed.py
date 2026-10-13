@@ -77,6 +77,20 @@ def refresh_demo_photos() -> int:
     return n
 
 
+FACILITY_NAME = "여수 지장대사 여해원"   # 麗海苑: 여수의 고운 바다가 감싸 안은 쉼의 동산 (2026-10-13, 옛 이름 윤회당)
+_OLD_FACILITY_NAMES = ("여수 지장대사 윤회당",)
+
+
+def rename_demo_facility() -> int:
+    """예전 시연 데이터의 시설 이름(윤회당)을 새 이름으로 바꾼다. 관리자가 직접 바꾼 다른 이름은 건드리지 않는다."""
+    n = 0
+    for old in _OLD_FACILITY_NAMES:
+        if db.one("SELECT id FROM facilities WHERE name=?", (old,)):
+            db.execute("UPDATE facilities SET name=? WHERE name=?", (FACILITY_NAME, old))
+            n += 1
+    return n
+
+
 def run(reset: bool = False, quiet: bool = False) -> None:
     if quiet:
         global print
@@ -93,7 +107,7 @@ def run(reset: bool = False, quiet: bool = False) -> None:
         return
 
     now = datetime.now().astimezone()
-    fid = db.execute("INSERT INTO facilities(name, address) VALUES (?,?)", ("여수 지장대사 윤회당", "전라남도 여수시"))
+    fid = db.execute("INSERT INTO facilities(name, address) VALUES (?,?)", (FACILITY_NAME, "전라남도 여수시"))
     rid = db.execute("INSERT INTO rooms(facility_id, name) VALUES (?,?)", (fid, "안치실 1"))
     ritual_room = db.execute("INSERT INTO rooms(facility_id, name) VALUES (?,?)", (fid, "제례 공간"))
     cam = db.execute("INSERT INTO cameras(room_id, name, kind, device_index, width, height) VALUES (?,?,?,?,?,?)",
