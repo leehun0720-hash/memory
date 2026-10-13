@@ -44,6 +44,8 @@ def require_member(request: Request, x_family_token: str | None = Header(default
         raise HTTPException(401, "이 초대 링크로는 들어올 수 없습니다. 계약하신 가족에게 새 초대 링크를 요청해 주세요.")
     if m.get("invite_expires_at") and datetime.fromisoformat(m["invite_expires_at"]) <= datetime.now(timezone.utc):
         raise HTTPException(401, "초대 링크의 사용 기간이 지났습니다. 계약하신 가족에게 새 링크를 요청해 주세요.")
+    from .public_demo import guard
+    guard(request, m)   # 공개 시연(PUBLIC_DEMO) 시연 가족이면 올리기·권한 변경을 막는다
     db.execute("UPDATE family_members SET last_seen_at=? WHERE id=?", (db.now(), m["id"]))
     return m
 

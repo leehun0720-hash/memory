@@ -224,7 +224,7 @@ async function renderLauncher() {
   try { const r = await fetch("/api/launcher"); if (!r.ok) return false; L = await r.json(); } catch { return false; }
   const roleName = { view: "보기", chat: "보기·대화", manage: "계약자(관리)" };
   const pick = L.members.find((m) => m.role === "manage") || L.members[0];
-  const admin = esc(L.admin_url);
+  const admin = L.admin_url ? esc(L.admin_url) : "";   // 온라인 공개 시연(L.public)에는 관리자 주소가 없다
   const staff = [
     ["overview", "현황 · 시연 카메라", "봉안실 카메라 상태, 시연 화면 켜고 끄기"],
     ["aisettings", "인공지능 연결 키 등록", "Claude · ElevenLabs · D-ID 키를 넣고 연결 테스트"],
@@ -235,7 +235,7 @@ async function renderLauncher() {
     <section class="memorial-hero launch-intro" aria-labelledby="launchTitle"><div class="memorial-hero-copy"><span class="eyebrow">MVP 시연 · 가족 추모 공간</span>
       <h1 id="launchTitle">그리운 마음을,<br>가까이 전합니다.</h1>
       <p>${esc(L.facility || "봉안당")}의 원격 참배, 추도식 생중계, 인공지능 추모 대화를 직접 써 보세요. 시연 속 인물은 모두 가상입니다.</p>
-      <div class="hero-cta">${pick ? `<a class="btn hero-primary" href="${esc(pick.url)}">${esc(pick.name)} 님으로 바로 체험 <span aria-hidden="true">→</span></a>` : ""}<a class="btn ghost-light" href="${admin}" target="_blank" rel="noopener">관리자 콘솔 열기 (새 창)</a></div></div>
+      <div class="hero-cta">${pick ? `<a class="btn hero-primary" href="${esc(pick.url)}">${esc(pick.name)} 님으로 바로 체험 <span aria-hidden="true">→</span></a>` : ""}${admin ? `<a class="btn ghost-light" href="${admin}" target="_blank" rel="noopener">관리자 콘솔 열기 (새 창)</a>` : ""}</div></div>
       <div class="hero-art" id="heroArt"></div></section>
     ${TOKEN ? `<div class="card continue-bar"><span>이 기기에는 이전에 연 가족 화면이 저장돼 있습니다.</span><a class="btn small secondary" href="/">이어서 보기</a></div>` : ""}
     <div class="launch-grid">
@@ -245,18 +245,22 @@ async function renderLauncher() {
           <small>${esc(m.relation)} · ${esc(m.deceased_names || "고인 정보 등록 전")} · 봉안함 ${esc(m.niche_code || "-")} · ${m.plan === "premium" ? "프리미엄" : "기본"}</small></span><span class="go" aria-hidden="true">→</span></a></li>`).join("")}</ul>`
           : '<p class="muted">아직 시연 계정이 없습니다. 관리자 콘솔에서 계약·가족을 만들거나, 명령 창에서 python -m server.seed 를 실행해 주세요.</p>'}
       </section>
-      <section class="card" aria-labelledby="staffTitle"><div class="launch-head"><span class="launch-no">02</span><div><h2 id="staffTitle">직원으로 운영하기</h2><p class="muted">관리자 콘솔은 새 창으로 열립니다.</p></div></div>
+      ${admin ? `<section class="card" aria-labelledby="staffTitle"><div class="launch-head"><span class="launch-no">02</span><div><h2 id="staffTitle">직원으로 운영하기</h2><p class="muted">관리자 콘솔은 새 창으로 열립니다.</p></div></div>
         <ul class="staff-links">${staff.map(([page, title, sub]) => `<li><a href="${admin}#${page}" target="_blank" rel="noopener"><span class="s-body"><b>${title}</b><small>${sub}</small></span><span class="go" aria-hidden="true">↗</span></a></li>`).join("")}</ul>
-      </section>
+      </section>` : `<section class="card" aria-labelledby="pubTitle"><div class="launch-head"><span class="launch-no">02</span><div><h2 id="pubTitle">공개 시연 안내</h2><p class="muted">누구나 같은 시연 가족으로 함께 둘러봅니다.</p></div></div>
+        <ul class="steps"><li><b>그대로 써 보세요</b><span>원격 참배·30초 실시간 보기, 추도식 생중계와 반응, 인공지능 추모 대화, 헌화·방명록.</span></li>
+        <li><b>막아 둔 기능</b><span>사진·음원·목소리 올리기, 가족 초대·권한 바꾸기는 실제 계약 가족만 쓸 수 있습니다.</span></li>
+        <li><b>인공지능 대화</b><span>공개 시연에서는 규칙 기반 시연 대화로 답합니다.</span></li></ul>
+      </section>`}
     </div>
     <section class="card launch-steps" aria-labelledby="stepsTitle"><h2 id="stepsTitle">10분 시연 순서</h2><ol class="steps">
-      <li><b>연결 키 등록</b><span>직원 콘솔 ‘인공지능 설정’에서 키를 넣고 연결 테스트. 키가 없어도 규칙 기반 대화로 시연됩니다.</span></li>
+      ${admin ? `<li><b>연결 키 등록</b><span>직원 콘솔 ‘인공지능 설정’에서 키를 넣고 연결 테스트. 키가 없어도 규칙 기반 대화로 시연됩니다.</span></li>` : ""}
       <li><b>원격 참배</b><span>가족 화면 첫 장에서 봉안함 사진을 보고 ‘실시간으로 뵙기’.</span></li>
       <li><b>추도식 생중계</b><span>‘일정’에서 생중계를 열고 합장·헌화 반응과 메시지 보내기.</span></li>
       <li><b>인공지능 추모 대화</b><span>‘대화’에서 안내에 동의하고 이야기 나누기. 끝내면 요약만 남습니다.</span></li>
-      <li><b>가족 기억</b><span>‘추모’에서 방명록을 쓰고, 가족 앨범에 기억 남기기.</span></li>
+      <li><b>가족 기억</b><span>‘추모’에서 방명록을 쓰고, 가족 앨범에 기억 ${L.public ? "둘러보기" : "남기기"}.</span></li>
     </ol></section>
-    <p class="launch-note">시연 표시 원칙: 인물·계약은 모두 가상입니다. 인공지능이 만든 답·목소리·사진에는 ‘인공지능’ 표시가 붙고, 현장 웹캠 대신 나오는 화면에는 ‘시연 화면’이 찍힙니다. 실제 결제·카카오톡 발송은 없습니다. 이 시작 화면은 서버를 켠 컴퓨터에서만 보이며, 가족에게는 초대 링크를 보내 주세요.</p>
+    <p class="launch-note">시연 표시 원칙: 인물·계약은 모두 가상입니다. 인공지능이 만든 답·목소리·사진에는 ‘인공지능’ 표시가 붙고, 현장 웹캠 대신 나오는 화면에는 ‘시연 화면’이 찍힙니다. 실제 결제·카카오톡 발송은 없습니다. ${L.public ? "온라인 공개 시연이라 여러 방문객이 같은 시연 가족을 함께 씁니다. 남긴 글은 다른 방문객에게도 보입니다." : "이 시작 화면은 서버를 켠 컴퓨터에서만 보이며, 가족에게는 초대 링크를 보내 주세요."}</p>
   </div>`;
   mountArt($("#heroArt"), state.theme, motionReduced());
   return true;

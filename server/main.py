@@ -154,6 +154,16 @@ def health():
 def launcher(request: Request):
     """같은 컴퓨터에서 초대 링크 없이 /를 열었을 때 보여 주는 시작 화면용 바로가기(관리자 콘솔·시연 계정).
     로컬(127.0.0.1) 직접 접속에만 열리고, 프록시 뒤·서버리스(EPHEMERAL)·외부 접속에는 404."""
+    if config.PUBLIC_DEMO:
+        # 온라인 공개 시연: 시연 가족만, 관리자 주소는 내보내지 않는다
+        from .public_demo import launcher_members
+        fac = db.one("SELECT name FROM facilities LIMIT 1")
+        return {
+            "facility": fac["name"] if fac else "", "admin_url": None, "public": True,
+            "members": [{"id": r["id"], "name": r["name"], "relation": r["relation"], "role": r["role"], "holder_name": r["holder_name"],
+                         "plan": r["plan"], "niche_code": r["niche_code"], "deceased_names": r["deceased_names"] or "",
+                         "url": f"/?t={r['invite_token']}"} for r in launcher_members()],
+        }
     client = (request.client.host if request.client else "") or ""
     host = request.headers.get("host", "").split(":")[0].strip("[]")
     if (client not in ("127.0.0.1", "::1") or host not in ("127.0.0.1", "localhost", "::1")

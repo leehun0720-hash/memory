@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from .. import config, db, face, ratelimit, voice
+from .. import config, db, face, public_demo, ratelimit, voice
 from ..ai import factory, safety
+from ..ai.llm_mock import MockLLM
 from ..ai.base import Persona, Turn
 from ..ai.prompt import build_greeting
 from ..deps import require_member, require_role
@@ -95,18 +96,22 @@ def start(body: StartIn, m: dict = Depends(require_member)):
     sid = db.token(12)
     persona = _persona(d, m, body.occasion)
     greeting = build_greeting(persona)
+    public = public_demo.is_public(m)   # 공개 시연: 비용이 드는 외부 인공지능 대신 규칙 기반 시연 대화
+    llm = MockLLM() if public else factory.llm()
+    if public:
+        notices.append("공개 시연에서는 규칙 기반 시연 대화로 답합니다. 실제 서비스에서는 가족이 남긴 기억으로 더 자연스럽게 답합니다.")
     with _lock:
         _sessions[sid] = {"persona": persona, "history": [Turn("assistant", greeting)], "started": time.time(),
-                          "safety_events": [], "deceased_id": d["id"], "member_id": m["id"]}
+                          "safety_events": [], "deceased_id": d["id"], "member_id": m["id"], "llm": llm, "public": public}
     db.execute("INSERT INTO chat_sessions(id, deceased_id, member_id, started_at, provider) VALUES (?,?,?,?,?)",
-               (sid, d["id"], m["id"], db.now(), factory.llm().name))
+               (sid, d["id"], m["id"], db.now(), llm.name))
     db.audit(f"member:{m['id']}", "chat.start", f"deceased:{d['id']}", body.occasion)
-    voice_available = bool(d["voice_id"]) and factory.tts().name != "browser"
+    voice_available = not public and bool(d["voice_id"]) and factory.tts().name != "browser"
     avatar_available = voice_available and bool(d["face_id"]) and face.provider_ready()   # 아바타는 서버 음성이 있을 때만
     return {
         "avatar_available": avatar_available, "avatar_provider": factory.avatar().name if avatar_available else None,
         "session_id": sid, "greeting": greeting, "notice": AI_NOTICE, "notices": notices,
-        "max_seconds": config.CHAT_MAX_MINUTES * 60, "provider": factory.llm().name,
+        "max_seconds": config.CHAT_MAX_MINUTES * 60, "provider": llm.name,
         "photo_url": f"/api/family/deceased/{d['id']}/photo.jpg" if d["photo_path"] else None,
         "voice_available": voice_available, "voice_provider": factory.tts().name if voice_available else "browser",
         "voice_hint": "female" if any(k in (d["honorific"] or "") for k in ("어머니", "엄마", "할머니", "아내", "누나", "언니", "이모", "고모")) else
@@ -162,7 +167,7 @@ def turn(body: TurnIn, m: dict = Depends(require_member)):
         _finish(body.session_id, s)
         return {"reply": reply, "safety": None, "persona_stopped": False, "ended": True, "remaining_seconds": 0}
 
-    reply = safety.scrub_reply(factory.llm().reply(persona, s["history"], body.text))
+    reply = safety.scrub_reply((s.get("llm") or factory.llm()).reply(persona, s["history"], body.text))
     s["history"].append(Turn("user", body.text))
     s["history"].append(Turn("assistant", reply))
     db.execute("UPDATE chat_sessions SET turns=turns+1 WHERE id=?", (body.session_id,))
@@ -170,7 +175,7 @@ def turn(body: TurnIn, m: dict = Depends(require_member)):
 
 
 def _finish(sid: str, s: dict) -> None:
-    summary = factory.llm().summarize(s["persona"], s["history"])
+    summary = (s.get("llm") or factory.llm()).summarize(s["persona"], s["history"])
     db.execute("UPDATE chat_sessions SET ended_at=?, summary=?, safety_events=? WHERE id=?",
                (db.now(), summary, json.dumps(s["safety_events"], ensure_ascii=False), sid))
     with _lock:
@@ -224,7 +229,7 @@ def tts(session_id: str, text: str, m: dict = Depends(require_member)):
     if not s or s["member_id"] != m["id"]:
         raise HTTPException(404, "대화 세션이 없습니다.")
     d = db.one("SELECT voice_id FROM deceased WHERE id=?", (s["deceased_id"],))
-    if not d or not d["voice_id"]:
+    if not d or not d["voice_id"] or s.get("public"):   # 공개 시연은 브라우저 음성으로
         return Response(status_code=204)
     _speakable(s, text)
     ratelimit.hit(f"tts:{m['id']}", 30, 60)
@@ -249,6 +254,8 @@ def avatar_session(body: AvatarSessionIn, m: dict = Depends(require_member)):
         s = _sessions.get(body.session_id)
     if not s or s["member_id"] != m["id"]:
         raise HTTPException(404, "대화 세션이 없습니다.")
+    if s.get("public"):
+        raise HTTPException(404, "공개 시연에서는 실시간 아바타 대신 사진으로 진행합니다.")
     sess = face.session(s["deceased_id"])
     if not sess:
         raise HTTPException(404, "실시간 아바타를 쓸 수 없습니다. 사진 아바타로 진행합니다.")
@@ -269,7 +276,7 @@ def avatar_speak(body: AvatarSpeakIn, m: dict = Depends(require_member)):
     if not s or s["member_id"] != m["id"]:
         raise HTTPException(404, "대화 세션이 없습니다.")
     d = db.one("SELECT voice_id FROM deceased WHERE id=?", (s["deceased_id"],))
-    if not d or not d["voice_id"]:
+    if not d or not d["voice_id"] or s.get("public"):
         raise HTTPException(400, "복제 음성이 없습니다.")
     _speakable(s, body.text)
     ratelimit.hit(f"tts:{m['id']}", 30, 60)

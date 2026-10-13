@@ -749,6 +749,37 @@ def test_demo_facility_renamed_to_yeohaewon(client):
     assert seed.rename_demo_facility() == 0                       # 직접 바꾼 이름은 그대로
 
 
+def test_public_demo_entry_hides_admin_blocks_changes_and_uses_mock_ai(client, monkeypatch):
+    from server import public_demo
+    from server.ai import factory
+    assert client.get("/api/launcher").status_code == 404           # 평소: 테스트 접속(로컬 아님)에는 닫힘
+    monkeypatch.setattr(config, "PUBLIC_DEMO", True)
+    L = client.get("/api/launcher").json()
+    assert L["public"] and L["admin_url"] is None and config.ADMIN_KEY not in str(L)
+    demo = public_demo.demo_contract_ids()
+    for m in L["members"]:
+        row = db.one("SELECT contract_id, is_minor FROM family_members WHERE id=?", (m["id"],))
+        assert row["contract_id"] in demo and not row["is_minor"]
+    tok = {"X-Family-Token": holder_token()}
+    did = client.get("/api/family/me", headers=tok).json()["deceased"][0]["id"]
+    # 바꾸면 다른 방문객의 시연이 망가지거나 저장 공간을 쓰는 일은 막는다
+    r = client.post("/api/family/invite", headers=tok, json={"name": "방문객", "relation": "지인"})
+    assert r.status_code == 403 and r.json()["detail"] == public_demo.BLOCK_MESSAGE
+    assert client.put("/api/family/ai-consensus", headers=tok, json={"deceased_id": did, "stance": "hold"}).status_code == 403
+    assert client.post("/api/family/music", headers=tok, data={"deceased_id": did}, files={"file": ("a.mp3", b"x", "audio/mpeg")}).status_code == 403
+    # 참배·방명록·대화는 그대로, 대화는 외부 인공지능을 부르지 않는다
+    assert client.post("/api/family/guestbook", headers=tok, json={"message": "늘 감사합니다"}).status_code == 200
+    def no_external():
+        raise AssertionError("공개 시연에서 외부 인공지능을 불렀습니다")
+    monkeypatch.setattr(factory, "llm", no_external)
+    s = client.post("/api/family/chat/start", headers=tok, json={"deceased_id": did, "acknowledged_ai": True})
+    assert s.status_code == 200, s.text
+    assert s.json()["provider"] == "mock" and not s.json()["voice_available"]
+    t = client.post("/api/family/chat/turn", headers=tok, json={"session_id": s.json()["session_id"], "text": "보고 싶어요"})
+    assert t.status_code == 200 and t.json()["reply"]
+    assert client.post("/api/family/chat/end", headers=tok, json={"session_id": s.json()["session_id"]}).status_code == 200
+
+
 
 # ---------- 목소리 등록: 실시간 녹음·여러 형식 파일·여러 개 합치기·기능이 꺼져 있을 때 저장 (2026-10-12) ----------
 

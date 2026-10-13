@@ -176,6 +176,7 @@ tests/test_mvp.py  29개 테스트: python -m pytest -q
 
 1. 프로젝트·서비스·볼륨: `railway init --name <이름>` → `railway add --service memorial` → `railway service link memorial` → `railway volume add --mount-path /data`
 2. 일반 변수: `DATA_DIR=/data`, `LAUNCHER=0`, `AUTO_SEED=1`(처음에 시연 데이터를 넣을 때만), `KAKAO_SEND_ENABLED=0`
+   - 공개 시연(2026-10-13): `PUBLIC_DEMO=1` 이면 `/demo` 에 시드 시연 가족(가상 인물, 미성년 제외)만 보이고 누구나 들어옵니다. 관리자 주소·키는 내보내지 않습니다. 시연 가족은 사진·음원·목소리·얼굴 올리기, 초대·권한·작별 절차·인공지능 가족 합의 바꾸기가 막히고(403), 인공지능 대화는 키가 있어도 규칙 기반 시연 대화(비용 없음), 쓰기는 접속 주소당 한 시간 120번까지. 실제 계약 가족은 영향 없음(`server/public_demo.py`).
 3. 비밀 키: **`powershell -NoProfile -File scripts\railway-keys.ps1`** — 강한 무작위 `ADMIN_KEY`·`EDGE_KEY`·`SEED_SALT` 를 만들어 넣고, 관리자 키는 내 문서 폴더에만 저장합니다. Railway 에서는 키가 기본값이거나 24자보다 짧으면 서버가 켜지지 않습니다(`server/config.py`).
 4. 배포·주소: `railway up --service memorial --detach` → `railway domain --service memorial`
 5. 인공지능·음성 키(`ANTHROPIC_API_KEY` 등)는 Railway 화면의 Variables 에서 직접 넣습니다. 넣지 않으면 시연용 응답(Mock)으로 동작합니다.

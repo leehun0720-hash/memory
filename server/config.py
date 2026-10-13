@@ -50,6 +50,9 @@ DATA_DIR, EPHEMERAL = _writable_data_dir()   # EPHEMERAL: /tmp 로 내려간 상
 AUTO_SEED = os.getenv("AUTO_SEED", "0") == "1"           # 서버 시작 시 비어 있으면 시연 데이터 생성
 SEED_SALT = os.getenv("SEED_SALT", "")
 LAUNCHER_DISABLED = os.getenv("LAUNCHER", "1") != "1"   # LAUNCHER=0 이면 로컬 시작 화면(바로가기)도 끔                   # 있으면 시연 초대 토큰이 고정됨(서버리스 재시작에도 링크 유지)
+# 온라인 공개 시연: 시드로 만든 시연 가족으로 누구나 /demo 에서 입장(관리자 주소·키는 비공개).
+# 시연 가족은 올리기·권한 변경을 막고 인공지능은 규칙 기반 시연 대화로만 답한다(server/public_demo.py).
+PUBLIC_DEMO = os.getenv("PUBLIC_DEMO", "0") == "1"
 SNAPSHOT_DIR = DATA_DIR / "snapshots"
 FRAME_DIR = DATA_DIR / "frames"
 MEDIA_DIR = DATA_DIR / "media"
