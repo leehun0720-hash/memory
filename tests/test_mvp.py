@@ -780,6 +780,73 @@ def test_public_demo_entry_hides_admin_blocks_changes_and_uses_mock_ai(client, m
     assert client.post("/api/family/chat/end", headers=tok, json={"session_id": s.json()["session_id"]}).status_code == 200
 
 
+# ---------- 아이디·비밀번호 로그인 (2026-10-14) ----------
+
+def test_staff_login_opens_console_but_not_staff_management(client):
+    from server import accounts
+    r = client.post("/api/admin/staff", headers=ADMIN, json={"login_id": "Kim.Staff", "name": "김직원", "password": "short"})
+    assert r.status_code == 400                                                   # 비밀번호 8자 미만
+    r = client.post("/api/admin/staff", headers=ADMIN, json={"login_id": "Kim.Staff", "name": "김직원", "password": "correct horse 1"})
+    assert r.status_code == 200, r.text
+    sid = r.json()["id"]
+    row = db.one("SELECT login_id, pw_hash FROM staff_accounts WHERE id=?", (sid,))
+    assert row["login_id"] == "kim.staff" and row["pw_hash"].startswith("scrypt$") and "correct horse" not in row["pw_hash"]
+    wrong = client.post("/api/login/staff", json={"login_id": "kim.staff", "password": "nope-nope"})
+    unknown = client.post("/api/login/staff", json={"login_id": "nobody.here", "password": "nope-nope"})
+    assert wrong.status_code == unknown.status_code == 401 and wrong.json()["detail"] == unknown.json()["detail"]
+    ok = client.post("/api/login/staff", json={"login_id": "KIM.STAFF", "password": "correct horse 1"})
+    assert ok.status_code == 200 and ok.json()["token"].startswith("stf_")
+    st = {"X-Admin-Key": ok.json()["token"]}
+    assert client.get("/api/admin/overview", headers=st).status_code == 200      # 직원 로그인으로 콘솔 사용
+    assert client.get("/api/admin/staff", headers=st).status_code == 403          # 직원 관리는 관리자 키로만
+    c = client.post("/api/admin/session", headers=st)
+    assert c.cookies.get("ma") == ok.json()["token"] and config.ADMIN_KEY not in c.headers.get("set-cookie", "")
+    client.cookies.clear()
+    assert db.one("SELECT COUNT(*) AS n FROM staff_sessions WHERE token_hash=?", (accounts._token_hash(ok.json()["token"]),))["n"] == 1
+    # 사용 중지하면 기존 로그인도 끝나고 새 로그인도 안 됨
+    assert client.post(f"/api/admin/staff/{sid}/disable", headers=ADMIN).status_code == 200
+    assert client.get("/api/admin/overview", headers=st).status_code == 401
+    assert client.post("/api/login/staff", json={"login_id": "kim.staff", "password": "correct horse 1"}).status_code == 401
+    assert client.post(f"/api/admin/staff/{sid}/enable", headers=ADMIN).status_code == 200
+    again = client.post("/api/login/staff", json={"login_id": "kim.staff", "password": "correct horse 1"}).json()["token"]
+    assert client.post("/api/login/staff/logout", headers={"X-Admin-Key": again}).status_code == 200
+    assert client.get("/api/admin/overview", headers={"X-Admin-Key": again}).status_code == 401
+
+
+def test_family_sets_own_login_and_signs_in_with_it(client):
+    tok = {"X-Family-Token": holder_token("이준호")}
+    assert client.get("/api/family/account", headers=tok).json() == {"login_id": None}
+    assert client.put("/api/family/account", headers=tok, json={"login_id": "ab", "password": "long enough 1"}).status_code == 400
+    assert client.put("/api/family/account", headers=tok, json={"login_id": "junho", "password": "short"}).status_code == 400
+    assert client.put("/api/family/account", headers=tok, json={"login_id": "yeohae-demo", "password": "long enough 1"}).status_code == 400   # 이미 쓰이는 아이디(시연 가족)
+    r = client.put("/api/family/account", headers=tok, json={"login_id": "Junho.Lee", "password": "long enough 1"})
+    assert r.status_code == 200 and r.json()["login_id"] == "junho.lee"
+    bad = client.post("/api/login/family", json={"login_id": "junho.lee", "password": "wrong password"})
+    assert bad.status_code == 401
+    ok = client.post("/api/login/family", json={"login_id": "junho.lee", "password": "long enough 1"})
+    assert ok.status_code == 200 and ok.json()["token"] == holder_token("이준호")
+    assert client.get("/api/family/me", headers={"X-Family-Token": ok.json()["token"]}).json()["member"]["name"] == "이준호"
+    # 시연 가족 로그인(내 컴퓨터 시연에서 서버 시작 때 만들어짐)
+    demo = client.post("/api/login/family", json={"login_id": "yeohae-demo", "password": "yeohae-2026"})
+    assert demo.status_code == 200 and demo.json()["token"] == holder_token("이미영")
+
+
+def test_login_attempts_are_rate_limited(client):
+    for _ in range(10):
+        assert client.post("/api/login/family", json={"login_id": "someone", "password": "guess-guess"}).status_code == 401
+    assert client.post("/api/login/family", json={"login_id": "someone", "password": "guess-guess"}).status_code == 429
+
+
+def test_public_demo_login_hint_and_locked_demo_account(client, monkeypatch):
+    assert client.get("/api/login/hint").status_code == 404                       # 평소: 외부(테스트) 접속에는 안 알려 줌
+    monkeypatch.setattr(config, "PUBLIC_DEMO", True)
+    h = client.get("/api/login/hint").json()
+    assert h["login_id"] == "yeohae-demo" and h["member"] == "이미영"
+    tok = {"X-Family-Token": holder_token()}
+    assert client.put("/api/family/account", headers=tok, json={"login_id": "taken-over", "password": "long enough 1"}).status_code == 403
+    assert client.get("/login").status_code == 200
+
+
 
 # ---------- 목소리 등록: 실시간 녹음·여러 형식 파일·여러 개 합치기·기능이 꺼져 있을 때 저장 (2026-10-12) ----------
 

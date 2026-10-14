@@ -103,6 +103,14 @@ CREATE TABLE IF NOT EXISTS ritual_messages (
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS staff_accounts (                                -- 직원 아이디·비밀번호 로그인(2026-10-14)
+  id INTEGER PRIMARY KEY, login_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+  pw_hash TEXT NOT NULL, created_at TEXT NOT NULL, disabled_at TEXT
+);
+CREATE TABLE IF NOT EXISTS staff_sessions (                                -- 직원 로그인 세션(토큰은 해시만 저장)
+  token_hash TEXT PRIMARY KEY, staff_id INTEGER NOT NULL REFERENCES staff_accounts(id),
+  created_at TEXT NOT NULL, expires_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS memories (
  id INTEGER PRIMARY KEY, deceased_id INTEGER NOT NULL REFERENCES deceased(id),
  member_id INTEGER NOT NULL REFERENCES family_members(id), title TEXT NOT NULL,
@@ -211,6 +219,8 @@ _MIGRATIONS = [
     ("media", "seconds", "INTEGER"),                      # 노래 길이(초)
     ("rituals", "access", "TEXT DEFAULT 'open'"),         # open(누구나 생중계: 법회·행사) | applied(신청 가족만: 제사)
     ("rituals", "current_order", "INTEGER DEFAULT 0"),    # 지금 봉행 중인 순서 번호(0=시작 전)
+    ("family_members", "login_id", "TEXT"),               # 가족 로그인 아이디(초대 링크로 들어온 뒤 본인이 정함)
+    ("family_members", "pw_hash", "TEXT"),                # scrypt 해시(server/accounts.py)
 ]
 
 
@@ -219,6 +229,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
         if col not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS family_login_id ON family_members(login_id) WHERE login_id IS NOT NULL")
     conn.commit()
 
 

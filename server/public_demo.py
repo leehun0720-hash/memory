@@ -14,7 +14,7 @@ from . import config, db, ratelimit
 
 # 시연 가족이 쓸 수 없는 바꾸기 요청(GET 은 모두 허용)
 _BLOCKED = re.compile(
-    r"^/api/family/(invite|farewell|voice/|avatar/|music(/\d+)?$|ai-consensus|access/|memories|guides/|events/\d+$)"
+    r"^/api/family/(invite|farewell|voice/|avatar/|music(/\d+)?$|ai-consensus|access/|memories|guides/|events/\d+$|account)"
 )
 BLOCK_MESSAGE = "공개 시연에서는 이 기능을 막아 두었습니다. 실제 서비스에서는 계약하신 가족이 사용할 수 있습니다."
 

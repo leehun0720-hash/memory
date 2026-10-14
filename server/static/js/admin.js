@@ -21,7 +21,7 @@ const toast = (m) => { let el = $(".toast"); if (!el) { el = document.createElem
 const modal = (html) => { const bg = document.createElement("div"); bg.className = "modal-bg"; bg.style.alignItems = "center"; bg.innerHTML = `<div class="modal" style="border-radius:16px;max-width:720px">${html}</div>`; bg.addEventListener("click", (e) => e.target === bg && bg.remove()); document.body.appendChild(bg); return bg; };
 
 let booted = false;
-const PAGES = ["overview", "tasks", "calib", "contracts", "deceased", "rituals", "orders", "usage", "aisettings"];
+const PAGES = ["overview", "tasks", "calib", "contracts", "deceased", "rituals", "orders", "usage", "aisettings", "staff"];
 async function boot() {
   // 키가 없어도 먼저 시도한다: 이 브라우저에 관리자 쿠키(ma)가 남아 있으면 키를 다시 묻지 않는다.
   try { await api("/api/admin/overview"); }
@@ -39,7 +39,8 @@ function askKey(message) {
   page.innerHTML = `<section class="card key-card" aria-labelledby="keyTitle"><p class="eyebrow">추모 운영 · 관리자 콘솔</p><h1 id="keyTitle">관리자 키를 넣어 주세요</h1>
     <p class="muted">시설 직원만 들어올 수 있습니다. 키는 서버 설정(.env 의 ADMIN_KEY)이나 통합 시작 화면의 ‘관리자 콘솔 열기’ 단추에 들어 있습니다.</p>
     <form id="keyForm" class="key-form"><label for="keyIn">관리자 키</label><div class="row"><input id="keyIn" type="password" autocomplete="current-password" required><button type="submit">콘솔 열기</button></div></form>
-    <p class="muted" id="keyMsg" role="status">${esc(message)}</p></section>`;
+    <p class="muted" id="keyMsg" role="status">${esc(message)}</p>
+    <p class="muted">직원 계정이 있으신가요? <a href="/login?as=staff">아이디로 직원 로그인</a></p></section>`;
   $("#keyIn").focus();
   $("#keyForm").onsubmit = async (e) => {
     e.preventDefault();
@@ -48,6 +49,49 @@ function askKey(message) {
     KEY = k;
     try { await api("/api/admin/overview"); sessionStorage.setItem("admin_key", k); document.body.classList.remove("locked"); boot(); }
     catch (err) { KEY = ""; btn.disabled = false; btn.textContent = "콘솔 열기"; $("#keyMsg").textContent = `열지 못했습니다. ${err.message} 키를 확인해 주세요.`; $("#keyIn").select(); }
+  };
+}
+// 직원 계정 · 로그인 (2026-10-14). 계정 만들기·바꾸기는 관리자 키로 연 콘솔에서만(서버가 403). 직원 로그인 토큰은 stf_ 로 시작.
+async function staff() {
+  const staffSession = KEY.startsWith("stf_");
+  let list = null, err = "";
+  try { list = await api("/api/admin/staff"); } catch (e) { err = e.message; }
+  page.innerHTML = `<div class="card"><h2>직원 계정</h2><p class="muted">직원은 <a href="/login?as=staff" target="_blank" rel="noopener">로그인 화면</a>의 <b>직원</b> 칸에서 아이디·비밀번호로 이 콘솔에 들어옵니다. 로그인은 12시간 유지됩니다.</p>
+    ${list ? `<form id="stNew" class="row" style="flex-wrap:wrap;gap:8px;align-items:flex-end">
+        <label>아이디<br><input id="stId" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="30" placeholder="영문 소문자·숫자 4~30자" required></label>
+        <label>이름<br><input id="stName" maxlength="40" required></label>
+        <label>비밀번호<br><input id="stPw" type="password" autocomplete="new-password" maxlength="128" placeholder="8자 이상" required></label>
+        <button type="submit">직원 계정 만들기</button></form><p class="muted" id="stMsg" role="status"></p>`
+      : `<p role="status">${esc(err)}</p>`}</div>
+    ${list ? `<div class="card"><h3>계정 ${list.length}개</h3>${list.length ? list.map((s) => `<div class="list-item"><div><b>${esc(s.name)}</b> <span class="muted">${esc(s.login_id)} · 만든 때 ${esc(fmt(s.created_at))}</span>${s.disabled_at ? ' <span class="pill">사용 중지</span>' : ""}</div>
+      <div class="row"><button class="small secondary" data-pw="${s.id}">비밀번호 바꾸기</button><button class="small secondary" data-toggle="${s.id}" data-off="${s.disabled_at ? 1 : 0}">${s.disabled_at ? "다시 쓰기" : "사용 중지"}</button></div></div>`).join("") : '<p class="muted">아직 직원 계정이 없습니다.</p>'}</div>` : ""}
+    <div class="card"><h3>이 콘솔에서 나가기</h3><p class="muted">${staffSession ? "직원 로그인을 끝냅니다." : "이 브라우저에 저장된 관리자 키를 지웁니다."}</p><button class="small secondary" id="stLogout">나가기</button></div>`;
+  if (list) {
+    $("#stNew").onsubmit = async (e) => {
+      e.preventDefault();
+      const msg = $("#stMsg");
+      try { await api("/api/admin/staff", { method: "POST", body: { login_id: $("#stId").value.trim(), name: $("#stName").value.trim(), password: $("#stPw").value } }); toast("직원 계정을 만들었습니다."); staff(); }
+      catch (err2) { msg.textContent = err2.message; }
+    };
+    page.querySelectorAll("[data-pw]").forEach((b) => b.onclick = () => {
+      const m = modal(`<h2>새 비밀번호</h2><p class="muted">바꾸면 이 직원의 기존 로그인은 끝납니다.</p><input id="stNewPw" type="password" autocomplete="new-password" maxlength="128" placeholder="8자 이상" style="width:100%"><p class="muted" id="stPwMsg" role="status"></p><div class="row" style="justify-content:flex-end;gap:8px"><button class="secondary" data-cancel>그만두기</button><button data-ok>바꾸기</button></div>`);
+      $("[data-cancel]", m).onclick = () => m.remove();
+      $("[data-ok]", m).onclick = async () => {
+        try { await api(`/api/admin/staff/${b.dataset.pw}/password`, { method: "POST", body: { password: $("#stNewPw", m).value } }); m.remove(); toast("비밀번호를 바꿨습니다."); }
+        catch (err2) { $("#stPwMsg", m).textContent = err2.message; }
+      };
+      $("#stNewPw", m).focus();
+    });
+    page.querySelectorAll("[data-toggle]").forEach((b) => b.onclick = async () => {
+      try { await api(`/api/admin/staff/${b.dataset.toggle}/${b.dataset.off === "1" ? "enable" : "disable"}`, { method: "POST" }); staff(); }
+      catch (err2) { toast(err2.message); }
+    });
+  }
+  $("#stLogout").onclick = async () => {
+    await api("/api/admin/session", { method: "DELETE" }).catch(() => {});
+    if (staffSession) await fetch("/api/login/staff/logout", { method: "POST", headers: { "X-Admin-Key": KEY } }).catch(() => {});
+    sessionStorage.removeItem("admin_key"); KEY = "";
+    location.href = staffSession ? "/login?as=staff" : "/admin";
   };
 }
 let current = "";
@@ -62,7 +106,7 @@ function go(p, push = true) {
   document.querySelector(`aside button[data-page="${p}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   page.innerHTML = '<p class="muted" role="status">화면을 불러오는 중입니다…</p>';
   window.scrollTo(0, 0);
-  Promise.resolve(({ overview, tasks, calib, contracts, deceased, rituals, orders, usage, aisettings })[p]()).catch((e) => {
+  Promise.resolve(({ overview, tasks, calib, contracts, deceased, rituals, orders, usage, aisettings, staff })[p]()).catch((e) => {
     page.innerHTML = `<div class="card" role="alert"><h2>화면을 불러오지 못했습니다</h2><p>${esc(e.message)}</p><p class="muted">서버 연결을 확인한 뒤 다시 불러와 주세요.</p><button class="small secondary" id="pageRetry">다시 불러오기</button></div>`;
     $("#pageRetry").onclick = () => go(p, false);
   });

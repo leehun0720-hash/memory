@@ -208,7 +208,8 @@ function renderEntry(bad) {
     <section class="card" aria-labelledby="linkTitle"><h2 id="linkTitle">받은 링크 붙여 넣기</h2>
       <p class="muted">카카오톡에서 받은 초대 링크를 통째로 붙여 넣어도 됩니다. 링크가 없으면 시설 담당자에게 초대를 요청해 주세요.</p>
       <form class="link-form" id="linkForm"><label class="sr-only" for="linkIn">초대 링크</label><input id="linkIn" autocomplete="off" inputmode="url" placeholder="예: https://…/?t=영문과숫자"><button type="submit">추모 공간 열기</button></form>
-      <p class="muted" style="margin-top:14px">시설 직원이신가요? <a href="/admin">관리자 콘솔</a>에서 계약·가족을 관리하고 초대 링크를 복사할 수 있습니다.</p></section>`;
+      <p class="muted" style="margin-top:14px">아이디를 정해 두셨나요? <a class="btn small secondary" href="/login">아이디로 로그인</a></p>
+      <p class="muted" style="margin-top:14px">시설 직원이신가요? <a href="/login?as=staff">직원 로그인</a> 또는 <a href="/admin">관리자 콘솔</a>에서 계약·가족을 관리하고 초대 링크를 복사할 수 있습니다.</p></section>`;
   $("#linkForm").onsubmit = (e) => {
     e.preventDefault();
     const t = cleanToken($("#linkIn").value);
@@ -235,7 +236,7 @@ async function renderLauncher() {
     <section class="memorial-hero launch-intro" aria-labelledby="launchTitle"><div class="memorial-hero-copy"><span class="eyebrow">MVP 시연 · 가족 추모 공간</span>
       <h1 id="launchTitle">그리운 마음을,<br>가까이 전합니다.</h1>
       <p>${esc(L.facility || "봉안당")}의 원격 참배, 추도식 생중계, 인공지능 추모 대화를 직접 써 보세요. 시연 속 인물은 모두 가상입니다.</p>
-      <div class="hero-cta">${pick ? `<a class="btn hero-primary" href="${esc(pick.url)}">${esc(pick.name)} 님으로 바로 체험 <span aria-hidden="true">→</span></a>` : ""}${admin ? `<a class="btn ghost-light" href="${admin}" target="_blank" rel="noopener">관리자 콘솔 열기 (새 창)</a>` : ""}</div></div>
+      <div class="hero-cta">${pick ? `<a class="btn hero-primary" href="${esc(pick.url)}">${esc(pick.name)} 님으로 바로 체험 <span aria-hidden="true">→</span></a>` : ""}<a class="btn ghost-light" href="/login">아이디로 로그인</a>${admin ? `<a class="btn ghost-light" href="${admin}" target="_blank" rel="noopener">관리자 콘솔 열기 (새 창)</a>` : ""}</div></div>
       <div class="hero-art" id="heroArt"></div></section>
     ${TOKEN ? `<div class="card continue-bar"><span>이 기기에는 이전에 연 가족 화면이 저장돼 있습니다.</span><a class="btn small secondary" href="/">이어서 보기</a></div>` : ""}
     <div class="launch-grid">
@@ -897,6 +898,11 @@ async function renderSettings() {
     <div class="card" id="voiceCard"><h3>목소리 등록</h3><div id="voiceBody"><p class="muted" role="status">목소리 등록 상태를 불러오는 중입니다…</p></div></div>
     <div class="card" id="faceCard"><h3>얼굴 등록 <span class="muted">(실시간 아바타)</span></h3><div id="faceBody"><p class="muted" role="status">얼굴 등록 상태를 불러오는 중입니다…</p></div></div>
     ${canManage && me.deceased.some((d) => d.ai_enabled) ? `<div class="card"><h3>대화 기능 작별</h3><p class="muted">대화 기능은 가족이 원하면 언제든 닫을 수 있습니다. 닫을 때 등록한 기억 카드와 음성 자료를 돌려받거나 삭제합니다.</p><button class="secondary" id="farewellBtn">작별 절차 살펴보기</button></div>` : ""}
+    <div class="card" id="accountCard"><h3>로그인 정하기</h3><p class="muted" style="margin-top:0">아이디와 비밀번호를 정해 두면 초대 링크 없이도 <a href="/login">로그인 화면</a>에서 들어올 수 있습니다.</p>
+      <form id="accountForm" class="account-form" style="display:grid;gap:6px;max-width:440px"><p class="muted" id="accountNow" role="status">불러오는 중입니다…</p>
+        <label for="accId">아이디 <small class="muted">영문 소문자·숫자 4~30자</small></label><input id="accId" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="30" required>
+        <label for="accPw">새 비밀번호 <small class="muted">8자 이상</small></label><input id="accPw" type="password" autocomplete="new-password" maxlength="128" required>
+        <div class="row"><button type="submit" class="small">저장하기</button><span class="muted" id="accountMsg" role="status"></span></div></form></div>
     <div class="card"><h3>내 정보</h3><p>${esc(me.member.name)} · ${esc(me.member.relation)} · ${roleName[me.member.role]}</p><p class="muted">계약자 ${esc(me.contract.holder_name)} · 봉안함 ${esc(me.niche?.code || "-")} · ${me.contract.plan === "premium" ? "프리미엄" : "기본"}</p>
       <button class="secondary small" id="logout">이 기기에서 나가기</button></div>`;
   $("#motionBtn").onclick = () => { localStorage.setItem("motion", motionReduced() ? "" : "reduce"); applyMotion(); go("settings"); };
@@ -945,8 +951,24 @@ async function renderSettings() {
     }
   };
   paint();
+  // 로그인 정하기(2026-10-14): 지금 아이디를 보여 주고, 새 아이디·비밀번호를 저장한다.
+  api("/api/family/account").then((a) => {
+    $("#accountNow").textContent = a.login_id ? `지금 아이디: ${a.login_id} · 바꾸려면 아래에 새로 넣어 주세요.` : "아직 로그인 아이디가 없습니다.";
+    if (a.login_id) $("#accId").value = a.login_id;
+  }).catch((e) => { $("#accountNow").textContent = e.message; });
+  $("#accountForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const out = $("#accountMsg"), btn = $("#accountForm button");
+    btn.disabled = true; out.textContent = "저장하는 중…";
+    try {
+      const r = await api("/api/family/account", { method: "PUT", body: { login_id: $("#accId").value.trim(), password: $("#accPw").value } });
+      $("#accPw").value = ""; out.textContent = "저장했습니다. 다음부터 로그인 화면에서 들어올 수 있습니다.";
+      $("#accountNow").textContent = `지금 아이디: ${r.login_id}`;
+    } catch (err) { out.textContent = err.message; }
+    btn.disabled = false;
+  };
   $("#logout").onclick = () => {
-    const m = modal(`<h2>이 기기에서 나갈까요?</h2><p>나가면 이 기기에서는 초대 링크를 다시 눌러야 들어올 수 있습니다. 가족 기록은 지워지지 않습니다.</p><div class="modal-actions"><button class="secondary" type="button" data-cancel>머무르기</button><button type="button" data-ok>나가기</button></div>`);
+    const m = modal(`<h2>이 기기에서 나갈까요?</h2><p>나가면 이 기기에서는 초대 링크나 로그인으로 다시 들어올 수 있습니다. 가족 기록은 지워지지 않습니다.</p><div class="modal-actions"><button class="secondary" type="button" data-cancel>머무르기</button><button type="button" data-ok>나가기</button></div>`);
     $("[data-cancel]", m).onclick = () => m.querySelector(".modal-close").click();
     $("[data-ok]", m).onclick = async () => { localStorage.removeItem("family_token"); await fetch("/api/family/session", { method: "DELETE" }).catch(() => {}); location.href = "/"; };
   };

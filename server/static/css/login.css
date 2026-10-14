@@ -1,0 +1,33 @@
+/* 로그인 화면 (2026-10-14): 먹색 바탕 · 한지색 카드 · 금빛 선. 브랜드 색은 css/brand.css 와 같은 값. */
+:root { --ink: #121410; --paper: #f5f1e8; --surface: #fbf8f2; --text: #22241f; --muted: #585a50; --line: #dcd5c6; --accent: #8f3b2b; --gold: #c9a66b; }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { color: var(--text); font: 16px/1.7 "Noto Sans KR", system-ui, sans-serif; background: radial-gradient(ellipse 60% 45% at 50% 0%, #c9a66b26, transparent 70%), var(--ink); }
+.login-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; min-height: 100vh; padding: 40px 16px; }
+.login-brand { display: inline-flex; align-items: baseline; gap: 12px; color: #fff; text-decoration: none; }
+.login-brand b { font: 600 1.9rem/1 "Noto Serif KR", serif; letter-spacing: .26em; }
+.login-brand small { color: var(--gold); font-size: .78rem; letter-spacing: .2em; }
+.login-card { width: min(100%, 440px); padding: 34px 32px 28px; border-top: 2px solid var(--gold); background: var(--surface); box-shadow: 0 24px 60px #0008; }
+.login-kicker { display: flex; align-items: center; gap: 12px; margin: 0; color: var(--accent); font-size: .78rem; font-weight: 700; letter-spacing: .18em; }
+.login-kicker span { width: 28px; height: 1px; background: currentColor; }
+.login-card h1 { margin: 10px 0 20px; font: 600 1.9rem/1.3 "Noto Serif KR", serif; }
+.login-tabs { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 20px; border: 1px solid var(--line); }
+.login-tabs button { min-height: 46px; border: 0; color: var(--muted); background: transparent; font: 600 .98rem "Noto Sans KR", sans-serif; cursor: pointer; }
+.login-tabs button[aria-selected="true"] { color: #fff; background: var(--ink); }
+.login-form { display: grid; gap: 6px; }
+.login-form label { margin-top: 8px; font-size: .9rem; font-weight: 600; }
+.login-form input { min-height: 48px; padding: 0 14px; border: 1px solid var(--line); background: #fff; font: inherit; }
+.login-form input:focus { outline: 2px solid var(--gold); outline-offset: 1px; border-color: var(--gold); }
+.login-msg { min-height: 1.4em; margin: 6px 0 0; color: var(--accent); font-size: .9rem; }
+.login-form button[type="submit"] { min-height: 50px; margin-top: 6px; border: 0; color: #fff; background: var(--accent); font: 700 1rem "Noto Sans KR", sans-serif; cursor: pointer; }
+.login-form button[type="submit"]:disabled { opacity: .7; cursor: progress; }
+.login-help { margin: 18px 0 0; color: var(--muted); font-size: .86rem; line-height: 1.75; }
+.login-demo { display: grid; gap: 4px; margin-top: 16px; padding: 12px 14px; border-left: 2px solid var(--gold); background: var(--paper); font-size: .86rem; }
+.login-demo.is-off { display: none; }
+.login-demo code { padding: 1px 6px; background: #fff; font-size: .85rem; }
+.login-demo em { font-style: normal; font-weight: 700; }
+.login-demo .link { justify-self: start; padding: 0; border: 0; color: var(--accent); background: none; font: 600 .86rem "Noto Sans KR", sans-serif; text-decoration: underline; cursor: pointer; }
+.login-foot { margin: 0; color: #a9a596; font-size: .8rem; text-align: center; }
+.login-foot a { color: #e3c78f; }
+button:focus-visible, a:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+@media (max-width: 420px) { .login-card { padding: 28px 20px 24px; } }

@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config, db
-from .routers import admin, chat, edge, family, community
+from .routers import admin, auth, chat, edge, family, community
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -40,6 +40,9 @@ async def lifespan(_: FastAPI):
         seed.run(quiet=True)
         logging.getLogger(__name__).info("AUTO_SEED: 시연 데이터를 만들었습니다.")
     from .seed import refresh_demo_photos, rename_demo_facility
+    from .accounts import ensure_demo_login
+    if ensure_demo_login():
+        logging.getLogger(__name__).info("시연 가족(이미영 님) 로그인을 만들었습니다.")
     if rename_demo_facility():
         logging.getLogger(__name__).info("시연 시설 이름을 '여수 지장대사 여해원'으로 바꿨습니다.")
     if refresh_demo_photos():
@@ -111,6 +114,8 @@ app.include_router(family.router)
 app.include_router(chat.router)
 app.include_router(admin.router)
 app.include_router(community.router)
+app.include_router(auth.router)          # 아이디·비밀번호 로그인(2026-10-14)
+app.include_router(auth.staff_router)    # 직원 계정 관리(관리자 키로만)
 
 
 def _page(name: str) -> HTMLResponse:
@@ -132,6 +137,12 @@ def family_app():
 def demo_entry():
     """시연 시작 화면(홈페이지·플랫폼의 'MVP 바로가기'가 여는 주소). 이 기기에 가족 링크가 저장돼 있어도 시작 화면을 먼저 보여 준다."""
     return _page("index.html")
+
+
+@app.get("/login", include_in_schema=False)
+def login_page():
+    """가족·직원 아이디·비밀번호 로그인 화면(2026-10-14)."""
+    return _page("login.html")
 
 
 @app.get("/admin", include_in_schema=False)

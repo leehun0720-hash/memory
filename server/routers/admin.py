@@ -69,11 +69,12 @@ def retry_notification(nid:int):
 
 @router.post("/session")
 def admin_session_cookie(request: Request):
-    """헤더로 확인한 관리자 키를 보안 쿠키(12시간)로 준다. 이후 사진·카메라 화면·현장 생중계 주소에 ?key= 를 싣지 않는다."""
-    from ..deps import ADMIN_COOKIE
+    """헤더로 확인한 값(관리자 키 또는 직원 로그인 토큰)을 보안 쿠키(12시간)로 준다. 이후 사진·카메라 화면·현장 생중계 주소에 ?key= 를 싣지 않는다.
+    부른 사람이 실제로 보낸 값만 쿠키에 담는다(직원 로그인이 관리자 키 쿠키를 받지 않게, 2026-10-14)."""
+    from ..deps import ADMIN_COOKIE, admin_credential
     resp = JSONResponse({"ok": True})
-    resp.set_cookie(ADMIN_COOKIE, config.ADMIN_KEY, max_age=12 * 3600, path="/api/admin", httponly=True,
-                    samesite="strict", secure=request.url.scheme == "https")
+    resp.set_cookie(ADMIN_COOKIE, admin_credential(request, request.headers.get("x-admin-key")), max_age=12 * 3600, path="/api/admin",
+                    httponly=True, samesite="strict", secure=request.url.scheme == "https")
     return resp
 
 

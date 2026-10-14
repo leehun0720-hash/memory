@@ -15,12 +15,31 @@ def _same(a: str | None, b: str) -> bool:
     return bool(a) and bool(b) and hmac.compare_digest(a.encode(), b.encode())
 
 
+def admin_credential(request: Request, x_admin_key: str | None = None, key: str | None = None) -> str | None:
+    """관리자 콘솔이 보낸 값(관리자 키 또는 직원 로그인 토큰). 헤더 → 쿠키 → 주소 순."""
+    return x_admin_key or request.cookies.get(ADMIN_COOKIE) or key
+
+
 def require_admin(request: Request, x_admin_key: str | None = Header(default=None), key: str | None = Query(default=None)) -> str:
-    k = x_admin_key or request.cookies.get(ADMIN_COOKIE) or key
-    if not _same(k, config.ADMIN_KEY):   # 빈 키(설정 누락)는 언제나 거부
+    """관리자 키(시설 운영자) 또는 직원 로그인 토큰(2026-10-14). 돌려주는 값은 감사 기록용 행위자."""
+    k = admin_credential(request, x_admin_key, key)
+    if _same(k, config.ADMIN_KEY):   # 빈 키(설정 누락)는 언제나 거부
+        return "admin"
+    from .accounts import staff_session
+    staff = staff_session(k)
+    if staff:
+        return f"staff:{staff['id']}"
+    ip = request.client.host if request.client else "?"
+    ratelimit.hit(f"admin-fail:{ip}", 20, 600, "관리자 키가 여러 번 틀렸습니다. 10분 뒤 다시 시도해 주세요.")
+    raise HTTPException(401, "관리자 키 또는 직원 로그인이 올바르지 않습니다. 다시 로그인해 주세요.")
+
+
+def require_owner(request: Request, x_admin_key: str | None = Header(default=None), key: str | None = Query(default=None)) -> str:
+    """관리자 키로만 열리는 일(직원 계정 관리). 직원 로그인으로는 다른 직원을 만들거나 바꿀 수 없다."""
+    if not _same(admin_credential(request, x_admin_key, key), config.ADMIN_KEY):
         ip = request.client.host if request.client else "?"
         ratelimit.hit(f"admin-fail:{ip}", 20, 600, "관리자 키가 여러 번 틀렸습니다. 10분 뒤 다시 시도해 주세요.")
-        raise HTTPException(401, "관리자 키가 올바르지 않습니다.")
+        raise HTTPException(403, "직원 계정 관리는 관리자 키로 연 콘솔에서만 할 수 있습니다.")
     return "admin"
 
 
