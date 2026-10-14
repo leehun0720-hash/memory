@@ -12,6 +12,12 @@ const ITEM_NAME = Object.fromEntries(ALTAR_GROUPS.flatMap(([, , items]) => items
 const itemSrc = (id) => `/static/images/altar/${id}.svg`;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const mmss = (s) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "");
+// 공식 임베드 재생기(권리 처리는 그 플랫폼이 한다). 가족이 붙여 넣은 링크를 서버가 임베드 주소로 바꿔 준다.
+const EMBED_H = { youtube: "", spotify: "152", apple: "175" };
+function embedHtml(s, small = false) {
+  const h = EMBED_H[s.provider] || "";
+  return `<div class="song-embed ${esc(s.provider)}${small ? " small" : ""}"><iframe src="${esc(s.embed_url)}" title="${esc(s.title)} · ${esc(s.provider_name)} 재생기" loading="lazy" ${h ? `height="${h}"` : ""} allow="autoplay *; encrypted-media *; clipboard-write; fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-popups allow-presentation allow-forms"></iframe></div>`;
+}
 
 export function createKeepsake({ api, esc, toast, modal, withToken, fmtDT }) {
   // ───────── 노래 ─────────
@@ -42,6 +48,7 @@ export function createKeepsake({ api, esc, toast, modal, withToken, fmtDT }) {
   }
   function playSong(song, { fromLive = false } = {}) {
     if (!song) return;
+    if (song.kind === "link") { if (!fromLive) toast("링크로 넣은 노래는 재생기의 재생 단추를 눌러 들어 주세요."); return; }   // 임베드는 자동 재생이 막혀 있다
     stopSong(false);
     const a = new Audio(withToken(`/api/family/media/${song.id}`));
     a.preload = "auto"; a.volume = 0;
@@ -71,6 +78,10 @@ export function createKeepsake({ api, esc, toast, modal, withToken, fmtDT }) {
       }
       return null;
     }
+    if (song.kind === "link") {   // 링크 곡: 자동 재생이 막혀 있어 첫 화면에 작은 재생기를 그대로 띄운다
+      box.innerHTML = `<span class="note" aria-hidden="true">♪</span><span class="t"><small>생전 좋아하신 노래 · ${esc(song.provider_name)}</small><b>${esc(song.title)}</b></span>${embedHtml(song, true)}`;
+      box.hidden = false; return song;
+    }
     box.innerHTML = `<span class="note" aria-hidden="true">♪</span><span class="t"><small>생전 좋아하신 노래</small><b>${esc(song.title)}</b></span>
       <button type="button" class="small secondary" data-play>들려 드리기</button>
       <label class="mini-switch"><input type="checkbox" data-auto ${visitMusicOn() ? "checked" : ""}> 참배할 때 함께 틀기</label>`;
@@ -86,15 +97,19 @@ export function createKeepsake({ api, esc, toast, modal, withToken, fmtDT }) {
   async function mountMusic(box, d) {
     if (!box || !d) return;
     let m; try { m = await loadMusic(d.id); } catch (e) { box.innerHTML = `<h3>생전 좋아하신 노래</h3><p class="muted">${esc(e.message)}</p>`; return; }
-    const rows = m.items.map((s) => `<li class="song ${s.id === m.visit_music_id ? "is-visit" : ""}"><button type="button" class="small secondary" data-play="${s.id}" aria-label="${esc(s.title)} 듣기">▶ 듣기</button>
-      <span class="song-t"><b>${esc(s.title)}</b><small>${mmss(s.seconds)}${s.id === m.visit_music_id ? " · 참배 때 흐르는 곡" : ""}</small></span>
-      ${m.can_manage ? `${s.id === m.visit_music_id ? "" : `<button type="button" class="small ghost" data-visit="${s.id}">참배 때 틀기</button>`}<button type="button" class="small ghost" data-del="${s.id}">빼기</button>` : ""}</li>`).join("");
+    const rows = m.items.map((s) => `<li class="song ${s.kind === "link" ? "is-link" : ""} ${s.id === m.visit_music_id ? "is-visit" : ""}">${s.kind === "link" ? "" : `<button type="button" class="small secondary" data-play="${s.id}" aria-label="${esc(s.title)} 듣기">▶ 듣기</button>`}
+      <span class="song-t"><b>${esc(s.title)}</b><small>${s.kind === "link" ? `${esc(s.provider_name)} 재생기` : mmss(s.seconds)}${s.id === m.visit_music_id ? " · 참배 때 흐르는 곡" : ""}</small></span>
+      ${m.can_manage ? `${s.id === m.visit_music_id ? "" : `<button type="button" class="small ghost" data-visit="${s.id}">참배 때 틀기</button>`}<button type="button" class="small ghost" data-del="${s.id}">빼기</button>` : ""}${s.kind === "link" ? embedHtml(s) : ""}</li>`).join("");
     box.innerHTML = `<div class="row between"><h3 style="margin:0">생전 좋아하신 노래</h3><span class="muted">${m.items.length}곡</span></div>
-      <p class="muted" style="margin:6px 0 12px">참배(실시간으로 뵙기)를 열면 고른 곡이 종소리 뒤에 잔잔히 흐릅니다. 다른 화면으로 옮겨도 아래 막대에서 계속 들을 수 있습니다.</p>
+      <p class="muted" style="margin:6px 0 12px">올린 파일은 참배(실시간으로 뵙기)를 열 때 종소리 뒤에 잔잔히 흐르고, 다른 화면으로 옮겨도 아래 막대에서 이어집니다. 유튜브·스포티파이·애플 뮤직 링크는 공식 재생기로 띄우며 재생 단추를 눌러 듣습니다.</p>
       ${rows ? `<ul class="song-list">${rows}</ul>` : `<p class="muted">아직 올린 노래가 없습니다.${m.can_manage ? " 아래에서 고인이 즐겨 부르시던 노래를 올려 주세요." : " 계약하신 가족이 올릴 수 있습니다."}</p>`}
       ${m.can_manage ? `<form class="song-up" id="songUp"><div class="form-row"><label for="songTitle">곡 이름</label><input id="songTitle" maxlength="80" placeholder="예: 고향의 봄 · 어머니 애창곡"></div>
         <div class="form-row"><label for="songFile">음원 파일</label><input id="songFile" type="file" accept="audio/*,video/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.opus,.wma,.amr,.3gp,.mp4,.mov,.webm"></div>
-        <button type="submit">노래 올리기</button><p class="muted song-note">가족이 가진 음원만 올려 주세요. 가족끼리만 듣고 밖으로 공유되지 않습니다. mp3·m4a·wav·영상 등, 한 곡 10분 · 100MB까지(${m.max}곡).</p></form>` : ""}`;
+        <button type="submit">노래 올리기</button><p class="muted song-note">가족이 가진 음원만 올려 주세요. 가족끼리만 듣고 밖으로 공유되지 않습니다. mp3·m4a·wav·영상 등, 한 곡 10분 · 100MB까지(파일·링크 합쳐 ${m.max}곡).</p></form>
+      <form class="song-up song-link" id="songLink"><h4>링크로 넣기 <small class="muted">유튜브 · 스포티파이 · 애플 뮤직</small></h4>
+        <div class="form-row"><label for="linkUrl">공유 링크</label><input id="linkUrl" inputmode="url" maxlength="500" placeholder="예: https://youtu.be/… · https://open.spotify.com/track/… · https://music.apple.com/kr/album/…"></div>
+        <div class="form-row"><label for="linkTitle">곡 이름 <small class="muted">(선택)</small></label><input id="linkTitle" maxlength="80" placeholder="예: 봄날은 간다 · 아버지 애창곡"></div>
+        <button type="submit" class="secondary">링크 넣기</button><p class="muted song-note">파일을 올리지 않고 각 플랫폼의 공식 재생기를 그대로 띄웁니다. 좋아하시던 가요·팝을 링크만으로 넣을 수 있고, 권리는 그 플랫폼이 처리합니다. 재생은 플랫폼 규칙을 따릅니다(일부 곡은 미리 듣기만 될 수 있음).</p></form>` : ""}`;
     box.querySelectorAll("[data-play]").forEach((b) => b.onclick = () => playSong(m.items.find((s) => s.id === +b.dataset.play)));
     box.querySelectorAll("[data-visit]").forEach((b) => b.onclick = async () => {
       try { await api("/api/family/music/visit", { method: "PUT", body: { deceased_id: d.id, media_id: +b.dataset.visit } }); toast("참배할 때 이 노래가 흐릅니다."); mountMusic(box, d); } catch (e) { toast(e.message, 4000); }
@@ -108,6 +123,15 @@ export function createKeepsake({ api, esc, toast, modal, withToken, fmtDT }) {
         catch (e) { toast(e.message, 4000); }
       };
     });
+    const linkForm = box.querySelector("#songLink");
+    if (linkForm) linkForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const url = linkForm.querySelector("#linkUrl").value.trim();
+      if (!url) { toast("공유 링크를 붙여 넣어 주세요."); return; }
+      const btn = linkForm.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = "넣는 중…";
+      try { const r = await api("/api/family/music/link", { method: "POST", body: { deceased_id: d.id, url, title: linkForm.querySelector("#linkTitle").value.trim() } }); toast(`‘${r.title}’을 ${r.provider_name} 재생기로 넣었습니다.`); mountMusic(box, d); }
+      catch (err) { btn.disabled = false; btn.textContent = "링크 넣기"; toast(`넣지 못했습니다. ${err.message}`, 5000); }
+    };
     const form = box.querySelector("#songUp");
     if (form) form.onsubmit = async (e) => {
       e.preventDefault();

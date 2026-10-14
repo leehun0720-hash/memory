@@ -236,7 +236,7 @@ def live_stream(sid: str, m: dict = Depends(require_member)):
 def memorial(m: dict = Depends(require_member)):
     deceased = _deceased_for(m["contract_id"])
     for d in deceased:
-        d["media"] = db.rows("SELECT id, kind, path, caption, ai_generated, created_at FROM media WHERE deceased_id=? AND kind<>'music' ORDER BY id DESC", (d["id"],))
+        d["media"] = db.rows("SELECT id, kind, path, caption, ai_generated, created_at FROM media WHERE deceased_id=? AND kind NOT IN ('music','music_link') ORDER BY id DESC", (d["id"],))
     guestbook = db.rows("SELECT id, author, message, created_at FROM guestbook WHERE contract_id=? ORDER BY id DESC LIMIT 50", (m["contract_id"],))
     upcoming = db.rows(
         """SELECT * FROM rituals WHERE (contract_id=? OR contract_id IS NULL) AND scheduled_at >= date('now','-1 day')
@@ -742,10 +742,29 @@ async def music_upload(deceased_id: int = Form(...), title: str = Form(""), file
     return item
 
 
+class MusicLinkIn(BaseModel):
+    deceased_id: int
+    url: str = Field(min_length=8, max_length=500)
+    title: str = Field("", max_length=80)
+
+
+@router.post("/music/link")
+def music_link(body: MusicLinkIn, m: dict = Depends(require_member)):
+    """유튜브 · 스포티파이 · 애플 뮤직 공식 임베드 링크를 노래 목록에 넣는다(파일을 올리지 않고 iframe 으로 띄움)."""
+    require_role(m, "manage")
+    d = _own_deceased(body.deceased_id, m)
+    ratelimit.hit(f"music-up:{m['id']}", 20, 3600, "노래는 한 시간에 20곡까지 넣을 수 있습니다. 잠시 뒤 다시 넣어 주세요.")
+    item = music.add_link(d["id"], body.url, body.title)
+    if not d["visit_music_id"]:
+        db.execute("UPDATE deceased SET visit_music_id=? WHERE id=?", (item["id"], d["id"]))
+    db.audit(f"member:{m['id']}", "music.link", f"deceased:{d['id']}", item["provider"])
+    return item
+
+
 @router.delete("/music/{media_id}")
 def music_delete(media_id: int, m: dict = Depends(require_member)):
     require_role(m, "manage")
-    r = db.one("SELECT md.id FROM media md JOIN deceased d ON d.id=md.deceased_id WHERE md.id=? AND md.kind='music' AND d.contract_id=?", (media_id, m["contract_id"]))
+    r = db.one("SELECT md.id FROM media md JOIN deceased d ON d.id=md.deceased_id WHERE md.id=? AND md.kind IN ('music','music_link') AND d.contract_id=?", (media_id, m["contract_id"]))
     if not r:
         raise HTTPException(404, "노래를 찾을 수 없습니다.")
     music.remove(media_id)
@@ -762,7 +781,7 @@ class VisitMusicIn(BaseModel):
 def music_visit(body: VisitMusicIn, m: dict = Depends(require_member)):
     require_role(m, "manage")
     d = _own_deceased(body.deceased_id, m)
-    if body.media_id is not None and not db.one("SELECT id FROM media WHERE id=? AND deceased_id=? AND kind='music'", (body.media_id, d["id"])):
+    if body.media_id is not None and not db.one("SELECT id FROM media WHERE id=? AND deceased_id=? AND kind IN ('music','music_link')", (body.media_id, d["id"])):
         raise HTTPException(404, "노래를 찾을 수 없습니다.")
     db.execute("UPDATE deceased SET visit_music_id=? WHERE id=?", (body.media_id, d["id"]))
     return {"ok": True, "visit_music_id": body.media_id}

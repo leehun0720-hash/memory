@@ -445,3 +445,13 @@ body.has-dock main#view { padding-bottom: 96px; }
 .stance-seg { display: flex; margin-bottom: 8px; }
 .stance-seg button { flex: 1; min-height: 46px; font-size: 15px; }
 .stance-form input { width: 100%; }
+
+/* ── 노래 링크(공식 임베드 재생기) (2026-10-14) */
+.song.is-link { flex-wrap: wrap; }
+.song-embed { flex-basis: 100%; width: 100%; margin-top: 8px; border-radius: 12px; overflow: hidden; background: #0f100d; }
+.song-embed iframe { display: block; width: 100%; border: 0; }
+.song-embed.youtube iframe { aspect-ratio: 16 / 9; height: auto; }
+.song-embed.small { margin-top: 6px; }
+.song-link h4 { margin: 4px 0 2px; font-size: 16px; }
+.song-link h4 small { font-weight: 400; font-size: 13px; margin-left: 6px; }
+.song-link { border-top: 1px dashed var(--line); }

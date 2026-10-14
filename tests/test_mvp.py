@@ -1208,3 +1208,33 @@ def test_family_consensus_gates_ai_chat_and_policy_facts(client):
     assert client.get("/api/family/policy", headers=h).json()["camera"]["notice_posted"] is True
     assert client.get("/api/admin/overview", headers=ADMIN).json()["camera_notice"] is True
     assert client.get("/api/family/policy").status_code == 401
+
+
+def test_music_links_official_embeds(client):
+    from server import music
+    assert music.parse_link("https://youtu.be/dQw4w9WgXcQ?si=abc")["embed_url"] == "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"
+    assert music.parse_link("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10")["provider"] == "youtube"
+    assert music.parse_link("music.youtube.com/watch?v=dQw4w9WgXcQ")["provider"] == "youtube"
+    assert music.parse_link("https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC?si=x")["embed_url"] == "https://open.spotify.com/embed/track/4uLU6hMCjMI75M1A2tKUQC"
+    a = music.parse_link("https://music.apple.com/kr/album/spring-day/1440881047?i=1440881050")
+    assert a["embed_url"] == "https://embed.music.apple.com/kr/album/spring-day/1440881047?i=1440881050"
+    import pytest
+    from fastapi import HTTPException
+    for bad in ("https://example.com/song.mp3", "https://youtube.com/watch?v=short", "javascript:alert(1)", "https://open.spotify.com/artist/abc"):
+        with pytest.raises(HTTPException):
+            music.parse_link(bad)
+    h, h2 = {"X-Family-Token": holder_token("이미영")}, {"X-Family-Token": holder_token("이준호")}
+    did = client.get("/api/family/me", headers=h).json()["deceased"][0]["id"]
+    r = client.post("/api/family/music/link", headers=h, json={"deceased_id": did, "url": "https://youtu.be/dQw4w9WgXcQ", "title": "어머니 애창곡"})
+    assert r.status_code == 200 and r.json()["kind"] == "link" and r.json()["provider_name"] == "유튜브"
+    mid = r.json()["id"]
+    lst = client.get(f"/api/family/music?deceased_id={did}", headers=h).json()
+    it = next(x for x in lst["items"] if x["id"] == mid)
+    assert it["kind"] == "link" and it["embed_url"].startswith("https://www.youtube-nocookie.com/embed/") and "path" not in it
+    # 링크는 앨범 사진 목록에 섞이지 않고, 보기·대화 가족은 넣을 수 없다
+    assert all(m["kind"] not in ("music", "music_link") for d in client.get("/api/family/memorial", headers=h).json()["deceased"] for m in d["media"])
+    assert client.post("/api/family/music/link", headers=h2, json={"deceased_id": did, "url": "https://youtu.be/dQw4w9WgXcQ"}).status_code == 403
+    assert client.post("/api/family/music/link", headers=h, json={"deceased_id": did, "url": "https://example.com/x"}).status_code == 400
+    assert client.put("/api/family/music/visit", headers=h, json={"deceased_id": did, "media_id": mid}).json()["visit_music_id"] == mid
+    assert client.delete(f"/api/family/music/{mid}", headers=h).status_code == 200
+    assert all(x["id"] != mid for x in client.get(f"/api/family/music?deceased_id={did}", headers=h).json()["items"])

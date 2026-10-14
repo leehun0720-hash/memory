@@ -18,6 +18,13 @@
 - 시연 데이터: `seed.FACILITY_NAME`. 이미 만든 데이터는 서버 시작 때 `seed.rename_demo_facility()` 가 옛 이름('여수 지장대사 윤회당')일 때만 바꿈(관리자가 직접 바꾼 이름은 그대로). Railway 서버도 재배포 뒤 시작할 때 바뀜.
 - 바꾸지 않은 것: Railway 프로젝트 이름 `yunhoedang-memorial`, 관리자 키 메모 파일 이름(`윤회당-railway-관리자키.txt`), 사진 파일 이름 `yhd-*`, 지난 이력 문서.
 
+## 2026-10-14 — 생전 좋아하신 노래: 유튜브·스포티파이·애플 뮤직 공식 임베드
+
+- 가족(계약자)이 공유 링크만 붙여 넣으면 서버가 공식 임베드 주소로 바꿔 저장(`media.kind='music_link'`, `path`=임베드 주소)하고, 추모 공간·참배 첫 화면이 iframe 재생기로 띄운다. 권리 처리는 그 플랫폼이 하므로 좋아하시던 가요·팝을 그대로 쓸 수 있다. 파일을 올리지 않는다.
+- 지원: youtu.be · youtube.com/watch·shorts·embed · music.youtube.com(→ youtube-nocookie 임베드), open.spotify.com/track·album·playlist·episode, music.apple.com(→ embed.music.apple.com). 그 밖의 주소·`javascript:`는 400. `server/music.py parse_link`, `POST /api/family/music/link`, 빼기·'참배 때 틀기'는 파일과 같은 API.
+- 임베드는 자동 재생이 막혀 있어 참배 때 자동으로 흐르지 않고 재생기의 재생 단추를 누른다(파일 곡은 종전처럼 자동 재생). CSP 는 이미 `frame-src https:`. iframe 은 sandbox·referrerpolicy 를 둔다.
+- 테스트: 링크 해석 6종·거부 4종, 넣기·목록·권한·빼기 → 76개 통과.
+
 ## 2026-10-13 — 시뮬레이션(MiroFish) 결과 반영: 가족 합의 · 안심 안내 · 현장 촬영 안내
 
 - 배경: 오픈소스 MiroFish 로 '윤회당 원격 추모 서비스 출시 뒤 여론'을 소규모(18명·8라운드) 시뮬레이션. 쟁점은 ① 인공지능 고인 대화의 윤리(계약자 혼자 결정하는 구조) ② 유료 서비스의 상업화 인상 ③ 봉안함 카메라와 다른 참배객의 사생활·자료 보관 ④ 종교 의례 조화. 보고서는 `../MiroFish/seeds/report-yunhoedang.md`.
