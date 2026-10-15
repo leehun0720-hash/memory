@@ -290,7 +290,7 @@ async function renderVisit() {
         <div class="visit-head"><h2 id="visitTitle">${esc(who)}</h2><span class="niche-code">봉안함 ${esc(me.niche.code)}</span></div>
         <div class="viewer" id="viewer">
           <div class="snapshot" id="snap"><div class="placeholder">사진을 불러오는 중…</div></div>
-          <div class="offering-layer" id="offering"></div>
+          <div class="doors" id="doors" aria-hidden="true"><div class="door left"></div><div class="door right"></div></div>
           <div class="title-card" id="titleCard" hidden>${esc(d ? d.name + " 님을 뵙습니다" : "가족을 뵙습니다")}</div>
         </div>
         <div class="status-line"><span id="camStatus" role="status"><span class="dot"></span>카메라 상태를 확인하는 중입니다…</span><span class="row" style="gap:8px"><span id="snapAt"></span><button class="chime-toggle ${chimeEnabled() ? "on" : ""}" id="chimeBtn" type="button">종소리 ${chimeEnabled() ? "켬" : "끔"}</button></span></div>
@@ -316,7 +316,7 @@ async function renderVisit() {
     box.innerHTML = `<span class="when">${esc(fmtDT(r.scheduled_at))}</span><span class="what">${esc(r.title)}<small class="muted">다가오는 추도식</small></span><button class="secondary" type="button">일정 보기</button>`;
     $("button", box).onclick = () => go("ritual"); box.hidden = false;
   }).catch(() => {});
-  const live = { on: false, timer: null, scene: null, title: null };
+  const live = { on: false, timer: null, title: null, doors: null };
   let firstShown = false;
 
   const snap = $("#snap"), viewer = $("#viewer");
@@ -341,7 +341,8 @@ async function renderVisit() {
   }
   function endLive(msg) {
     if (!live.on) return; live.on = false; clearInterval(live.timer);
-    viewer.classList.remove("live"); live.scene?.destroy(); live.scene = null; clearTimeout(live.title); $("#titleCard").hidden = true;
+    viewer.classList.remove("live", "closeup"); $("#doors")?.classList.remove("open"); clearTimeout(live.doors); $(".home-grid")?.classList.remove("live-wide");
+    clearTimeout(live.title); $("#titleCard").hidden = true;
     $("#liveBtn").disabled = false; $("#liveBtn").innerHTML = liveLabel;
     keepsake.onLiveEnd();
     showSnapshot(); if (msg) toast(msg);
@@ -352,13 +353,17 @@ async function renderVisit() {
     try {
       const r = await api("/api/family/live/start", { method: "POST" });
       live.on = true; let left = r.seconds;
-      // 연출: 종소리와 함께 양쪽 촛불과 향 연기 장면(Lottie offering)이 영상 위에 밝아지고, 잠시 '○○ 님을 뵙습니다'를 보여 준다.
-      viewer.classList.add("live");
-      live.scene = mountScene($("#offering"), "offering", { label: "실시간 영상 양쪽에 촛불이 흔들리고 향 연기가 오르는 그림" });
+      // 연출(2026-10-15): 봉안함 문이 닫힌 채 종소리 → 영상이 들어오면 문이 양쪽으로 열리고 → 천천히 가까이 다가간다(클로즈업).
+      // 촛불·향 연기 그림은 뺐다(인공지능 생성 그림이 어색하다는 가족 의견). 화면은 가로로 넓게 쓴다.
+      viewer.classList.add("live"); if (motionReduced()) viewer.classList.add("still");
+      $(".home-grid")?.classList.add("live-wide");
       $("#titleCard").hidden = false; live.title = setTimeout(() => { const t = $("#titleCard"); if (t) t.hidden = true; }, 4500);
       const img = new Image();
       img.onerror = () => endLive("실시간 영상이 끊겼습니다. 사진으로 보여 드립니다.");
-      img.onload = () => { if (img.naturalWidth) snap.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`; };
+      let opened = false;
+      const openDoors = () => { if (opened || !live.on) return; opened = true; $("#doors")?.classList.add("open"); live.doors = setTimeout(() => { if (live.on) viewer.classList.add("closeup"); }, motionReduced() ? 0 : 1400); };
+      img.onload = () => { if (img.naturalWidth) snap.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`; openDoors(); };
+      live.doors = setTimeout(openDoors, 2500);   // 영상이 늦어도 문은 연다
       snap.innerHTML = ""; snap.classList.remove("reveal"); snap.classList.add("live"); snap.appendChild(img); snap.insertAdjacentHTML("beforeend", `<span class="badge live">실시간</span>`);
       img.src = withToken(`/api/family/live/stream?sid=${r.session_id}`);
       chime(); keepsake.onLiveStart(visitSong);
@@ -887,7 +892,7 @@ async function renderSettings() {
       <section class="look-group" aria-labelledby="lookFont"><h3 id="lookFont"><span class="look-no">5</span>제목 글꼴</h3>${lookChoices("font")}</section>
       <section class="look-group" aria-labelledby="lookSize"><h3 id="lookSize"><span class="look-no">6</span>글자 크기 <small class="muted">이 기기만</small></h3>${lookChoices("size")}</section>
       <div class="look-actions"><p class="muted" id="themeStatus" role="status">지금 모습이 적용되어 있습니다.</p><div class="row"><button class="secondary" type="button" id="resetLookBtn" disabled>되돌리기</button><button type="button" id="applyThemeBtn" disabled>적용 중</button></div></div>
-      <div class="row between motion-row" style="margin-top:12px"><span class="muted">화면 움직임(첫 화면·촛불·후광 장면)</span><button class="small ${motionReduced() ? "ghost" : "secondary"}" id="motionBtn" aria-pressed="${motionReduced()}">${motionReduced() ? "정지 화면 · 누르면 움직입니다" : window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "느리게 움직임(기기 설정) · 누르면 멈춥니다" : "움직임 켬 · 누르면 정지 화면"}</button></div></div>
+      <div class="row between motion-row" style="margin-top:12px"><span class="muted">화면 움직임(첫 화면·문 열림·후광 장면)</span><button class="small ${motionReduced() ? "ghost" : "secondary"}" id="motionBtn" aria-pressed="${motionReduced()}">${motionReduced() ? "정지 화면 · 누르면 움직입니다" : window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "느리게 움직임(기기 설정) · 누르면 멈춥니다" : "움직임 켬 · 누르면 정지 화면"}</button></div></div>
     <div class="card" id="consensusCard"><h2>인공지능 대화 가족 합의</h2><p class="muted" role="status">가족의 입장을 불러오는 중입니다…</p></div>
     <div class="card trust-card"><h2>안심 안내</h2><p class="muted">무엇을 찍고, 무엇을 저장하고, 언제 지우는지, 그리고 무엇이 무료이고 무엇이 선택 유료인지 한 화면에 정리했습니다.</p><button class="secondary" type="button" data-go="policy">안심 안내 보기</button></div>
     <div class="card"><h2>가족</h2>

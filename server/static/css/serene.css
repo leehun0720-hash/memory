@@ -125,8 +125,23 @@ nav.tabs button.active::after { display: none; }
 .visit-head h2 { margin: 0; font-size: 22px; }
 .visit-head .niche-code { font-size: 14px; color: var(--muted); padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; }
 .viewer { border-radius: var(--r-md); padding: 0; border: 0; overflow: hidden; }
-.snapshot { border-radius: 0; max-height: min(64vh, 580px); }   /* 세로로 긴 사진도 한 화면 안에(사진은 잘리지 않고 양옆이 비친다) */
-.offering-layer { inset: 0; }
+.snapshot { border-radius: 0; max-height: min(72vh, 720px); }   /* 세로로 긴 사진도 한 화면 안에(사진은 잘리지 않고 양옆이 비친다) */
+/* ── 실시간 뵙기 (2026-10-15): 봉안함 문이 열리며 가까이 다가간다. 움직임은 transition 만(키프레임 없음), '움직임 줄이기'면 바로 열린 상태 */
+.viewer .doors { position: absolute; inset: 0; z-index: 4; display: none; pointer-events: none; }
+.viewer.live .doors { display: block; }
+.viewer .door { position: absolute; top: 0; bottom: 0; width: 50.6%; background: linear-gradient(90deg, #2b1d12 0%, #4b3321 46%, #36251a 100%);
+  box-shadow: inset 0 0 0 2px rgba(201, 166, 107, .35), inset 0 0 70px rgba(0, 0, 0, .55); transition: transform 2s cubic-bezier(.66, 0, .3, 1); }
+.viewer .door.left { left: 0; border-right: 2px solid #c9a66b; }
+.viewer .door.right { right: 0; border-left: 2px solid #c9a66b; background: linear-gradient(270deg, #2b1d12 0%, #4b3321 46%, #36251a 100%); }
+.viewer .door::before { content: ""; position: absolute; inset: 9% 13%; border: 1px solid rgba(201, 166, 107, .45); border-radius: 3px; box-shadow: inset 0 0 40px rgba(0, 0, 0, .35); }
+.viewer .door::after { content: ""; position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #f4dc9e, #b58a3e); box-shadow: 0 0 12px rgba(227, 192, 122, .6); transform: translateY(-50%); }
+.viewer .door.left::after { right: 12px; } .viewer .door.right::after { left: 12px; }
+.viewer .doors.open .door.left { transform: translateX(-103%); }
+.viewer .doors.open .door.right { transform: translateX(103%); }
+.viewer.live .snapshot img { transform-origin: 50% 52%; transition: transform 4.2s cubic-bezier(.2, .5, .2, 1); }
+.viewer.live.closeup .snapshot img { transform: scale(1.24); }
+.viewer.still .door, .viewer.still .snapshot img { transition: none; }
+.home-grid.live-wide .snapshot { max-height: min(84vh, 900px); }
 .status-line { margin: 12px 4px 0; gap: 8px 12px; flex-wrap: wrap; font-size: 14px; }
 .chime-toggle { min-height: 36px; padding: 0 12px; font-size: 13px; border-radius: 999px; }
 
@@ -150,8 +165,10 @@ button.quick small { font-size: 13px; color: var(--muted); }
 .next-up button { width: auto; min-height: 40px; padding: 0 14px; font-size: 14px; }
 .visit-help { margin-top: 16px; padding: 0 6px; }
 @media (min-width: 900px) {
-  .home-grid { grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); }
+  .home-grid { grid-template-columns: minmax(0, 2.1fr) minmax(280px, .9fr); }   /* 2026-10-15: 봉안함 화면을 더 크게 */
   .home-side { position: sticky; top: calc(var(--top-h) + 18px); }
+  .home-grid.live-wide { grid-template-columns: 1fr; }   /* 실시간 뵙는 동안은 화면이 가로 전체 */
+  .home-grid.live-wide .home-side { position: static; }
 }
 
 /* ── 시작 화면(시연) · 초대 링크 화면 */
