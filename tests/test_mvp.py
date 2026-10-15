@@ -847,6 +847,25 @@ def test_public_demo_login_hint_and_locked_demo_account(client, monkeypatch):
     assert client.get("/login").status_code == 200
 
 
+def test_facility_master_account_manages_staff_like_admin_key(client):
+    r = client.post("/api/admin/staff", headers=ADMIN, json={"login_id": "yeohae-master", "name": "시설 운영자", "password": "short-pass1", "role": "master"})
+    assert r.status_code == 400                                                   # 마스터는 12자 이상
+    r = client.post("/api/admin/staff", headers=ADMIN, json={"login_id": "yeohae-master", "name": "시설 운영자", "password": "long master pass 1", "role": "master"})
+    assert r.status_code == 200, r.text
+    ok = client.post("/api/login/staff", json={"login_id": "yeohae-master", "password": "long master pass 1"})
+    assert ok.status_code == 200 and ok.json()["role"] == "master"
+    master = {"X-Admin-Key": ok.json()["token"]}
+    assert client.get("/api/admin/overview", headers=master).status_code == 200
+    roles = {s["login_id"]: s["role"] for s in client.get("/api/admin/staff", headers=master).json()}
+    assert roles["yeohae-master"] == "master"
+    made = client.post("/api/admin/staff", headers=master, json={"login_id": "made.by.master", "name": "새 직원", "password": "staff pass 12"})
+    assert made.status_code == 200
+    assert db.one("SELECT actor FROM audit_logs WHERE action='staff.create' ORDER BY id DESC LIMIT 1")["actor"].startswith("master:")
+    staff = {"X-Admin-Key": client.post("/api/login/staff", json={"login_id": "made.by.master", "password": "staff pass 12"}).json()["token"]}
+    assert client.get("/api/admin/staff", headers=staff).status_code == 403          # 일반 직원은 여전히 못 함
+    assert client.post("/api/admin/staff", headers=staff, json={"login_id": "sneaky", "name": "x", "password": "long master pass 2", "role": "master"}).status_code == 403
+
+
 
 # ---------- 목소리 등록: 실시간 녹음·여러 형식 파일·여러 개 합치기·기능이 꺼져 있을 때 저장 (2026-10-12) ----------
 

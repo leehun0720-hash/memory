@@ -120,20 +120,27 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+ROLES = ("staff", "master")   # master = 시설 운영자 마스터(관리자 키처럼 직원 계정까지 관리, 2026-10-15)
+
+
 def staff_list() -> list[dict]:
-    return db.rows("SELECT id, login_id, name, created_at, disabled_at FROM staff_accounts ORDER BY id")
+    return db.rows("SELECT id, login_id, name, COALESCE(role, 'staff') AS role, created_at, disabled_at FROM staff_accounts ORDER BY id")
 
 
-def staff_create(login_id: str, name: str, password: str) -> int:
+def staff_create(login_id: str, name: str, password: str, role: str = "staff") -> int:
     lid = clean_login_id(login_id)
     check_new_password(password)
+    if role not in ROLES:
+        raise AccountError("계정 종류는 직원 또는 시설 운영자(마스터)입니다.")
+    if role == "master" and len(password) < 12:
+        raise AccountError("시설 운영자(마스터) 비밀번호는 12자 이상으로 정해 주세요.")
     name = (name or "").strip()
     if not 1 <= len(name) <= 40:
         raise AccountError("이름을 1~40자로 적어 주세요.")
     if db.one("SELECT id FROM staff_accounts WHERE login_id=?", (lid,)):
         raise AccountError("이미 쓰이는 아이디입니다. 다른 아이디를 정해 주세요.")
-    return db.execute("INSERT INTO staff_accounts(login_id, name, pw_hash, created_at) VALUES (?,?,?,?)",
-                      (lid, name, hash_password(password), db.now()))
+    return db.execute("INSERT INTO staff_accounts(login_id, name, pw_hash, created_at, role) VALUES (?,?,?,?,?)",
+                      (lid, name, hash_password(password), db.now(), role))
 
 
 def staff_set_password(staff_id: int, password: str) -> None:
@@ -150,7 +157,7 @@ def staff_set_disabled(staff_id: int, disabled: bool) -> None:
 
 def staff_login(login_id: str, password: str) -> tuple[str, dict] | None:
     lid = (login_id or "").strip().lower()
-    s = db.one("SELECT id, name, login_id, pw_hash, disabled_at FROM staff_accounts WHERE login_id=?", (lid,))
+    s = db.one("SELECT id, name, login_id, pw_hash, disabled_at, COALESCE(role, 'staff') AS role FROM staff_accounts WHERE login_id=?", (lid,))
     if not s:
         check_password(password or "", _DUMMY)
         return None
@@ -162,14 +169,14 @@ def staff_login(login_id: str, password: str) -> tuple[str, dict] | None:
     db.execute("INSERT INTO staff_sessions(token_hash, staff_id, created_at, expires_at) VALUES (?,?,?,?)",
                (_token_hash(token), s["id"], now.isoformat(timespec="seconds"),
                 (now + timedelta(hours=STAFF_HOURS)).isoformat(timespec="seconds")))
-    return token, {"id": s["id"], "name": s["name"], "login_id": s["login_id"]}
+    return token, {"id": s["id"], "name": s["name"], "login_id": s["login_id"], "role": s["role"]}
 
 
 def staff_session(token: str | None) -> dict | None:
     """유효한 직원 세션이면 직원 정보. 관리자 키 자리에 들어온 값을 확인할 때 쓴다."""
     if not token or not token.startswith(STAFF_PREFIX):
         return None
-    r = db.one("""SELECT a.id, a.name, a.login_id, a.disabled_at, s.expires_at FROM staff_sessions s
+    r = db.one("""SELECT a.id, a.name, a.login_id, COALESCE(a.role, 'staff') AS role, a.disabled_at, s.expires_at FROM staff_sessions s
                   JOIN staff_accounts a ON a.id=s.staff_id WHERE s.token_hash=?""", (_token_hash(token),))
     if not r or r["disabled_at"]:
         return None
@@ -178,7 +185,7 @@ def staff_session(token: str | None) -> dict | None:
             return None
     except (ValueError, TypeError):
         return None
-    return {"id": r["id"], "name": r["name"], "login_id": r["login_id"]}
+    return {"id": r["id"], "name": r["name"], "login_id": r["login_id"], "role": r["role"]}
 
 
 def staff_logout(token: str | None) -> None:

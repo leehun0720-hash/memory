@@ -221,6 +221,7 @@ _MIGRATIONS = [
     ("rituals", "current_order", "INTEGER DEFAULT 0"),    # 지금 봉행 중인 순서 번호(0=시작 전)
     ("family_members", "login_id", "TEXT"),               # 가족 로그인 아이디(초대 링크로 들어온 뒤 본인이 정함)
     ("family_members", "pw_hash", "TEXT"),                # scrypt 해시(server/accounts.py)
+    ("staff_accounts", "role", "TEXT DEFAULT 'staff'"),   # staff(직원) | master(시설 운영자 마스터: 직원 계정 관리까지, 2026-10-15)
 ]
 
 

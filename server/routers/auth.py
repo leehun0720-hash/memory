@@ -6,6 +6,8 @@
 - /api/admin/staff  : 직원 계정 관리(관리자 키로만)
 틀린 시도는 접속 주소·아이디마다 10분에 10번까지. 아이디가 없을 때와 비밀번호가 틀릴 때 같은 안내를 준다.
 """
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -49,7 +51,7 @@ def login_staff(body: LoginIn, request: Request):
         raise HTTPException(401, WRONG)
     token, staff = got
     db.audit(f"staff:{staff['id']}", "login.staff", f"staff:{staff['id']}")
-    return {"token": token, "name": staff["name"], "hours": accounts.STAFF_HOURS}
+    return {"token": token, "name": staff["name"], "role": staff["role"], "hours": accounts.STAFF_HOURS}
 
 
 @router.post("/api/login/staff/logout")
@@ -94,7 +96,7 @@ def family_account_set(body: FamilyAccountIn, m: dict = Depends(require_member))
     return {"ok": True, "login_id": lid}
 
 
-# ---------- 직원 계정 관리(관리자 키로만) ----------
+# ---------- 직원 계정 관리(관리자 키 또는 시설 운영자 마스터 로그인) ----------
 
 staff_router = APIRouter(prefix="/api/admin/staff", tags=["staff"], dependencies=[Depends(require_owner)])
 
@@ -103,6 +105,7 @@ class StaffIn(BaseModel):
     login_id: str = Field(min_length=1, max_length=60)
     name: str = Field(min_length=1, max_length=40)
     password: str = Field(min_length=1, max_length=200)
+    role: Literal["staff", "master"] = "staff"   # master = 시설 운영자 마스터(직원 계정 관리까지)
 
 
 class StaffPasswordIn(BaseModel):
@@ -115,12 +118,12 @@ def staff_list():
 
 
 @staff_router.post("")
-def staff_create(body: StaffIn):
+def staff_create(body: StaffIn, actor: str = Depends(require_owner)):
     try:
-        sid = accounts.staff_create(body.login_id, body.name, body.password)
+        sid = accounts.staff_create(body.login_id, body.name, body.password, body.role)
     except accounts.AccountError as e:
         raise HTTPException(400, str(e))
-    db.audit("admin", "staff.create", f"staff:{sid}", body.login_id.strip().lower())
+    db.audit(actor, "staff.create", f"staff:{sid}", f"{body.login_id.strip().lower()} ({body.role})")
     return {"ok": True, "id": sid}
 
 

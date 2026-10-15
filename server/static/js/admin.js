@@ -60,17 +60,19 @@ async function staff() {
     ${list ? `<form id="stNew" class="row" style="flex-wrap:wrap;gap:8px;align-items:flex-end">
         <label>아이디<br><input id="stId" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="30" placeholder="영문 소문자·숫자 4~30자" required></label>
         <label>이름<br><input id="stName" maxlength="40" required></label>
-        <label>비밀번호<br><input id="stPw" type="password" autocomplete="new-password" maxlength="128" placeholder="8자 이상" required></label>
-        <button type="submit">직원 계정 만들기</button></form><p class="muted" id="stMsg" role="status"></p>`
+        <label>비밀번호<br><input id="stPw" type="password" autocomplete="new-password" maxlength="128" placeholder="직원 8자 · 마스터 12자 이상" required></label>
+        <label>계정 종류<br><select id="stRole"><option value="staff">직원</option><option value="master">시설 운영자(마스터)</option></select></label>
+        <button type="submit">계정 만들기</button></form>
+        <p class="muted" style="font-size:13px">시설 운영자(마스터)는 관리자 키처럼 직원 계정을 만들고 바꿀 수 있습니다. 비밀번호는 12자 이상으로 정하고 다른 사람과 나누지 마세요.</p><p class="muted" id="stMsg" role="status"></p>`
       : `<p role="status">${esc(err)}</p>`}</div>
-    ${list ? `<div class="card"><h3>계정 ${list.length}개</h3>${list.length ? list.map((s) => `<div class="list-item"><div><b>${esc(s.name)}</b> <span class="muted">${esc(s.login_id)} · 만든 때 ${esc(fmt(s.created_at))}</span>${s.disabled_at ? ' <span class="pill">사용 중지</span>' : ""}</div>
+    ${list ? `<div class="card"><h3>계정 ${list.length}개</h3>${list.length ? list.map((s) => `<div class="list-item"><div><b>${esc(s.name)}</b> <span class="muted">${esc(s.login_id)} · 만든 때 ${esc(fmt(s.created_at))}</span>${s.role === "master" ? ' <span class="pill">시설 운영자(마스터)</span>' : ""}${s.disabled_at ? ' <span class="pill">사용 중지</span>' : ""}</div>
       <div class="row"><button class="small secondary" data-pw="${s.id}">비밀번호 바꾸기</button><button class="small secondary" data-toggle="${s.id}" data-off="${s.disabled_at ? 1 : 0}">${s.disabled_at ? "다시 쓰기" : "사용 중지"}</button></div></div>`).join("") : '<p class="muted">아직 직원 계정이 없습니다.</p>'}</div>` : ""}
     <div class="card"><h3>이 콘솔에서 나가기</h3><p class="muted">${staffSession ? "직원 로그인을 끝냅니다." : "이 브라우저에 저장된 관리자 키를 지웁니다."}</p><button class="small secondary" id="stLogout">나가기</button></div>`;
   if (list) {
     $("#stNew").onsubmit = async (e) => {
       e.preventDefault();
       const msg = $("#stMsg");
-      try { await api("/api/admin/staff", { method: "POST", body: { login_id: $("#stId").value.trim(), name: $("#stName").value.trim(), password: $("#stPw").value } }); toast("직원 계정을 만들었습니다."); staff(); }
+      try { await api("/api/admin/staff", { method: "POST", body: { login_id: $("#stId").value.trim(), name: $("#stName").value.trim(), password: $("#stPw").value, role: $("#stRole").value } }); toast("계정을 만들었습니다."); staff(); }
       catch (err2) { msg.textContent = err2.message; }
     };
     page.querySelectorAll("[data-pw]").forEach((b) => b.onclick = () => {

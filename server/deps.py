@@ -28,19 +28,24 @@ def require_admin(request: Request, x_admin_key: str | None = Header(default=Non
     from .accounts import staff_session
     staff = staff_session(k)
     if staff:
-        return f"staff:{staff['id']}"
+        return f"{'master' if staff.get('role') == 'master' else 'staff'}:{staff['id']}"
     ip = request.client.host if request.client else "?"
     ratelimit.hit(f"admin-fail:{ip}", 20, 600, "관리자 키가 여러 번 틀렸습니다. 10분 뒤 다시 시도해 주세요.")
     raise HTTPException(401, "관리자 키 또는 직원 로그인이 올바르지 않습니다. 다시 로그인해 주세요.")
 
 
 def require_owner(request: Request, x_admin_key: str | None = Header(default=None), key: str | None = Query(default=None)) -> str:
-    """관리자 키로만 열리는 일(직원 계정 관리). 직원 로그인으로는 다른 직원을 만들거나 바꿀 수 없다."""
-    if not _same(admin_credential(request, x_admin_key, key), config.ADMIN_KEY):
-        ip = request.client.host if request.client else "?"
-        ratelimit.hit(f"admin-fail:{ip}", 20, 600, "관리자 키가 여러 번 틀렸습니다. 10분 뒤 다시 시도해 주세요.")
-        raise HTTPException(403, "직원 계정 관리는 관리자 키로 연 콘솔에서만 할 수 있습니다.")
-    return "admin"
+    """관리자 키 또는 시설 운영자(마스터) 로그인으로만 열리는 일(직원 계정 관리). 일반 직원 로그인으로는 다른 직원을 만들거나 바꿀 수 없다."""
+    k = admin_credential(request, x_admin_key, key)
+    if _same(k, config.ADMIN_KEY):
+        return "admin"
+    from .accounts import staff_session
+    staff = staff_session(k)
+    if staff and staff.get("role") == "master":
+        return f"master:{staff['id']}"
+    ip = request.client.host if request.client else "?"
+    ratelimit.hit(f"admin-fail:{ip}", 20, 600, "관리자 키가 여러 번 틀렸습니다. 10분 뒤 다시 시도해 주세요.")
+    raise HTTPException(403, "직원 계정 관리는 관리자 키나 시설 운영자(마스터) 로그인으로 연 콘솔에서만 할 수 있습니다.")
 
 
 def require_edge(x_edge_key: str | None = Header(default=None)) -> str:
